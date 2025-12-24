@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
+import Button from "@/app/components/Button";
 
 type Todo = {
   id: string;
@@ -82,7 +83,7 @@ export default function TodosPage() {
     <main style={{ padding: 24, maxWidth: 640 }}>
       <header style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
         <h1>Mijn To-do</h1>
-        <button onClick={signOut}>Uitloggen</button>
+        <Button onClick={signOut}>Uitloggen</Button>
       </header>
 
       <form onSubmit={addTodo} style={{ display: "flex", gap: 8, marginTop: 12 }}>
@@ -92,7 +93,7 @@ export default function TodosPage() {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
-        <button type="submit">Toevoegen</button>
+        <Button type="submit">Toevoegen</Button>
       </form>
 
       <ul style={{ marginTop: 16, display: "grid", gap: 8, padding: 0 }}>
@@ -117,7 +118,7 @@ export default function TodosPage() {
               </span>
             </label>
 
-            <button onClick={() => removeTodo(t)}>Verwijder</button>
+            <Button onClick={() => removeTodo(t)}>Verwijder</Button>
           </li>
         ))}
       </ul>

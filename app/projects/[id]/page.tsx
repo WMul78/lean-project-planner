@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useParams, useRouter } from "next/navigation";
+import Button from "@/app/components/Button";
 
 type Project = {
   id: string;
@@ -97,7 +98,7 @@ export default function ProjectDetailPage() {
 
   return (
     <main style={{ padding: 24, maxWidth: 720 }}>
-      <button onClick={() => router.push("/projects")}>← Terug</button>
+      <Button onClick={() => router.push("/projects")}>← Terug</Button>
 
       <h1 style={{ marginTop: 12 }}>{project?.name ?? "Project"}</h1>
       {project?.description ? <p style={{ opacity: 0.8 }}>{project.description}</p> : null}
@@ -109,7 +110,7 @@ export default function ProjectDetailPage() {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
-        <button type="submit">Toevoegen</button>
+        <Button type="submit">Toevoegen</Button>
       </form>
 
       <ul style={{ marginTop: 16, display: "grid", gap: 8, padding: 0 }}>
@@ -133,7 +134,7 @@ export default function ProjectDetailPage() {
                 {t.title}
               </span>
             </label>
-            <button onClick={() => removeTodo(t)}>Verwijder</button>
+            <Button onClick={() => removeTodo(t)}>Verwijder</Button>
           </li>
         ))}
       </ul>

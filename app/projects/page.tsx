@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
+import Button from "@/app/components/Button";
 
 type Project = {
   id: string;
@@ -73,7 +74,7 @@ export default function ProjectsPage() {
     <main style={{ padding: 24, maxWidth: 720 }}>
       <header style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
         <h1>Projecten</h1>
-        <button onClick={() => router.push("/todos")}>Naar todos</button>
+        <Button onClick={() => router.push("/todos")}>Naar todos</Button>
       </header>
 
       <form onSubmit={addProject} style={{ display: "grid", gap: 8, marginTop: 12 }}>
@@ -87,7 +88,7 @@ export default function ProjectsPage() {
           value={description}
           onChange={(e) => setDescription(e.target.value)}
         />
-        <button type="submit">Project toevoegen</button>
+        <Button type="submit">Project toevoegen</Button>
       </form>
 
       <ul style={{ marginTop: 16, display: "grid", gap: 10, padding: 0 }}>
@@ -108,7 +109,7 @@ export default function ProjectsPage() {
               <div style={{ fontWeight: 700 }}>{p.name}</div>
               {p.description ? <div style={{ opacity: 0.8 }}>{p.description}</div> : null}
             </div>
-            <button onClick={() => router.push(`/projects/${p.id}`)}>Open</button>
+            <Button onClick={() => router.push(`/projects/${p.id}`)}>Open</Button>
           </li>
         ))}
       </ul>

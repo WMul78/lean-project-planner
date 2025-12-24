@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
+import Button from "@/app/components/Button";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -19,7 +20,7 @@ export default function LoginPage() {
     setIsLoading(false);
 
     if (error) return alert(error.message);
-    router.push("/todos");
+    router.push("/projects");
   }
 
   async function signUp() {
@@ -32,17 +33,23 @@ export default function LoginPage() {
   }
 
   return (
-    <main style={{ padding: 24, maxWidth: 420 }}>
-      <h1>Login</h1>
+  <main className="min-h-screen flex items-center justify-center bg-gray-100">
+    <div className="w-full max-w-sm bg-white p-6 rounded-lg shadow-md">
+      <h1 className="text-2xl font-semibold mb-4 text-center">
+        Login
+      </h1>
 
-      <form onSubmit={signIn} style={{ display: "grid", gap: 12 }}>
+      <form onSubmit={signIn} className="grid gap-3">
         <input
+          className="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
           placeholder="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           autoComplete="email"
         />
+
         <input
+          className="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
           placeholder="wachtwoord"
           type="password"
           value={password}
@@ -50,14 +57,28 @@ export default function LoginPage() {
           autoComplete="current-password"
         />
 
-        <button disabled={isLoading} type="submit">
-          Inloggen
-        </button>
+        <div className="flex gap-2 pt-2">
+          <Button
+            variant="secondary"
+            type="submit"
+            disabled={isLoading}
+            className="flex-1"
+          >
+            Inloggen
+          </Button>
 
-        <button disabled={isLoading} type="button" onClick={signUp}>
-          Registreren
-        </button>
+          <Button
+            variant="secondary"
+            onClick={signUp}
+            disabled={isLoading}
+            className="flex-1"
+          >
+            Registreren
+          </Button>
+        </div>
       </form>
-    </main>
-  );
+    </div>
+  </main>
+);
+
 }
