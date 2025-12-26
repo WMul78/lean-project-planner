@@ -6,10 +6,11 @@ type ButtonProps = {
   children: React.ReactNode;
   onClick?: () => void;
   type?: "button" | "submit";
-  variant?: "primary" | "secondary" | "danger";
+  variant?: "primary" | "secondary" | "danger" | "outline";
   disabled?: boolean;
   className?: string;
 };
+
 
 export default function Button({
   children,
