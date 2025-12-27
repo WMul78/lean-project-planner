@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "@/app/components/Button";
 import { supabase } from "@/lib/supabaseClient";
@@ -24,13 +24,20 @@ export default function ProjectsPage() {
   const [role, setRole] = useState<WorkspaceRole>("member");
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  async function load() {
+  // voorkomt race conditions: alleen laatste load mag state zetten
+  const loadSeq = useRef(0);
+
+  const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
+
     setLoading(true);
+    setLoadError(null);
 
     const user = await requireUser(router);
     if (!user) {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
       return;
     }
 
@@ -38,13 +45,21 @@ export default function ProjectsPage() {
       const ws = await getActiveWorkspace();
 
       if (!ws?.workspaceId) {
-        setLoading(false);
-        alert("Geen workspace gevonden voor deze gebruiker.");
+        if (seq === loadSeq.current) {
+          setWorkspaceId(null);
+          setRole("member");
+          setProjects([]);
+          setLoadError("Geen workspace gevonden voor deze gebruiker.");
+          setLoading(false);
+        }
         return;
       }
 
-      setWorkspaceId(ws.workspaceId);
-      setRole(ws.role);
+      // update header info meteen
+      if (seq === loadSeq.current) {
+        setWorkspaceId(ws.workspaceId);
+        setRole(ws.role);
+      }
 
       const { data, error } = await supabase
         .from("projects")
@@ -52,26 +67,40 @@ export default function ProjectsPage() {
         .eq("workspace_id", ws.workspaceId)
         .order("inserted_at", { ascending: false });
 
+      if (seq !== loadSeq.current) return; // er is een nieuwere load gestart
+
       if (error) {
         console.error("Load projects error:", error);
-        alert(error.message);
         setProjects([]);
+        setLoadError(error.message);
       } else {
         setProjects((data as Project[]) ?? []);
       }
     } catch (e: any) {
+      if (seq !== loadSeq.current) return;
       console.error("Projects page load failed:", e);
-      alert(e?.message ?? "Fout bij laden van workspace/projecten.");
       setProjects([]);
+      setLoadError(e?.message ?? "Fout bij laden van workspace/projecten.");
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
-  }
+  }, [router]);
 
+  // initial load
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [load]);
+
+  // reload wanneer workspace switcher verandert
+  useEffect(() => {
+    const handler = () => {
+      // Bij wissel wil je direct nieuwe lijst laden
+      load();
+    };
+
+    window.addEventListener("workspace-changed", handler);
+    return () => window.removeEventListener("workspace-changed", handler);
+  }, [load]);
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -83,7 +112,9 @@ export default function ProjectsPage() {
       <header className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Projecten</h1>
-          <div className="mt-2"><WorkspaceSwitcher /></div>
+          <div className="mt-2">
+            <WorkspaceSwitcher />
+          </div>
           <div className="text-sm text-gray-500">Rol: {role}</div>
           {workspaceId ? (
             <div className="text-xs text-gray-400 mt-1">Workspace: {workspaceId}</div>
@@ -109,6 +140,17 @@ export default function ProjectsPage() {
 
       {loading ? (
         <div className="mt-8 text-gray-500">Laden...</div>
+      ) : loadError ? (
+        <div className="mt-8 text-gray-600">
+          <div className="font-medium text-red-700">Kon projecten niet laden</div>
+          <div className="mt-2 text-sm text-gray-600">{loadError}</div>
+
+          <div className="mt-4 flex gap-2">
+            <Button variant="outline" onClick={load}>
+              Opnieuw laden
+            </Button>
+          </div>
+        </div>
       ) : projects.length === 0 ? (
         <div className="mt-8 text-gray-600">
           Geen projecten gevonden.

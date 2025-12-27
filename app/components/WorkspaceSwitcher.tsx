@@ -33,6 +33,7 @@ export default function WorkspaceSwitcher() {
   async function onChange(id: string) {
     await setActiveWorkspace(id);
     await load();
+    window.dispatchEvent(new Event("workspace-changed"));
     router.refresh?.();
     router.push("/projects"); // terug naar overzicht in de gekozen workspace
   }
