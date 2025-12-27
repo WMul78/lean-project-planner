@@ -18,7 +18,9 @@ export default function ProjectNewPage() {
 
   const [saving, setSaving] = useState(false);
 
+
   useEffect(() => {
+    (window as any).sb = supabase; // tijdelijk voor debug
     (async () => {
       setLoading(true);
 
