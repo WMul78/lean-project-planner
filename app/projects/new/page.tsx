@@ -85,6 +85,7 @@ export default function ProjectNewPage() {
       owner_id: isStakeholder ? null : authData.user.id,
     };
 
+   
     // Belangrijk: select id terug zodat we kunnen redirecten
     const { data: created, error } = await supabase
       .from("projects")

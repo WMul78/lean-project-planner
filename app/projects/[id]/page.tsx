@@ -20,7 +20,9 @@ type Todo = {
   title: string;
   is_done: boolean;
   inserted_at: string;
+  assigned_to: string | null;
 };
+
 
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
@@ -76,7 +78,7 @@ export default function ProjectDetailPage() {
 
     const { data: td, error: tdErr } = await supabase
       .from("todos")
-      .select("id,title,is_done,inserted_at")
+      .select("id,title,is_done,inserted_at,assigned_to")
       .eq("project_id", projectId)
       .order("inserted_at", { ascending: false });
 
@@ -96,9 +98,10 @@ export default function ProjectDetailPage() {
     if (!clean) return;
 
     const { error } = await supabase.from("todos").insert({
-      title: clean,
-      project_id: projectId,
-    });
+  title: clean,
+  project_id: projectId,
+  assigned_to: null,
+});
 
     if (error) return alert("Geen rechten of fout: " + error.message);
 
