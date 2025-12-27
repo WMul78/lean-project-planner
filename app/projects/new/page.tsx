@@ -20,7 +20,6 @@ export default function ProjectNewPage() {
 
 
   useEffect(() => {
-    (window as any).sb = supabase; // tijdelijk voor debug
     (async () => {
       setLoading(true);
 
@@ -85,13 +84,6 @@ export default function ProjectNewPage() {
       status: isStakeholder ? "proposed" : "active",
       owner_id: isStakeholder ? null : authData.user.id,
     };
-
-    console.log("=== DEBUG PROJECT CREATE ===");
-    console.log("auth user id:", authData.user.id);
-    console.log("workspaceId:", workspaceId);
-    console.log("role:", role);
-    console.log("payload:", payload);
-    console.log("===========================");
 
     // Belangrijk: select id terug zodat we kunnen redirecten
     const { data: created, error } = await supabase
