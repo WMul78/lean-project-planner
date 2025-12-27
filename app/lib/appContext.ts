@@ -13,19 +13,31 @@ export async function requireUser(router?: { push: (p: string) => void }) {
 }
 
 export async function getWorkspaceList() {
+  const { data: userData } = await supabase.auth.getUser();
+  const user = userData.user;
+  if (!user) return [];
+
   const { data, error } = await supabase
     .from("workspace_members")
     .select("workspace_id, role, workspaces(name)")
+    .eq("user_id", user.id) // <-- essentieel
     .order("created_at", { ascending: true });
 
   if (error) throw error;
 
-  return (data ?? []).map((m: any) => ({
-    workspaceId: m.workspace_id as string,
-    role: (m.role as WorkspaceRole) ?? "member",
-    name: m.workspaces?.name as string | undefined,
-  }));
+  // dedupe op workspaceId (voor de zekerheid)
+  const map = new Map<string, { workspaceId: string; role: WorkspaceRole; name?: string }>();
+  for (const m of (data ?? []) as any[]) {
+    map.set(m.workspace_id, {
+      workspaceId: m.workspace_id,
+      role: (m.role as WorkspaceRole) ?? "member",
+      name: m.workspaces?.name,
+    });
+  }
+
+  return Array.from(map.values());
 }
+
 
 export async function getActiveWorkspace() {
   // 1) profile.active_workspace_id proberen
