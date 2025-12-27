@@ -49,78 +49,36 @@ export default function ProjectNewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (saving) return;
+ async function submit(e: React.FormEvent) {
+  e.preventDefault();
 
-    const user = await requireUser(router);
-    if (!user) return;
+  const { data: authData } = await supabase.auth.getUser();
 
-    if (!workspaceId) {
-      alert("Workspace ontbreekt. Ga terug naar projecten en probeer opnieuw.");
-      return;
-    }
+  console.log("=== DEBUG PROJECT CREATE ===");
+  console.log("auth user id:", authData?.user?.id);
+  console.log("workspaceId:", workspaceId);
+  console.log("role:", role);
 
-    const cleanName = name.trim();
-    const cleanDesc = description.trim();
+  const payload = {
+    workspace_id: workspaceId,
+    name: name.trim(),
+    description: description.trim() || null,
+    created_by: authData?.user?.id,
+    status: role === "stakeholder" ? "proposed" : "active",
+    owner_id: role === "stakeholder" ? null : authData?.user?.id,
+  };
 
-    if (!cleanName) return alert("Vul een projectnaam in.");
+  console.log("payload:", payload);
+  console.log("============================");
 
-    setSaving(true);
+  const { error } = await supabase.from("projects").insert(payload);
 
-    // Extra debug om auth.uid() mismatch te voorkomen
-    const { data: authData, error: authErr } = await supabase.auth.getUser();
-    if (authErr || !authData.user) {
-      setSaving(false);
-      alert("Je sessie is niet geldig. Log opnieuw in.");
-      router.push("/login");
-      return;
-    }
-
-    const isStakeholder = role === "stakeholder";
-
-    const payload = {
-      workspace_id: workspaceId,
-      name: cleanName,
-      description: cleanDesc || null,
-      created_by: authData.user.id,
-      status: isStakeholder ? "proposed" : "active",
-      owner_id: isStakeholder ? null : authData.user.id,
-    };
-
-    console.log("Creating project payload:", payload, "workspaceRole:", role);
-
-    const { data: proj, error: projErr } = await supabase
-      .from("projects")
-      .insert(payload)
-      .select("id")
-      .single();
-
-    if (projErr) {
-      console.error("Create project error:", projErr);
-      alert(projErr.message);
-      setSaving(false);
-      return;
-    }
-
-    // Optioneel maar handig: zet creator als project member (owner/editor)
-    // Dit helpt straks met je optie B permissions (member kan alleen bewerken als owner/editor).
-    if (!isStakeholder) {
-      const { error: pmErr } = await supabase.from("project_members").insert({
-        project_id: proj.id,
-        user_id: authData.user.id,
-        role: "owner",
-      });
-
-      if (pmErr) {
-        // Niet blokkeren, maar wel loggen
-        console.warn("Failed to insert project_members owner row:", pmErr);
-      }
-    }
-
-    setSaving(false);
-    router.push(`/projects/${proj.id}`);
+  if (error) {
+    console.error("INSERT ERROR:", error);
+    alert(error.message);
   }
+}
+
 
   return (
     <main className="p-6 max-w-xl mx-auto">
