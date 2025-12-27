@@ -141,12 +141,20 @@ export default function ProjectDetailPage() {
       <h1 className="mt-4 text-2xl font-semibold">{project?.name ?? "Project"}</h1>
       {project?.description ? <p className="text-gray-600 mt-1">{project.description}</p> : null}
       {project ? (
-        <div className="mt-2 text-sm">
-          <span className="px-2 py-0.5 rounded-full bg-gray-100">{project.status}</span>
-          {!canEdit ? <span className="ml-2 text-gray-500">Alleen-lezen</span> : null}
-        </div>
-      ) : null}
+  <div className="mt-2 flex items-center gap-2">
+    <span className="text-sm px-2 py-0.5 rounded-full bg-gray-100">{project.status}</span>
+    {!canEdit ? <span className="text-sm text-gray-500">Alleen-lezen</span> : null}
 
+    {canEdit ? (
+      <Button
+        variant="outline"
+        onClick={() => router.push(`/projects/${projectId}/edit`)}
+      >
+        Project bewerken
+      </Button>
+    ) : null}
+  </div>
+) : null}
       {canEdit ? (
         <form onSubmit={addTodo} className="flex gap-2 mt-6">
           <input
