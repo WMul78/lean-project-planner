@@ -35,7 +35,6 @@ export default function ProjectNewPage() {
           router.push("/projects");
           return;
         }
-
         setWorkspaceId(ws.workspaceId);
         setRole(ws.role);
       } catch (e: any) {
@@ -49,36 +48,72 @@ export default function ProjectNewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
- async function submit(e: React.FormEvent) {
-  e.preventDefault();
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (saving) return;
 
-  const { data: authData } = await supabase.auth.getUser();
+    const user = await requireUser(router);
+    if (!user) return;
 
-  console.log("=== DEBUG PROJECT CREATE ===");
-  console.log("auth user id:", authData?.user?.id);
-  console.log("workspaceId:", workspaceId);
-  console.log("role:", role);
+    if (!workspaceId) {
+      alert("Workspace ontbreekt. Ga terug naar projecten en probeer opnieuw.");
+      return;
+    }
 
-  const payload = {
-    workspace_id: workspaceId,
-    name: name.trim(),
-    description: description.trim() || null,
-    created_by: authData?.user?.id,
-    status: role === "stakeholder" ? "proposed" : "active",
-    owner_id: role === "stakeholder" ? null : authData?.user?.id,
-  };
+    const cleanName = name.trim();
+    if (!cleanName) return alert("Vul een projectnaam in.");
 
-  console.log("payload:", payload);
-  console.log("============================");
+    setSaving(true);
 
-  const { error } = await supabase.from("projects").insert(payload);
+    const { data: authData, error: authErr } = await supabase.auth.getUser();
+    if (authErr || !authData.user) {
+      setSaving(false);
+      alert("Je sessie is niet geldig. Log opnieuw in.");
+      router.push("/login");
+      return;
+    }
 
-  if (error) {
-    console.error("INSERT ERROR:", error);
-    alert(error.message);
+    const isStakeholder = role === "stakeholder";
+
+    const payload = {
+      workspace_id: workspaceId,
+      name: cleanName,
+      description: description.trim() || null,
+      created_by: authData.user.id,
+      status: isStakeholder ? "proposed" : "active",
+      owner_id: isStakeholder ? null : authData.user.id,
+    };
+
+    console.log("=== DEBUG PROJECT CREATE ===");
+    console.log("auth user id:", authData.user.id);
+    console.log("workspaceId:", workspaceId);
+    console.log("role:", role);
+    console.log("payload:", payload);
+    console.log("===========================");
+
+    // Belangrijk: select id terug zodat we kunnen redirecten
+    const { data: created, error } = await supabase
+      .from("projects")
+      .insert(payload)
+      .select("id")
+      .single();
+
+    if (error) {
+      console.error("INSERT ERROR:", error);
+      alert(error.message);
+      setSaving(false);
+      return;
+    }
+
+    // (optioneel) reset formulier
+    setName("");
+    setDescription("");
+
+    setSaving(false);
+
+    // redirect naar project detail
+    router.push(`/projects/${created.id}`);
   }
-}
-
 
   return (
     <main className="p-6 max-w-xl mx-auto">
@@ -112,6 +147,7 @@ export default function ProjectNewPage() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoFocus
+            disabled={saving}
           />
 
           <input
@@ -119,6 +155,7 @@ export default function ProjectNewPage() {
             placeholder="Omschrijving (optioneel)"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
+            disabled={saving}
           />
 
           <div className="text-sm text-gray-600">
@@ -134,15 +171,14 @@ export default function ProjectNewPage() {
               {saving ? "Opslaan..." : role === "stakeholder" ? "Voorstel indienen" : "Project aanmaken"}
             </Button>
 
-            <Button variant="outline" type="button" onClick={() => router.push("/projects")} disabled={saving}>
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() => router.push("/projects")}
+              disabled={saving}
+            >
               Annuleren
             </Button>
-          </div>
-
-          <div className="text-xs text-gray-500 mt-2">
-            Als je “new row violates row-level security” krijgt: check of <code>workspace_id</code>,{" "}
-            <code>created_by</code>, <code>status</code> en (voor member/admin) <code>owner_id</code> worden
-            meegestuurd.
           </div>
         </form>
       )}
