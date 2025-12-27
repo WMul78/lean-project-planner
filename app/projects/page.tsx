@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Button from "@/app/components/Button";
 import { supabase } from "@/lib/supabaseClient";
 import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appContext";
+import WorkspaceSwitcher from "@/app/components/WorkspaceSwitcher";
 
 type Project = {
   id: string;
@@ -82,6 +83,7 @@ export default function ProjectsPage() {
       <header className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Projecten</h1>
+          <div className="mt-2"><WorkspaceSwitcher /></div>
           <div className="text-sm text-gray-500">Rol: {role}</div>
           {workspaceId ? (
             <div className="text-xs text-gray-400 mt-1">Workspace: {workspaceId}</div>
