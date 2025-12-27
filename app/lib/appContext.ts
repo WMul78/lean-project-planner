@@ -40,7 +40,6 @@ export async function getWorkspaceList() {
 
 
 export async function getActiveWorkspace() {
-  // 1) profile.active_workspace_id proberen
   const { data: userData } = await supabase.auth.getUser();
   const user = userData.user;
   if (!user) return null;
@@ -58,8 +57,18 @@ export async function getActiveWorkspace() {
     ? list.find((w) => w.workspaceId === profile.active_workspace_id)
     : null;
 
+  // ✅ Fix 2: zet dit hier
+  if (profile?.active_workspace_id && !byProfile) {
+    console.warn(
+      "active_workspace_id not in membership list",
+      profile.active_workspace_id,
+      list.map((w) => w.workspaceId)
+    );
+  }
+
   return byProfile ?? list[0];
 }
+
 
 export async function setActiveWorkspace(workspaceId: string) {
   const { data: userData } = await supabase.auth.getUser();
