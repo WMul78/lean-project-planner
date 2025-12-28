@@ -308,7 +308,7 @@ export default function ProjectsKanbanPage() {
       {/* Kanban */}
       <section className="mt-6">
         <div className="overflow-x-auto pb-2">
-          <div className="min-w-[900px] grid grid-cols-4 gap-4">
+          <div className="min-w-[960px] grid grid-cols-[repeat(4,260px)] gap-4">
             {STATUS_COLUMNS.map((col) => (
               <div key={col.key} className="rounded-lg border bg-gray-50">
                 <div className="px-3 py-2 border-b bg-white rounded-t-lg flex items-center justify-between">
@@ -333,9 +333,10 @@ export default function ProjectsKanbanPage() {
                       return (
                         <div
                           key={p.id}
-                          className="rounded-lg border bg-white p-3 shadow-sm hover:shadow transition-shadow"
+                          className="rounded-lg border bg-white p-3 shadow-sm hover:shadow transition-shadow
+             w-full max-w-full overflow-hidden"
                         >
-                          <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-start justify-between gap-2 min-w-0">
                             <div className="min-w-0">
                               <div className="font-medium truncate">{p.name}</div>
                               {p.description ? (
@@ -345,7 +346,11 @@ export default function ProjectsKanbanPage() {
                               ) : null}
                             </div>
 
-                            <Button variant="outline" onClick={() => router.push(`/projects/${p.id}`)}>
+                            <Button
+                              variant="outline"
+                              className="shrink-0"
+                              onClick={() => router.push(`/projects/${p.id}`)}
+                              >
                               Open
                             </Button>
                           </div>
