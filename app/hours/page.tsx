@@ -293,7 +293,7 @@ const grouped = useMemo(() => {
 
 if (loading) {
   return (
-    <main className="p-6 max-w-5xl mx-auto">
+    <main className="p-6 max-w-7xl mx-auto">
       <div className="text-gray-500">Laden…</div>
     </main>
   );
@@ -301,7 +301,7 @@ if (loading) {
 
 
   return (
-  <main className="p-6 max-w-5xl mx-auto">
+  <main className="p-6 max-w-7xl mx-auto">
     <header className="flex items-start justify-between gap-3">
       <div>
         <h1 className="text-2xl font-semibold">Uren plannen (week)</h1>
