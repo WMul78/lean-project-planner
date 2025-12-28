@@ -239,10 +239,15 @@ export default function ProjectsPage() {
             Uren plannen
           </Button>
 
+          <Button variant="outline" onClick={() => router.push("/account")}>
+            Account
+          </Button>
+
           {canManageUsers && (
             <Button variant="outline" onClick={() => router.push("/admin/users")}>
               Gebruikers beheren
             </Button>
+
           )}
         </div>
       </header>

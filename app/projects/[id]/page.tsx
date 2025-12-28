@@ -78,7 +78,7 @@ export default function ProjectDetailPage() {
   const [executedMinutes, setExecutedMinutes] = useState<number>(0);
 
   // ✅ Workspace members voor assignee dropdown
-  const [members, setMembers] = useState<{ user_id: string }[]>([]);
+  const [members, setMembers] = useState<{ id: string; full_name: string; email?: string | null }[]>([]);
 
   const canEditProject = useMemo(() => {
     if (!userId || !project) return false;
@@ -108,6 +108,9 @@ export default function ProjectDetailPage() {
       return projectMemberRole === "owner" || projectMemberRole === "editor";
     }
 
+  
+
+
     // stakeholder: geen todo edits
     return false;
   }, [workspaceRole, project, userId, projectMemberRole]);
@@ -116,6 +119,14 @@ export default function ProjectDetailPage() {
     () => calcPct(executedMinutes, plannedMinutes),
     [executedMinutes, plannedMinutes]
   );
+
+  const memberNameById = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const x of members) {
+    m[x.id] = x.full_name || x.email || x.id.slice(0, 8);
+    }
+    return m;
+  } , [members]);
 
   async function loadProject() {
     const user = await requireUser(router);
@@ -188,22 +199,29 @@ export default function ProjectDetailPage() {
   }
 
   async function loadWorkspaceMembers() {
-    const ws = await getActiveWorkspace();
-    if (!ws?.workspaceId) return;
+  const ws = await getActiveWorkspace();
+  if (!ws?.workspaceId) return;
 
-    const { data, error } = await supabase
-      .from("workspace_members")
-      .select("user_id")
-      .eq("workspace_id", ws.workspaceId);
+  const { data, error } = await supabase
+    .from("workspace_members")
+    .select("user_id, profiles:profiles(full_name,email)")
+    .eq("workspace_id", ws.workspaceId);
 
-    if (error) {
-      console.error("Load members error:", error);
-      setMembers([]);
-      return;
-    }
-
-    setMembers(((data as any[]) ?? []).map((r) => ({ user_id: r.user_id })));
+  if (error) {
+    console.error("Load members error:", error);
+    setMembers([]);
+    return;
   }
+
+  setMembers(
+    ((data as any[]) ?? []).map((r) => ({
+      id: r.user_id,
+      full_name: r.profiles?.full_name || r.user_id.slice(0, 8),
+      email: r.profiles?.email ?? null,
+    }))
+  );
+}
+
 
   async function refreshAll() {
     await loadProject();
@@ -432,7 +450,8 @@ export default function ProjectDetailPage() {
                     </div>
                     <div className="text-xs text-gray-500">
                       Benodigd: {t.estimated_minutes ? minutesToHoursText(t.estimated_minutes) : "—"} •{" "}
-                      Toegewezen: {t.assigned_to ? t.assigned_to.slice(0, 8) : "—"}
+                      Toegewezen:{" "}
+                        {t.assigned_to ? (memberNameById[t.assigned_to] ?? t.assigned_to.slice(0, 8)) : "—"}
                     </div>
                   </div>
                 </label>
@@ -471,11 +490,12 @@ export default function ProjectDetailPage() {
       <option value="">— niemand —</option>
       {userId ? <option value={userId}>Ik</option> : null}
       {members
-        .filter((m) => m.user_id !== userId)
+        .filter((m) => m.id !== userId)
         .map((m) => (
-          <option key={m.user_id} value={m.user_id}>
-            {m.user_id.slice(0, 8)}
+          <option key={m.id} value={m.id}>
+          {m.full_name || m.email || m.id.slice(0, 8)}
           </option>
+
         ))}
     </select>
   </div>
