@@ -7,15 +7,12 @@ import ProgressBar from "@/app/components/ProgressBar";
 import WorkspaceSwitcher from "@/app/components/WorkspaceSwitcher";
 import { supabase } from "@/lib/supabaseClient";
 import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appContext";
-import { statusBadgeClass, priorityBadgeClass, metaBadgeClass, badgeBase } from "@/app/lib/badges";
+import { statusBadgeClass, priorityBadgeClass, metaBadgeClass } from "@/app/lib/badges";
 
 type ProjectStatus = "proposed" | "active" | "done" | "archived";
 type Priority = "low" | "medium" | "high" | "very_high";
 type ViewMode = "projects" | "todos" | "both";
 type SortMode = "priority_desc" | "newest";
-
-// ✅ Nieuwe task statuses (MVP)
-type TaskStatus = "todo" | "doing" | "blocked" | "done";
 
 type ProjectRow = {
   id: string;
@@ -31,15 +28,16 @@ type ProjectRow = {
   inserted_at: string;
 };
 
-type TodoRow = {
+type TodoAutoRow = {
   id: string;
   project_id: string;
   title: string;
-  status: TaskStatus; // ✅ nieuw
-  is_done: boolean; // blijft bestaan (compat)
+  inserted_at: string;
   assigned_to: string | null;
   estimated_minutes: number | null;
-  inserted_at: string;
+  is_done: boolean;
+  executed_minutes: number;
+  auto_status: "proposed" | "active" | "done"; // uit view
 };
 
 type TotalsRowPlanned = { project_id: string; planned_minutes: number };
@@ -79,25 +77,6 @@ function priorityRank(p: Priority | null | undefined) {
   }
 }
 
-// ✅ Task badge mapping (zelfde stijl als projects)
-function badgeClassForTaskStatus(status: TaskStatus) {
-  switch (status) {
-    case "todo":
-      return "bg-gray-100 text-gray-700";
-    case "doing":
-      return "bg-blue-100 text-blue-800";
-    case "blocked":
-      return "bg-red-100 text-red-800";
-    case "done":
-      return "bg-green-100 text-green-800";
-    default:
-      return "bg-gray-100 text-gray-700";
-  }
-}
-function taskStatusBadgeClass(status: TaskStatus) {
-  return `${badgeBase} ${badgeClassForTaskStatus(status)}`;
-}
-
 export default function ProjectsKanbanPage() {
   const router = useRouter();
 
@@ -110,7 +89,7 @@ export default function ProjectsKanbanPage() {
     projectsRef.current = projects;
   }, [projects]);
 
-  const [todos, setTodos] = useState<TodoRow[]>([]);
+  const [todos, setTodos] = useState<TodoAutoRow[]>([]);
 
   const [plannedByProject, setPlannedByProject] = useState<Record<string, number>>({});
   const [executedByProject, setExecutedByProject] = useState<Record<string, number>>({});
@@ -119,18 +98,16 @@ export default function ProjectsKanbanPage() {
 
   const [filterPriority, setFilterPriority] = useState<"all" | Priority>("all");
   const [filterOwner, setFilterOwner] = useState<"all" | "none" | string>("all");
-
   const [viewMode, setViewMode] = useState<ViewMode>("both");
   const [sortMode, setSortMode] = useState<SortMode>("priority_desc");
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Drag & drop state (project cards)
+  // Drag & drop (projects only)
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<ProjectStatus | null>(null);
 
-  // voorkomt race conditions
   const loadSeq = useRef(0);
 
   const load = useCallback(async () => {
@@ -170,9 +147,7 @@ export default function ProjectsKanbanPage() {
       // 1) Projects
       const { data: pr, error: prErr } = await supabase
         .from("projects")
-        .select(
-          "id,workspace_id,name,description,status,priority,project_type,deadline,owner_id,created_by,inserted_at"
-        )
+        .select("id,workspace_id,name,description,status,priority,project_type,deadline,owner_id,created_by,inserted_at")
         .eq("workspace_id", ws.workspaceId)
         .order("inserted_at", { ascending: false });
 
@@ -187,10 +162,10 @@ export default function ProjectsKanbanPage() {
         return;
       }
 
-      const list = (pr as any as ProjectRow[]) ?? [];
-      setProjects(list);
+      const projectList = (pr as any as ProjectRow[]) ?? [];
+      setProjects(projectList);
 
-      // 2) Owners
+      // 2) Owners (workspace_members + profiles)
       const { data: mem, error: memErr } = await supabase
         .from("workspace_members")
         .select("user_id, profiles(full_name,email)")
@@ -211,8 +186,7 @@ export default function ProjectsKanbanPage() {
         setOwners(opts);
       }
 
-      // 3) Totals
-      const ids = list.map((p) => p.id);
+      const ids = projectList.map((p) => p.id);
       if (ids.length === 0) {
         setPlannedByProject({});
         setExecutedByProject({});
@@ -221,6 +195,7 @@ export default function ProjectsKanbanPage() {
         return;
       }
 
+      // 3) Totals via views
       const [{ data: plan, error: planErr }, { data: exec, error: execErr }] = await Promise.all([
         supabase.from("project_planned_totals").select("project_id, planned_minutes").in("project_id", ids),
         supabase.from("project_executed_totals").select("project_id, executed_minutes").in("project_id", ids),
@@ -232,24 +207,20 @@ export default function ProjectsKanbanPage() {
       if (execErr) console.warn("executed totals error:", execErr);
 
       const planMap: Record<string, number> = {};
-      for (const r of (plan as any as TotalsRowPlanned[]) ?? []) {
-        planMap[r.project_id] = r.planned_minutes ?? 0;
-      }
+      for (const r of (plan as any as TotalsRowPlanned[]) ?? []) planMap[r.project_id] = r.planned_minutes ?? 0;
       setPlannedByProject(planMap);
 
       const execMap: Record<string, number> = {};
-      for (const r of (exec as any as TotalsRowExecuted[]) ?? []) {
-        execMap[r.project_id] = r.executed_minutes ?? 0;
-      }
+      for (const r of (exec as any as TotalsRowExecuted[]) ?? []) execMap[r.project_id] = r.executed_minutes ?? 0;
       setExecutedByProject(execMap);
 
-      // 4) Todos: geen workspace_id, dus via project_id IN ids
-      // We tonen in kanban standaard geen "done" taken
+      // 4) Todos via view todo_status_auto (geen workspace_id -> in(project_id))
+      // MVP: we tonen geen done taken in kanban
       const { data: td, error: tdErr } = await supabase
-        .from("todos")
-        .select("id,project_id,title,status,is_done,assigned_to,estimated_minutes,inserted_at")
+        .from("todo_status_auto")
+        .select("id,project_id,title,inserted_at,assigned_to,estimated_minutes,is_done,executed_minutes,auto_status")
         .in("project_id", ids)
-        .neq("status", "done")
+        .neq("auto_status", "done")
         .order("inserted_at", { ascending: false });
 
       if (seq !== loadSeq.current) return;
@@ -258,7 +229,7 @@ export default function ProjectsKanbanPage() {
         console.warn("Load todos failed:", tdErr);
         setTodos([]);
       } else {
-        setTodos(((td as any) ?? []) as TodoRow[]);
+        setTodos(((td as any) ?? []) as TodoAutoRow[]);
       }
 
       setLoading(false);
@@ -285,7 +256,7 @@ export default function ProjectsKanbanPage() {
     return () => window.removeEventListener("workspace-changed", handler);
   }, [load]);
 
-  // ---- Filtering + sorting (projects) ----
+  // ---- Filters / sorting projects ----
   const filteredProjects = useMemo(() => {
     return projects.filter((p) => {
       const prioOk = filterPriority === "all" ? true : (p.priority ?? "medium") === filterPriority;
@@ -315,32 +286,52 @@ export default function ProjectsKanbanPage() {
     return arr;
   }, [filteredProjects, sortMode]);
 
+  const projectById = useMemo(() => {
+    const m: Record<string, ProjectRow> = {};
+    for (const p of projects) m[p.id] = p;
+    return m;
+  }, [projects]);
+
   const filteredProjectIds = useMemo(() => new Set(sortedFilteredProjects.map((p) => p.id)), [sortedFilteredProjects]);
 
-  // Todos volgen projectfilters (owner/prio) — MVP
+  // ---- Tasks follow project filters (owner/prio), but get own column status ----
   const filteredTodos = useMemo(() => {
     return todos.filter((t) => filteredProjectIds.has(t.project_id));
   }, [todos, filteredProjectIds]);
 
-  const todosByProject = useMemo(() => {
-    const m: Record<string, TodoRow[]> = {};
+  // Task -> Kanban column status:
+  // - if project is archived => task appears in archived column
+  // - else use auto_status (proposed/active/done)
+  const todoColumnStatus = useCallback(
+    (t: TodoAutoRow): ProjectStatus => {
+      const p = projectById[t.project_id];
+      if (p?.status === "archived") return "archived";
+      return t.auto_status; // proposed | active | done
+    },
+    [projectById]
+  );
+
+  const todosByColumn = useMemo(() => {
+    const m: Record<ProjectStatus, TodoAutoRow[]> = { proposed: [], active: [], done: [], archived: [] };
     for (const t of filteredTodos) {
-      if (!m[t.project_id]) m[t.project_id] = [];
-      m[t.project_id].push(t);
+      m[todoColumnStatus(t)].push(t);
     }
-    // Sort tasks: blocked -> doing -> todo (zodat "problemen" bovenaan staan), daarna newest
-    const rank: Record<TaskStatus, number> = { blocked: 3, doing: 2, todo: 1, done: 0 };
-    for (const pid of Object.keys(m)) {
-      m[pid].sort((a, b) => {
-        const d = (rank[b.status] ?? 0) - (rank[a.status] ?? 0);
+
+    // sort tasks by project priority (hoog -> laag), then by newest
+    for (const k of Object.keys(m) as ProjectStatus[]) {
+      m[k].sort((a, b) => {
+        const pa = projectById[a.project_id]?.priority;
+        const pb = projectById[b.project_id]?.priority;
+        const d = priorityRank(pb) - priorityRank(pa);
         if (d !== 0) return d;
         return a.inserted_at < b.inserted_at ? 1 : -1;
       });
     }
-    return m;
-  }, [filteredTodos]);
 
-  const byStatus = useMemo(() => {
+    return m;
+  }, [filteredTodos, projectById, todoColumnStatus]);
+
+  const projectsByColumn = useMemo(() => {
     const m: Record<ProjectStatus, ProjectRow[]> = { proposed: [], active: [], done: [], archived: [] };
     for (const p of sortedFilteredProjects) m[p.status].push(p);
     return m;
@@ -352,45 +343,22 @@ export default function ProjectsKanbanPage() {
     return m;
   }, [owners]);
 
-  // ---- Updates ----
   async function updateProjectStatus(projectId: string, nextStatus: ProjectStatus) {
     const prev = projectsRef.current;
-
-    // Optimistic UI
     setProjects((cur) => cur.map((p) => (p.id === projectId ? { ...p, status: nextStatus } : p)));
 
     const { error } = await supabase.from("projects").update({ status: nextStatus }).eq("id", projectId);
-
     if (error) {
       console.error(error);
       alert(error.message);
-      setProjects(prev); // rollback
+      setProjects(prev);
     }
   }
 
-  async function updateTodoStatus(todoId: string, nextStatus: TaskStatus) {
-    // Optimistic UI (in-place)
-    const prev = todos;
-    setTodos((cur) => cur.map((t) => (t.id === todoId ? { ...t, status: nextStatus, is_done: nextStatus === "done" } : t)));
-
-    const { error } = await supabase
-      .from("todos")
-      .update({ status: nextStatus, is_done: nextStatus === "done" })
-      .eq("id", todoId);
-
-    if (error) {
-      console.error(error);
-      alert(error.message);
-      setTodos(prev); // rollback
-    }
-  }
-
-  // ---- UI components ----
   function ProjectCard({ p, compact }: { p: ProjectRow; compact?: boolean }) {
     const planned = plannedByProject[p.id] ?? 0;
     const executed = executedByProject[p.id] ?? 0;
     const percent = pct(executed, planned);
-
     const ownerLabel = p.owner_id === null ? "—" : ownerLabelById[p.owner_id] ?? p.owner_id.slice(0, 8);
 
     return (
@@ -398,10 +366,9 @@ export default function ProjectsKanbanPage() {
         draggable
         style={{ cursor: "grab" }}
         onDragStart={(e) => {
-          // ✅ IMPORTANT: setData first, then state update next frame (fixes “can’t drag”)
           e.dataTransfer.setData("text/plain", p.id);
           e.dataTransfer.effectAllowed = "move";
-          requestAnimationFrame(() => setDraggingId(p.id));
+          requestAnimationFrame(() => setDraggingId(p.id)); // important: stable DnD
         }}
         onDragEnd={() => {
           setDraggingId(null);
@@ -438,7 +405,6 @@ export default function ProjectsKanbanPage() {
           <span className={metaBadgeClass()}>owner: {ownerLabel}</span>
         </div>
 
-        {/* Mobile fallback for project status */}
         <div className="mt-2 md:hidden">
           <label className="text-[11px] text-gray-500">Project status</label>
           <select
@@ -470,16 +436,26 @@ export default function ProjectsKanbanPage() {
     );
   }
 
-  function TodoCard({ t, projectId }: { t: TodoRow; projectId: string }) {
+  function TodoCard({ t }: { t: TodoAutoRow }) {
+    const p = projectById[t.project_id];
+    const projectName = p?.name ?? "Project";
+    const prio = p?.priority ?? "medium";
+    const planned = t.estimated_minutes ?? 0;
+    const executed = t.executed_minutes ?? 0;
+    const percent = planned > 0 ? pct(executed, planned) : 0;
+
     return (
       <div className="rounded-md border bg-white px-3 py-2 w-full max-w-full overflow-hidden">
         <div className="flex items-start justify-between gap-2 min-w-0">
           <div className="min-w-0">
             <div className="font-medium text-sm truncate">{t.title}</div>
             <div className="mt-1 flex flex-wrap gap-2">
-              <span className={taskStatusBadgeClass(t.status)}>{t.status}</span>
-              {t.estimated_minutes ? (
-                <span className={metaBadgeClass()}>raming: {minutesToHoursText(t.estimated_minutes)}</span>
+              <span className={metaBadgeClass()}>project: {projectName}</span>
+              <span className={priorityBadgeClass(prio)}>prio: {prio}</span>
+              {planned > 0 ? (
+                <span className={metaBadgeClass()}>
+                  {minutesToHoursText(executed)} / {minutesToHoursText(planned)} ({percent}%)
+                </span>
               ) : (
                 <span className={metaBadgeClass()}>geen raming</span>
               )}
@@ -489,24 +465,23 @@ export default function ProjectsKanbanPage() {
           <Button
             variant="outline"
             className="text-xs px-2 py-1 shrink-0"
-            onClick={() => router.push(`/projects/${projectId}`)}
+            onClick={() => router.push(`/projects/${t.project_id}`)}
           >
             Open
           </Button>
         </div>
 
-        <div className="mt-2">
-          <label className="text-[11px] text-gray-500">Taak status</label>
-          <select
-            className="mt-1 w-full border rounded-md px-2 py-1 text-xs"
-            value={t.status}
-            onChange={(e) => updateTodoStatus(t.id, e.target.value as TaskStatus)}
-          >
-            <option value="todo">todo</option>
-            <option value="doing">doing</option>
-            <option value="blocked">blocked</option>
-            <option value="done">done</option>
-          </select>
+        {planned > 0 ? (
+          <div className="mt-2">
+            <ProgressBar
+              value={percent}
+              label={`${minutesToHoursText(executed)} / ${minutesToHoursText(planned)} (${percent}%)`}
+            />
+          </div>
+        ) : null}
+
+        <div className="mt-2 text-[11px] text-gray-500">
+          Status is automatisch op basis van voortgang: 0% proposed, 1–99% active, 100% done.
         </div>
       </div>
     );
@@ -522,17 +497,13 @@ export default function ProjectsKanbanPage() {
 
   return (
     <main className="p-6 max-w-6xl mx-auto">
-      {/* Header */}
       <header className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Projecten • Kanban</h1>
-
           <div className="mt-2">
             <WorkspaceSwitcher />
           </div>
-
           <div className="text-sm text-gray-500">Rol: {role}</div>
-
           {workspaceId ? (
             <div className="text-xs text-gray-400 mt-1">
               Workspace: <span className="font-mono">{workspaceId}</span>
@@ -550,7 +521,6 @@ export default function ProjectsKanbanPage() {
         </div>
       </header>
 
-      {/* Filters */}
       <section className="mt-5 border rounded-lg p-4">
         <div className="font-medium">Filters</div>
 
@@ -614,13 +584,8 @@ export default function ProjectsKanbanPage() {
         </div>
 
         {loadError ? <div className="mt-3 text-sm text-red-600">{loadError}</div> : null}
-
-        <div className="mt-3 text-xs text-gray-500">
-          Drag & drop wijzigt <span className="font-medium">projectstatus</span>. Taken hebben nu een eigen status via dropdown.
-        </div>
       </section>
 
-      {/* Kanban */}
       <section className="mt-6">
         <div className="overflow-x-auto pb-2">
           <div className="min-w-[1080px] grid grid-cols-[repeat(4,260px)] gap-4">
@@ -636,9 +601,7 @@ export default function ProjectsKanbanPage() {
                   e.dataTransfer.dropEffect = "move";
                   setDragOverStatus(col.key);
                 }}
-                onDragLeave={() => {
-                  setDragOverStatus((s) => (s === col.key ? null : s));
-                }}
+                onDragLeave={() => setDragOverStatus((s) => (s === col.key ? null : s))}
                 onDrop={async (e) => {
                   e.preventDefault();
                   const pid = e.dataTransfer.getData("text/plain");
@@ -656,37 +619,29 @@ export default function ProjectsKanbanPage() {
               >
                 <div className="px-3 py-2 border-b bg-white rounded-t-lg flex items-center justify-between">
                   <div className="font-semibold">{col.label}</div>
-                  <div className="text-xs text-gray-500">{byStatus[col.key].length}</div>
+                  <div className="text-xs text-gray-500">
+                    {projectsByColumn[col.key].length} proj • {todosByColumn[col.key].length} taken
+                  </div>
                 </div>
 
                 <div className="p-3 grid gap-3">
-                  {byStatus[col.key].length === 0 ? (
-                    <div className="text-sm text-gray-500">Geen projecten</div>
-                  ) : (
-                    byStatus[col.key].map((p) => {
-                      const projectTodos = todosByProject[p.id] ?? [];
-                      const showProject = viewMode === "projects" || viewMode === "both";
-                      const showTodos = viewMode === "todos" || viewMode === "both";
+                  {/* Projects */}
+                  {(viewMode === "projects" || viewMode === "both") ? (
+                    projectsByColumn[col.key].length === 0 ? (
+                      <div className="text-sm text-gray-500">Geen projecten</div>
+                    ) : (
+                      projectsByColumn[col.key].map((p) => <ProjectCard key={p.id} p={p} compact={false} />)
+                    )
+                  ) : null}
 
-                      return (
-                        <div key={p.id} className="grid gap-2">
-                          {/* Project card (of compact header in todos-only) */}
-                          {showProject ? <ProjectCard p={p} compact={false} /> : <ProjectCard p={p} compact={true} />}
-
-                          {/* Todos */}
-                          {showTodos ? (
-                            projectTodos.length === 0 ? null : (
-                              <div className="grid gap-2">
-                                {projectTodos.map((t) => (
-                                  <TodoCard key={t.id} t={t} projectId={p.id} />
-                                ))}
-                              </div>
-                            )
-                          ) : null}
-                        </div>
-                      );
-                    })
-                  )}
+                  {/* Tasks */}
+                  {(viewMode === "todos" || viewMode === "both") ? (
+                    todosByColumn[col.key].length === 0 ? (
+                      <div className="text-sm text-gray-500">Geen taken</div>
+                    ) : (
+                      todosByColumn[col.key].map((t) => <TodoCard key={t.id} t={t} />)
+                    )
+                  ) : null}
                 </div>
               </div>
             ))}
@@ -694,7 +649,7 @@ export default function ProjectsKanbanPage() {
         </div>
 
         <div className="mt-2 text-xs text-gray-500">
-          Sortering “prioriteit” bepaalt de volgorde van projecten (en dus ook van hun taken).
+          Takenstatus wordt automatisch bepaald op basis van voortgang (uren t/m vandaag).
         </div>
       </section>
     </main>
