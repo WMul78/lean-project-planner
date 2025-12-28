@@ -80,6 +80,7 @@ export default function ProjectDetailPage() {
 
   // ✅ Workspace members voor assignee dropdown
   const [members, setMembers] = useState<{ id: string; full_name: string; email?: string | null }[]>([]);
+  const [executedByTodo, setExecutedByTodo] = useState<Record<string, number>>({});
 
   const canEditProject = useMemo(() => {
     if (!userId || !project) return false;
@@ -174,8 +175,37 @@ export default function ProjectDetailPage() {
       setTodos([]);
       return;
     }
-    setTodos((td as any) ?? []);
+    const list = ((td as any) ?? []) as Todo[];
+      setTodos(list);
+      await loadTodoExecutedTotals(list.map((x) => x.id));
+
+    }
+
+async function loadTodoExecutedTotals(todoIds: string[]) {
+  if (todoIds.length === 0) {
+    setExecutedByTodo({});
+    return;
   }
+
+  const { data, error } = await supabase
+    .from("todo_executed_totals")
+    .select("todo_id, executed_minutes")
+    .in("todo_id", todoIds);
+
+  if (error) {
+    console.error("Load todo executed totals error:", error);
+    setExecutedByTodo({});
+    return;
+  }
+
+  const m: Record<string, number> = {};
+  for (const r of (data as any[]) ?? []) {
+    m[r.todo_id] = r.executed_minutes ?? 0;
+  }
+  setExecutedByTodo(m);
+}
+
+
 
   async function loadTotals(pid: string) {
     // planned = sum todos.estimated_minutes
@@ -459,6 +489,25 @@ export default function ProjectDetailPage() {
                     </div>
                   </div>
                 </label>
+{t.estimated_minutes && t.estimated_minutes > 0 ? (() => {
+  const exec = executedByTodo[t.id] ?? 0;
+  const planned = t.estimated_minutes ?? 0;
+  const percent = Math.min(100, Math.round((exec / planned) * 100));
+
+  return (
+    <div className="mt-2">
+      <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+        <div className="h-2 bg-blue-500" style={{ width: `${percent}%` }} />
+      </div>
+      <div className="mt-1 text-[11px] text-gray-500">
+        {percent}% • {minutesToHoursText(exec)} / {minutesToHoursText(planned)}
+      </div>
+    </div>
+  );
+})() : (
+  <div className="mt-2 text-[11px] text-gray-400">Geen raming</div>
+)}
+
 
                 {canEditTodos ? (
                   <Button variant="danger" onClick={() => removeTodo(t)}>
