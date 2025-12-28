@@ -370,10 +370,13 @@ export default function ProjectsKanbanPage() {
       <div
         draggable
         style={{ cursor: "grab" }}
-        onDragStart={(e) => {
-          setDraggingId(p.id);
+       onDragStart={(e) => {
+        // eerst dataTransfer zetten (dit moet synchroon)
           e.dataTransfer.setData("text/plain", p.id);
           e.dataTransfer.effectAllowed = "move";
+
+        // daarna pas state updaten (voorkomt dat browser drag annuleert door re-render)
+          requestAnimationFrame(() => setDraggingId(p.id));
         }}
         onDragEnd={() => {
           setDraggingId(null);
