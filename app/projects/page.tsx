@@ -25,7 +25,6 @@ type Project = {
   deadline: string | null; // YYYY-MM-DD
   priority: Priority | null;
   project_type: ProjectType | null;
-  estimated_minutes: number | null;
 };
 
 function badgeClassForStatus(status: ProjectStatus) {
@@ -62,16 +61,9 @@ function labelProjectType(t: ProjectType | null | undefined) {
   return t ?? "standard";
 }
 
-function minutesToHoursText(min: number | null | undefined) {
-  const m = min ?? 0;
-  const h = Math.round((m / 60) * 10) / 10;
+function minutesToHoursText(min: number) {
+  const h = Math.round((min / 60) * 10) / 10;
   return `${h}u`;
-}
-
-function pct(spent: number, planned: number | null | undefined) {
-  const p = planned ?? 0;
-  if (p <= 0) return null;
-  return Math.min(100, Math.round((spent / p) * 100));
 }
 
 export default function ProjectsPage() {
@@ -81,12 +73,15 @@ export default function ProjectsPage() {
   const [role, setRole] = useState<WorkspaceRole>("member");
 
   const [projects, setProjects] = useState<Project[]>([]);
-  const [spentByProject, setSpentByProject] = useState<Record<string, number>>({});
+
+  // ✅ nieuw: executed vs planned maps
+  const [executedByProject, setExecutedByProject] = useState<Record<string, number>>({});
+  const [plannedByProject, setPlannedByProject] = useState<Record<string, number>>({});
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // voorkomt race conditions: alleen de laatste load zet state
+  // race condition guard
   const loadSeq = useRef(0);
 
   const canManageUsers = useMemo(() => role === "owner" || role === "admin", [role]);
@@ -111,7 +106,8 @@ export default function ProjectsPage() {
           setWorkspaceId(null);
           setRole("member");
           setProjects([]);
-          setSpentByProject({});
+          setExecutedByProject({});
+          setPlannedByProject({});
           setLoadError("Geen workspace gevonden voor deze gebruiker.");
           setLoading(false);
         }
@@ -123,11 +119,10 @@ export default function ProjectsPage() {
         setRole(ws.role);
       }
 
+      // ✅ Projects laden
       const { data, error } = await supabase
         .from("projects")
-        .select(
-          "id,name,description,inserted_at,status,owner_id,created_by,deadline,priority,project_type,estimated_minutes"
-        )
+        .select("id,name,description,inserted_at,status,owner_id,created_by,deadline,priority,project_type")
         .eq("workspace_id", ws.workspaceId)
         .order("inserted_at", { ascending: false });
 
@@ -136,7 +131,8 @@ export default function ProjectsPage() {
       if (error) {
         console.error("Load projects error:", error);
         setProjects([]);
-        setSpentByProject({});
+        setExecutedByProject({});
+        setPlannedByProject({});
         setLoadError(error.message);
         setLoading(false);
         return;
@@ -145,39 +141,52 @@ export default function ProjectsPage() {
       const list = (data as Project[]) ?? [];
       setProjects(list);
 
-      // totals per project ophalen (best effort)
       const ids = list.map((p) => p.id);
       if (ids.length === 0) {
-        setSpentByProject({});
+        setExecutedByProject({});
+        setPlannedByProject({});
         setLoading(false);
         return;
       }
 
-      const { data: totals, error: totalsErr } = await supabase
+      // ✅ Executed totals (alleen t/m vandaag) per project
+      const { data: exec, error: execErr } = await supabase
         .from("project_executed_totals")
-        .select("project_id, spent_minutes")
+        .select("project_id, executed_minutes")
         .in("project_id", ids);
+
+      if (execErr) console.error("Load executed totals error:", execErr);
+
+      // ✅ Planned totals (som todos.estimated_minutes) per project
+      const { data: plan, error: planErr } = await supabase
+        .from("project_planned_totals")
+        .select("project_id, planned_minutes")
+        .in("project_id", ids);
+
+      if (planErr) console.error("Load planned totals error:", planErr);
 
       if (seq !== loadSeq.current) return;
 
-      if (totalsErr) {
-        console.error("Load totals error:", totalsErr);
-        // Niet hard falen: lijst blijft bruikbaar
-        setSpentByProject({});
-      } else {
-        const m: Record<string, number> = {};
-        for (const row of (totals as any[]) ?? []) {
-          m[row.project_id] = row.spent_minutes ?? 0;
-        }
-        setSpentByProject(m);
+      const executedMap: Record<string, number> = {};
+      for (const row of (exec as any[]) ?? []) {
+        executedMap[row.project_id] = row.executed_minutes ?? 0;
       }
+
+      const plannedMap: Record<string, number> = {};
+      for (const row of (plan as any[]) ?? []) {
+        plannedMap[row.project_id] = row.planned_minutes ?? 0;
+      }
+
+      setExecutedByProject(executedMap);
+      setPlannedByProject(plannedMap);
 
       setLoading(false);
     } catch (e: any) {
       if (seq !== loadSeq.current) return;
       console.error("Projects page load failed:", e);
       setProjects([]);
-      setSpentByProject({});
+      setExecutedByProject({});
+      setPlannedByProject({});
       setLoadError(e?.message ?? "Fout bij laden van workspace/projecten.");
       setLoading(false);
     }
@@ -187,7 +196,6 @@ export default function ProjectsPage() {
     load();
   }, [load]);
 
-  // reload wanneer WorkspaceSwitcher event fired (zoals in je huidige app)
   useEffect(() => {
     const handler = () => load();
     window.addEventListener("workspace-changed", handler);
@@ -227,8 +235,8 @@ export default function ProjectsPage() {
             {role === "stakeholder" ? "Project voorstellen" : "Nieuw project"}
           </Button>
 
-          <Button variant="outline" onClick={() => router.push("/today")}>
-            Vandaag
+          <Button variant="outline" onClick={() => router.push("/hours")}>
+            Uren plannen
           </Button>
 
           {canManageUsers && (
@@ -253,42 +261,25 @@ export default function ProjectsPage() {
           </div>
         </div>
       ) : projects.length === 0 ? (
-        <div className="mt-8 text-gray-600">
-          Geen projecten gevonden.
-          <div className="mt-2 text-sm text-gray-500">
-            Als je verwacht projecten te zien: controleer of je workspace member bent en of je
-            projects.workspace_id klopt.
-          </div>
-        </div>
+        <div className="mt-8 text-gray-600">Geen projecten gevonden.</div>
       ) : (
         <ul className="mt-6 grid gap-3">
           {projects.map((p) => {
-            const planned = p.estimated_minutes ?? null;
-            const spent = spentByProject[p.id] ?? 0;
-            const progress = pct(spent, planned);
+            const executed = executedByProject[p.id] ?? 0;
+            const planned = plannedByProject[p.id] ?? 0;
+            const progress = planned > 0 ? Math.min(100, Math.round((executed / planned) * 100)) : null;
 
             return (
-              <li
-                key={p.id}
-                className="border rounded-lg p-4 flex justify-between items-start gap-3"
-              >
+              <li key={p.id} className="border rounded-lg p-4 flex justify-between items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="font-medium truncate">{p.name}</div>
 
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full ${badgeClassForStatus(
-                        p.status
-                      )}`}
-                    >
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${badgeClassForStatus(p.status)}`}>
                       {p.status}
                     </span>
 
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full ${badgeClassForPriority(
-                        p.priority ?? "medium"
-                      )}`}
-                    >
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${badgeClassForPriority(p.priority ?? "medium")}`}>
                       prio: {p.priority ?? "medium"}
                     </span>
 
@@ -304,25 +295,22 @@ export default function ProjectsPage() {
                   </div>
 
                   {p.description ? (
-                    <div className="text-sm text-gray-600 mt-1 line-clamp-2">
-                      {p.description}
-                    </div>
+                    <div className="text-sm text-gray-600 mt-1 line-clamp-2">{p.description}</div>
                   ) : null}
 
-                  {/* Progress */}
-                  {planned && planned > 0 ? (
+                  {/* ✅ Progress gebaseerd op tasks + executed (<= vandaag) */}
+                  {planned > 0 ? (
                     <div className="mt-3">
                       <ProgressBar
                         value={progress ?? 0}
-                        label={`${minutesToHoursText(spent)} / ${minutesToHoursText(planned)} (${
-                          progress ?? 0
-                        }%)`}
+                        label={`${minutesToHoursText(executed)} / ${minutesToHoursText(planned)} (${progress ?? 0}%)`}
                       />
+                      <div className="mt-1 text-xs text-gray-500">
+                        Uitgevoerd telt alleen t/m vandaag. Toekomstige planning telt niet mee.
+                      </div>
                     </div>
                   ) : (
-                    <div className="mt-3 text-xs text-gray-500">
-                      Geen planning ingevuld (estimated time).
-                    </div>
+                    <div className="mt-3 text-xs text-gray-500">Geen taak-ramingen ingevuld (planned = 0).</div>
                   )}
                 </div>
 

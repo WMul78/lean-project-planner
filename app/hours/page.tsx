@@ -35,7 +35,7 @@ function iso(d: Date) {
 function startOfWeekMonday(d: Date) {
   const copy = new Date(d);
   const day = copy.getDay(); // 0=Sun..6=Sat
-  const diff = (day === 0 ? -6 : 1) - day; // move to Monday
+  const diff = (day === 0 ? -6 : 1) - day;
   copy.setDate(copy.getDate() + diff);
   copy.setHours(0, 0, 0, 0);
   return copy;
@@ -45,6 +45,11 @@ function addDays(d: Date, n: number) {
   const copy = new Date(d);
   copy.setDate(copy.getDate() + n);
   return copy;
+}
+
+function minutesToHoursText(min: number) {
+  const h = Math.round((min / 60) * 10) / 10;
+  return `${h}u`;
 }
 
 function minutesToHoursInput(min: number | null | undefined) {
@@ -72,11 +77,12 @@ export default function HoursPlannerPage() {
   const days = useMemo(() => Array.from({ length: 5 }, (_, i) => addDays(weekStart, i)), [weekStart]); // Ma–Vr
 
   const [todos, setTodos] = useState<TodoRow[]>([]);
-  const [cells, setCells] = useState<Record<string, EntryCell>>({}); // key = todoId|date
+  const [cells, setCells] = useState<Record<string, EntryCell>>({}); // key=todo|date
 
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
-  const [executedByTodo, setExecutedByTodo] = useState<Record<string, number>>({}); // todo_id -> executed_minutes (<= today)
+  // ✅ FIX: expliciete typing (lost “untracked”/index errors op)
+  const [executedByTodo, setExecutedByTodo] = useState<Record<string, number>>({});
 
   const todayISO = useMemo(() => iso(new Date()), []);
 
@@ -89,6 +95,7 @@ export default function HoursPlannerPage() {
 
     const user = await requireUser(router);
     if (!user) return;
+
     setUserId(user.id);
 
     const ws = await getActiveWorkspace();
@@ -99,7 +106,7 @@ export default function HoursPlannerPage() {
     }
     setWorkspaceId(ws.workspaceId);
 
-    // 1) load my todos (assigned_to = me)
+    // 1) mijn taken (assigned_to = ik)
     const { data: td, error: tdErr } = await supabase
       .from("todos")
       .select("id,project_id,title,assigned_to,estimated_minutes,projects(name)")
@@ -111,6 +118,8 @@ export default function HoursPlannerPage() {
       console.error(tdErr);
       alert(tdErr.message);
       setTodos([]);
+      setCells({});
+      setExecutedByTodo({});
       setLoading(false);
       return;
     }
@@ -118,7 +127,6 @@ export default function HoursPlannerPage() {
     const todoList = (td as any as TodoRow[]) ?? [];
     setTodos(todoList);
 
-    // 2) load entries for this week for these todos (only for user_id = me)
     const ids = todoList.map((t) => t.id);
     if (ids.length === 0) {
       setCells({});
@@ -127,6 +135,7 @@ export default function HoursPlannerPage() {
       return;
     }
 
+    // 2) entries in deze week (voor mij)
     const from = iso(days[0]);
     const to = iso(days[days.length - 1]);
 
@@ -150,19 +159,21 @@ export default function HoursPlannerPage() {
       setCells(map);
     }
 
-    // 3) load executed totals per todo (<= today) via view
+    // 3) executed totals per todo (<= today) via view
     const { data: ex, error: exErr } = await supabase
       .from("todo_executed_totals")
       .select("todo_id, executed_minutes")
       .in("todo_id", ids);
 
-    if (!exErr) {
-      const m: Record<string, number> = {};
-      for (const r of (ex as any[]) ?? []) m[r.todo_id] = r.executed_minutes ?? 0;
-      setExecutedByTodo(m);
-    } else {
+    if (exErr) {
       console.error(exErr);
       setExecutedByTodo({});
+    } else {
+      const m: Record<string, number> = {};
+      for (const r of (ex as any[]) ?? []) {
+        m[r.todo_id] = r.executed_minutes ?? 0;
+      }
+      setExecutedByTodo(m);
     }
 
     setLoading(false);
@@ -179,7 +190,7 @@ export default function HoursPlannerPage() {
     const key = cellKey(todo.id, dateISO);
     const minutes = hoursInputToMinutes(hoursText);
 
-    // leeg => delete
+    // leeg => delete (als er iets bestond)
     if (!minutes) {
       const existing = cells[key];
       if (!existing) return;
@@ -194,22 +205,21 @@ export default function HoursPlannerPage() {
         return;
       }
 
-      // update local state
       const copy = { ...cells };
       delete copy[key];
       setCells(copy);
       return;
     }
 
-    // upsert (unique index zorgt dat dit werkt)
+    // upsert (vereist unique index op todo_id, entry_date, user_id)
     setSavingKey(key);
 
     const payload = {
       workspace_id: workspaceId,
       project_id: todo.project_id,
       todo_id: todo.id,
-      user_id: userId,         // “voor wie” (assignee). MVP: je eigen grid => jijzelf.
-      logged_by: userId,       // wie invult (later: owner kan anderen invullen)
+      user_id: userId,   // MVP: dit is jouw eigen planner (later: assignee)
+      logged_by: userId, // later: owner kan voor anderen plannen
       entry_date: dateISO,
       minutes,
       note: null,
@@ -244,7 +254,7 @@ export default function HoursPlannerPage() {
   function todoProgress(todo: TodoRow) {
     const planned = todo.estimated_minutes ?? 0;
     if (planned <= 0) return null;
-    const exec = executedByTodo[todo.id] ?? 0;
+    const exec = executedByTodo[todo.id] ?? 0; // ✅ geen TS error meer
     return Math.min(100, Math.round((exec / planned) * 100));
   }
 
@@ -264,7 +274,6 @@ export default function HoursPlannerPage() {
     );
   }
 
-  // group by project name
   const grouped = useMemo(() => {
     const g = new Map<string, { projectId: string; projectName: string; items: TodoRow[] }>();
     for (const t of todos) {
@@ -282,7 +291,7 @@ export default function HoursPlannerPage() {
         <div>
           <h1 className="text-2xl font-semibold">Uren plannen (week)</h1>
           <div className="text-sm text-gray-500">
-            Alleen jouw taken (assigned_to = jij). Uren in de toekomst tellen niet mee voor voortgang.
+            Alleen jouw taken. Uren in de toekomst tellen niet mee voor voortgang.
           </div>
         </div>
 
@@ -301,6 +310,7 @@ export default function HoursPlannerPage() {
           </Button>
           <Button variant="outline" onClick={nextWeek}>Volgende →</Button>
         </div>
+
         <div className="text-sm text-gray-600">
           Week van <span className="font-medium">{iso(days[0])}</span>
         </div>
@@ -319,22 +329,27 @@ export default function HoursPlannerPage() {
             <thead>
               <tr className="text-left">
                 <th className="border p-2 w-[320px]">Taak</th>
+
                 {days.map((d) => {
                   const dISO = iso(d);
-                  const label = d.toLocaleDateString(undefined, { weekday: "short", day: "2-digit", month: "2-digit" });
+                  const label = d.toLocaleDateString(undefined, {
+                    weekday: "short",
+                    day: "2-digit",
+                    month: "2-digit",
+                  });
                   const isPastOrToday = dISO <= todayISO;
+
                   return (
                     <th key={dISO} className="border p-2">
                       <div className="flex items-center justify-between">
                         <span>{label}</span>
-                        {!isPastOrToday ? (
-                          <span className="text-xs text-gray-400">future</span>
-                        ) : null}
+                        {!isPastOrToday ? <span className="text-xs text-gray-400">future</span> : null}
                       </div>
                     </th>
                   );
                 })}
-                <th className="border p-2 w-[140px]">Voortgang</th>
+
+                <th className="border p-2 w-[160px]">Voortgang</th>
               </tr>
             </thead>
 
@@ -349,6 +364,8 @@ export default function HoursPlannerPage() {
 
                   {grp.items.map((t) => {
                     const prog = todoProgress(t);
+                    const exec = executedByTodo[t.id] ?? 0;
+
                     return (
                       <tr key={t.id}>
                         <td className="border p-2">
@@ -384,7 +401,7 @@ export default function HoursPlannerPage() {
                             <div className="text-sm">
                               <span className="font-medium">{prog}%</span>
                               <div className="text-xs text-gray-500">
-                                uitgevoerd: {minutesToHoursText(executedByTodo[t.id] ?? 0)}
+                                uitgevoerd: {minutesToHoursText(exec)}
                               </div>
                             </div>
                           )}
@@ -411,7 +428,7 @@ export default function HoursPlannerPage() {
           </table>
 
           <div className="mt-3 text-xs text-gray-500">
-            Tip: wijzig een cel en klik ergens buiten het veld (onBlur) om op te slaan.
+            Tip: wijzig een cel en klik buiten het veld (onBlur) om op te slaan.
           </div>
         </div>
       )}
