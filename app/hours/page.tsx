@@ -86,6 +86,10 @@ export default function HoursPlannerPage() {
   const [executedByTodo, setExecutedByTodo] = useState<Record<string, number>>({});
 
   const todayISO = useMemo(() => iso(new Date()), []);
+  const [mobileDayIndex, setMobileDayIndex] = useState(0); // 0..4
+  const mobileDay = days[mobileDayIndex];
+  const mobileDayISO = mobileDay ? iso(mobileDay) : "";
+
 
   function cellKey(todoId: string, dateISO: string) {
     return `${todoId}|${dateISO}`;
@@ -180,10 +184,14 @@ export default function HoursPlannerPage() {
     setLoading(false);
   }
 
-  useEffect(() => {
-    load();
+useEffect(() => {
+  setMobileDayIndex(0);
+}, [weekStart]);
+
+ // useEffect(() => {
+ //   load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekStart]);
+  // }, [weekStart]);
 
   async function setCell(todo: TodoRow, dateISO: string, hoursText: string) {
     if (!workspaceId || !userId) return;
@@ -290,164 +298,288 @@ if (loading) {
 
 
   return (
-    <main className="p-6 max-w-5xl mx-auto">
-      <header className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Uren plannen (week)</h1>
-          <div className="text-sm text-gray-500">
-            Alleen jouw taken. Uren in de toekomst tellen niet mee voor voortgang.
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-2 items-end">
-          <Button variant="outline" onClick={() => router.push("/projects")}>
-            ← Projecten
-          </Button>
-        </div>
-      </header>
-
-      <div className="mt-4 flex items-center justify-between">
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={prevWeek}>← Vorige</Button>
-          <Button variant="outline" onClick={() => setWeekStart(startOfWeekMonday(new Date()))}>
-            Vandaag
-          </Button>
-          <Button variant="outline" onClick={nextWeek}>Volgende →</Button>
-        </div>
-
-        <div className="text-sm text-gray-600">
-          Week van <span className="font-medium">{iso(days[0])}</span>
+  <main className="p-6 max-w-5xl mx-auto">
+    <header className="flex items-start justify-between gap-3">
+      <div>
+        <h1 className="text-2xl font-semibold">Uren plannen (week)</h1>
+        <div className="text-sm text-gray-500">
+          Alleen jouw taken. Uren in de toekomst tellen niet mee voor voortgang.
         </div>
       </div>
 
-      {todos.length === 0 ? (
-        <div className="mt-8 text-gray-600">
-          Geen taken aan jou toegewezen.
-          <div className="text-sm text-gray-500 mt-1">
-            Wijs taken toe via <code>assigned_to</code> om ze hier te plannen.
+      <div className="flex flex-col gap-2 items-end">
+        <Button variant="outline" onClick={() => router.push("/projects")}>
+          ← Projecten
+        </Button>
+      </div>
+    </header>
+
+    <div className="mt-4 flex items-center justify-between">
+      <div className="flex gap-2">
+        <Button variant="outline" onClick={prevWeek}>
+          ← Vorige
+        </Button>
+        <Button variant="outline" onClick={() => setWeekStart(startOfWeekMonday(new Date()))}>
+          Vandaag
+        </Button>
+        <Button variant="outline" onClick={nextWeek}>
+          Volgende →
+        </Button>
+      </div>
+
+      <div className="text-sm text-gray-600">
+        Week van <span className="font-medium">{iso(days[0])}</span>
+      </div>
+    </div>
+
+    {/* Mobile day picker */}
+    <div className="mt-4 flex items-center justify-between md:hidden">
+      <Button
+        variant="outline"
+        onClick={() => setMobileDayIndex((i) => Math.max(0, i - 1))}
+        disabled={mobileDayIndex === 0}
+      >
+        ←
+      </Button>
+
+      <div className="text-sm font-medium">
+        {mobileDay
+          ? mobileDay.toLocaleDateString(undefined, {
+              weekday: "long",
+              day: "2-digit",
+              month: "2-digit",
+            })
+          : ""}
+      </div>
+
+      <Button
+        variant="outline"
+        onClick={() => setMobileDayIndex((i) => Math.min(4, i + 1))}
+        disabled={mobileDayIndex === 4}
+      >
+        →
+      </Button>
+    </div>
+
+    {todos.length === 0 ? (
+      <div className="mt-8 text-gray-600">
+        Geen taken aan jou toegewezen.
+        <div className="text-sm text-gray-500 mt-1">
+          Wijs taken toe via <code>assigned_to</code> om ze hier te plannen.
+        </div>
+      </div>
+    ) : (
+      <>
+        {/* DESKTOP: week table */}
+        <div className="mt-6 hidden md:block">
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse table-fixed">
+              <colgroup>
+                <col style={{ width: 340 }} />
+                {days.map((d) => (
+                  <col key={iso(d)} style={{ width: 96 }} />
+                ))}
+                <col style={{ width: 160 }} />
+              </colgroup>
+
+              <thead>
+                <tr className="text-left bg-white">
+                  <th className="border p-2 sticky left-0 bg-white z-10">Taak</th>
+
+                  {days.map((d) => {
+                    const dISO = iso(d);
+                    const label = d.toLocaleDateString(undefined, {
+                      weekday: "short",
+                      day: "2-digit",
+                      month: "2-digit",
+                    });
+
+                    return (
+                      <th key={dISO} className="border p-2">
+                        {label}
+                      </th>
+                    );
+                  })}
+
+                  <th className="border p-2">Voortgang</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {grouped.map((grp) => (
+                  <React.Fragment key={grp.projectId}>
+                    <tr>
+                      <td
+                        className="border p-2 font-semibold bg-gray-50 sticky left-0 z-10"
+                        colSpan={days.length + 2}
+                      >
+                        {grp.projectName}
+                      </td>
+                    </tr>
+
+                    {grp.items.map((t) => {
+                      const prog = todoProgress(t);
+                      const exec = executedByTodo[t.id] ?? 0;
+
+                      return (
+                        <tr key={t.id}>
+                          <td className="border p-2 align-top sticky left-0 bg-white z-10">
+                            <div className="font-medium">{t.title}</div>
+                            <div className="text-xs text-gray-500">
+                              Benodigd: {minutesToHoursInput(t.estimated_minutes) || "—"}u
+                            </div>
+                          </td>
+
+                          {days.map((d) => {
+                            const dISO = iso(d);
+                            const key = cellKey(t.id, dISO);
+                            const value = minutesToHoursInput(cells[key]?.minutes);
+
+                            return (
+                              <td key={dISO} className="border p-2 align-top">
+                                <input
+                                  className="w-full border rounded-md px-2 py-1 text-sm"
+                                  defaultValue={value}
+                                  placeholder="0"
+                                  inputMode="decimal"
+                                  disabled={savingKey === key}
+                                  onBlur={(e) => setCell(t, dISO, e.target.value)}
+                                />
+                              </td>
+                            );
+                          })}
+
+                          <td className="border p-2 align-top">
+                            {prog === null ? (
+                              <span className="text-sm text-gray-500">—</span>
+                            ) : (
+                              <div className="text-sm">
+                                <span className="font-medium">{prog}%</span>
+                                <div className="text-xs text-gray-500">
+                                  uitgevoerd: {minutesToHoursText(exec)}
+                                </div>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
+
+                <tr>
+                  <td className="border p-2 font-semibold sticky left-0 bg-white z-10">Totaal</td>
+                  {days.map((d) => {
+                    const dISO = iso(d);
+                    return (
+                      <td key={dISO} className="border p-2 font-semibold">
+                        {minutesToHoursText(dayTotalMinutes(dISO))}
+                      </td>
+                    );
+                  })}
+                  <td className="border p-2" />
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
-      ) : (
-<div className="mt-6 overflow-x-auto">
-  <table className="min-w-[900px] w-full border-collapse table-fixed">
-    {/* vaste kolombreedtes zodat cellen netjes onder de dag staan */}
-    <colgroup>
-      <col style={{ width: 360 }} />
-      {days.map((d) => (
-        <col key={iso(d)} style={{ width: 110 }} />
-      ))}
-      <col style={{ width: 180 }} />
-    </colgroup>
 
-    <thead>
-      <tr className="text-left">
-        <th className="border p-2">Taak</th>
+        {/* MOBILE: single-day table */}
+        <div className="mt-6 md:hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse table-fixed">
+              <colgroup>
+                <col style={{ width: 220 }} />
+                <col style={{ width: 110 }} />
+                <col style={{ width: 120 }} />
+              </colgroup>
 
-        {days.map((d) => {
-          const dISO = iso(d);
-          const label = d.toLocaleDateString(undefined, {
-            weekday: "short",
-            day: "2-digit",
-            month: "2-digit",
-          });
-          const isPastOrToday = dISO <= todayISO;
+              <thead>
+                <tr className="text-left">
+                  <th className="border p-2">Taak</th>
+                  <th className="border p-2">
+                    {mobileDay
+                      ? mobileDay.toLocaleDateString(undefined, {
+                          weekday: "short",
+                          day: "2-digit",
+                          month: "2-digit",
+                        })
+                      : ""}
+                  </th>
+                  <th className="border p-2">Voortgang</th>
+                </tr>
+              </thead>
 
-          return (
-            <th key={dISO} className="border p-2">
-              <div className="flex items-center justify-between">
-                <span>{label}</span>
-                {!isPastOrToday ? <span className="text-xs text-gray-400">future</span> : null}
-              </div>
-            </th>
-          );
-        })}
+              <tbody>
+                {grouped.map((grp) => (
+                  <React.Fragment key={grp.projectId}>
+                    <tr>
+                      <td className="border p-2 font-semibold bg-gray-50" colSpan={3}>
+                        {grp.projectName}
+                      </td>
+                    </tr>
 
-        <th className="border p-2">Voortgang</th>
-      </tr>
-    </thead>
+                    {grp.items.map((t) => {
+                      const prog = todoProgress(t);
+                      const exec = executedByTodo[t.id] ?? 0;
 
-    {/* ✅ maar één tbody (geen nesting) */}
-    <tbody>
-      {grouped.map((grp) => (
-        <React.Fragment key={grp.projectId}>
-          {/* project header row */}
-          <tr>
-            <td className="border p-2 font-semibold bg-gray-50" colSpan={days.length + 2}>
-              {grp.projectName}
-            </td>
-          </tr>
+                      const key = cellKey(t.id, mobileDayISO);
+                      const value = minutesToHoursInput(cells[key]?.minutes);
 
-          {/* todo rows */}
-          {grp.items.map((t) => {
-            const prog = todoProgress(t);
-            const exec = executedByTodo[t.id] ?? 0;
+                      return (
+                        <tr key={t.id}>
+                          <td className="border p-2 align-top">
+                            <div className="font-medium">{t.title}</div>
+                            <div className="text-xs text-gray-500">
+                              Benodigd: {minutesToHoursInput(t.estimated_minutes) || "—"}u
+                            </div>
+                          </td>
 
-            return (
-              <tr key={t.id}>
-                <td className="border p-2 align-top">
-                  <div className="font-medium">{t.title}</div>
-                  <div className="text-xs text-gray-500">
-                    Benodigd: {minutesToHoursInput(t.estimated_minutes) || "—"}u
-                  </div>
-                </td>
+                          <td className="border p-2 align-top">
+                            <input
+                              className="w-full border rounded-md px-2 py-1 text-sm"
+                              defaultValue={value}
+                              placeholder="0"
+                              inputMode="decimal"
+                              disabled={savingKey === key}
+                              onBlur={(e) => setCell(t, mobileDayISO, e.target.value)}
+                            />
+                          </td>
 
-                {days.map((d) => {
-                  const dISO = iso(d);
-                  const key = cellKey(t.id, dISO);
-                  const value = minutesToHoursInput(cells[key]?.minutes);
+                          <td className="border p-2 align-top">
+                            {prog === null ? (
+                              <span className="text-sm text-gray-500">—</span>
+                            ) : (
+                              <div className="text-sm">
+                                <span className="font-medium">{prog}%</span>
+                                <div className="text-xs text-gray-500">
+                                  uitgevoerd: {minutesToHoursText(exec)}
+                                </div>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
 
-                  return (
-                    <td key={dISO} className="border p-2 align-top">
-                      <input
-                        className="w-full border rounded-md px-2 py-1 text-sm"
-                        defaultValue={value}
-                        placeholder="0"
-                        inputMode="decimal"
-                        disabled={savingKey === key}
-                        onBlur={(e) => setCell(t, dISO, e.target.value)}
-                      />
-                    </td>
-                  );
-                })}
-
-                <td className="border p-2 align-top">
-                  {prog === null ? (
-                    <span className="text-sm text-gray-500">—</span>
-                  ) : (
-                    <div className="text-sm">
-                      <span className="font-medium">{prog}%</span>
-                      <div className="text-xs text-gray-500">uitgevoerd: {minutesToHoursText(exec)}</div>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </React.Fragment>
-      ))}
-
-      {/* total row */}
-      <tr>
-        <td className="border p-2 font-semibold">Totaal</td>
-        {days.map((d) => {
-          const dISO = iso(d);
-          return (
-            <td key={dISO} className="border p-2 font-semibold">
-              {minutesToHoursText(dayTotalMinutes(dISO))}
-            </td>
-          );
-        })}
-        <td className="border p-2" />
-      </tr>
-    </tbody>
-  </table>
-
-
-          <div className="mt-3 text-xs text-gray-500">
-            Tip: wijzig een cel en klik buiten het veld (onBlur) om op te slaan.
+                <tr>
+                  <td className="border p-2 font-semibold">Totaal</td>
+                  <td className="border p-2 font-semibold">
+                    {minutesToHoursText(dayTotalMinutes(mobileDayISO))}
+                  </td>
+                  <td className="border p-2" />
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
-      )}
-    </main>
-  );
-}
+
+        <div className="mt-3 text-xs text-gray-500">
+          Tip: wijzig een cel en klik buiten het veld (onBlur) om op te slaan.
+        </div>
+      </>
+    )}
+  </main>
+);}
