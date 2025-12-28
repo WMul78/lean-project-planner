@@ -266,24 +266,27 @@ export default function HoursPlannerPage() {
     setWeekStart(addDays(weekStart, -7));
   }
 
-  if (loading) {
-    return (
-      <main className="p-6 max-w-5xl mx-auto">
-        <div className="text-gray-500">Laden…</div>
-      </main>
-    );
-  }
+ // ... alle useState/useEffect ...
 
-  const grouped = useMemo(() => {
-    const g = new Map<string, { projectId: string; projectName: string; items: TodoRow[] }>();
-    for (const t of todos) {
-      const name = t.projects?.name ?? "Project";
-      const k = `${t.project_id}|${name}`;
-      if (!g.has(k)) g.set(k, { projectId: t.project_id, projectName: name, items: [] });
-      g.get(k)!.items.push(t);
-    }
-    return Array.from(g.values());
-  }, [todos]);
+const grouped = useMemo(() => {
+  const g = new Map<string, { projectId: string; projectName: string; items: TodoRow[] }>();
+  for (const t of todos) {
+    const name = t.projects?.name ?? "Project";
+    const k = `${t.project_id}|${name}`;
+    if (!g.has(k)) g.set(k, { projectId: t.project_id, projectName: name, items: [] });
+    g.get(k)!.items.push(t);
+  }
+  return Array.from(g.values());
+}, [todos]);
+
+if (loading) {
+  return (
+    <main className="p-6 max-w-5xl mx-auto">
+      <div className="text-gray-500">Laden…</div>
+    </main>
+  );
+}
+
 
   return (
     <main className="p-6 max-w-5xl mx-auto">
