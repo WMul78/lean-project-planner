@@ -6,6 +6,7 @@ import Button from "@/app/components/Button";
 import ProgressBar from "@/app/components/ProgressBar";
 import { supabase } from "@/lib/supabaseClient";
 import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appContext";
+import { badgeBase, badgeClassForStatus, badgeClassForPriority, metaBadgeClass } from "@/app/lib/badges";
 
 type Priority = "low" | "medium" | "high" | "very_high";
 type ProjectType = "standard" | "pdca" | "dmaic";
@@ -342,11 +343,14 @@ export default function ProjectDetailPage() {
 
           {project ? (
             <div className="mt-2 flex items-center gap-2 flex-wrap">
-              <span className="text-sm px-2 py-0.5 rounded-full bg-gray-100">{project.status}</span>
+              <span className={`${badgeBase} ${badgeClassForStatus(project.status)}`}>
+                {project.status}
+              </span>
 
-              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
+              <span className={`${badgeBase} ${badgeClassForPriority(project.priority)}`}>
                 prio: {project.priority ?? "medium"}
               </span>
+
 
               <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
                 type: {project.project_type ?? "standard"}
