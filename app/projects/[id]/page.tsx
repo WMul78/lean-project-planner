@@ -443,42 +443,48 @@ export default function ProjectDetailPage() {
               </div>
 
               {/* ✅ Edit velden: estimate + assignee */}
-              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
-                <div className="grid gap-1">
-                  <label className="text-xs text-gray-500">Benodigd (uren)</label>
-                  <input
-                    className="border rounded-md px-2 py-1 text-sm"
-                    defaultValue={minutesToHoursInput(t.estimated_minutes)}
-                    placeholder="bijv. 2"
-                    inputMode="decimal"
-                    disabled={!canEditTodos}
-                    onBlur={(e) => updateTodoEstimate(t.id, e.target.value)}
-                  />
-                </div>
+              <div className="mt-2 flex flex-wrap items-end gap-3">
+  {/* Benodigd uren: compact */}
+  <div className="flex flex-col">
+    <label className="text-[11px] text-gray-500 leading-none">Benodigd (u)</label>
+    <input
+      className="mt-1 w-[110px] border rounded-md px-2 py-1 text-sm"
+      defaultValue={minutesToHoursInput(t.estimated_minutes)}
+      placeholder="bijv. 2"
+      inputMode="decimal"
+      disabled={!canEditTodos}
+      onBlur={(e) => updateTodoEstimate(t.id, e.target.value)}
+    />
+  </div>
 
-                <div className="grid gap-1">
-                  <label className="text-xs text-gray-500">Toegewezen aan</label>
-                  <select
-                    className="border rounded-md px-2 py-1 text-sm"
-                    value={t.assigned_to ?? ""}
-                    disabled={!canEditTodos}
-                    onChange={(e) => updateTodoAssignee(t.id, e.target.value || null)}
-                  >
-                    <option value="">— niemand —</option>
-                    {userId ? <option value={userId}>Ik</option> : null}
-                    {members
-                      .filter((m) => m.user_id !== userId)
-                      .map((m) => (
-                        <option key={m.user_id} value={m.user_id}>
-                          {m.user_id.slice(0, 8)}
-                        </option>
-                      ))}
-                  </select>
-                  <div className="text-xs text-gray-400">
-                    (MVP: toont user-id. Later kunnen we naam/email tonen via profiles.)
-                  </div>
-                </div>
-              </div>
+  {/* Assignee: compact */}
+  <div className="flex flex-col min-w-[160px]">
+    <label className="text-[11px] text-gray-500 leading-none">Toegewezen</label>
+    <select
+      className="mt-1 border rounded-md px-2 py-1 text-sm"
+      value={t.assigned_to ?? ""}
+      disabled={!canEditTodos}
+      onChange={(e) => updateTodoAssignee(t.id, e.target.value || null)}
+    >
+      <option value="">— niemand —</option>
+      {userId ? <option value={userId}>Ik</option> : null}
+      {members
+        .filter((m) => m.user_id !== userId)
+        .map((m) => (
+          <option key={m.user_id} value={m.user_id}>
+            {m.user_id.slice(0, 8)}
+          </option>
+        ))}
+    </select>
+  </div>
+
+  {/* optioneel: klein hintje rechts */}
+  <div className="text-[11px] text-gray-400 leading-snug pb-1">
+    (later: naam/email)
+  </div>
+</div>
+
+              
             </li>
           ))}
         </ul>
