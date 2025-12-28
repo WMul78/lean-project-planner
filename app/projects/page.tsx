@@ -154,7 +154,7 @@ export default function ProjectsPage() {
       }
 
       const { data: totals, error: totalsErr } = await supabase
-        .from("project_time_totals")
+        .from("project_executed_totals")
         .select("project_id, spent_minutes")
         .in("project_id", ids);
 

@@ -173,7 +173,7 @@ export default function ProjectDetailPage() {
 
     // totals uit view
     const { data: totals, error: totalsErr } = await supabase
-      .from("project_time_totals")
+      .from("project_executed_totals")
       .select("project_id, spent_minutes")
       .eq("project_id", pid)
       .maybeSingle();
