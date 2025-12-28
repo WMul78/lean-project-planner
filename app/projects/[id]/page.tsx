@@ -9,18 +9,18 @@ import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appCon
 
 type Priority = "low" | "medium" | "high" | "very_high";
 type ProjectType = "standard" | "pdca" | "dmaic";
+type ProjectStatus = "proposed" | "active" | "done" | "archived";
 
 type Project = {
   id: string;
   name: string;
   description: string | null;
-  status: "proposed" | "active" | "done" | "archived";
+  status: ProjectStatus;
   owner_id: string | null;
   created_by: string;
 
   // nieuwe velden
   deadline: string | null; // YYYY-MM-DD
-  estimated_minutes: number | null;
   priority: Priority | null;
   project_type: ProjectType | null;
   phase: string | null;
@@ -33,14 +33,16 @@ type Todo = {
   is_done: boolean;
   inserted_at: string;
   assigned_to: string | null;
+  estimated_minutes: number | null;
 };
 
 type TimeEntry = {
   id: string;
-  project_id: string;
   todo_id: string | null;
+  project_id: string;
   user_id: string;
-  entry_date: string; // YYYY-MM-DD
+  logged_by: string | null;
+  entry_date: string;
   minutes: number;
   note: string | null;
   inserted_at: string;
@@ -52,17 +54,9 @@ function minutesToHoursText(min: number | null | undefined) {
   return `${h}u`;
 }
 
-function hoursTextToMinutes(txt: string) {
-  const clean = txt.replace(",", ".").trim();
-  if (!clean) return null;
-  const n = Number(clean);
-  if (Number.isNaN(n) || n <= 0) return null;
-  return Math.round(n * 60);
-}
-
-function calcPct(spent: number, planned: number | null) {
+function pct(executed: number, planned: number) {
   if (!planned || planned <= 0) return null;
-  return Math.min(100, Math.round((spent / planned) * 100));
+  return Math.min(100, Math.round((executed / planned) * 100));
 }
 
 export default function ProjectDetailPage() {
@@ -76,25 +70,16 @@ export default function ProjectDetailPage() {
 
   const [project, setProject] = useState<Project | null>(null);
   const [todos, setTodos] = useState<Todo[]>([]);
-  const [title, setTitle] = useState("");
+  const [newTodoTitle, setNewTodoTitle] = useState("");
 
-  // time tracking
-  const [spentMinutes, setSpentMinutes] = useState<number>(0);
+  // ✅ Stap 6: planned/executed totals (project-level)
+  const [plannedMinutes, setPlannedMinutes] = useState<number>(0);
+  const [executedMinutes, setExecutedMinutes] = useState<number>(0);
+
+  // optioneel: laatste entries tonen (handig voor debug/vertrouwen)
   const [entries, setEntries] = useState<TimeEntry[]>([]);
-  const [timeLoading, setTimeLoading] = useState(false);
-  const [timeSaving, setTimeSaving] = useState(false);
+  const [entriesLoading, setEntriesLoading] = useState(false);
 
-  const [entryDate, setEntryDate] = useState<string>(() => {
-    const d = new Date();
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}`;
-  });
-  const [entryHours, setEntryHours] = useState<string>("");
-  const [entryNote, setEntryNote] = useState<string>("");
-
-  // ✅ Rechten voor PROJECT bewerken (incl. stakeholder proposal)
   const canEditProject = useMemo(() => {
     if (!userId || !project) return false;
 
@@ -105,7 +90,7 @@ export default function ProjectDetailPage() {
       return projectMemberRole === "owner" || projectMemberRole === "editor";
     }
 
-    // stakeholder: alleen eigen proposal bewerken (MVP)
+    // stakeholder: alleen eigen proposal (MVP)
     if (workspaceRole === "stakeholder") {
       return project.status === "proposed" && project.created_by === userId;
     }
@@ -113,9 +98,9 @@ export default function ProjectDetailPage() {
     return false;
   }, [workspaceRole, project, userId, projectMemberRole]);
 
-  // ✅ Rechten voor TODOS (zoals je huidige code: stakeholder nooit)
   const canEditTodos = useMemo(() => {
     if (!userId || !project) return false;
+
     if (workspaceRole === "owner" || workspaceRole === "admin") return true;
 
     if (workspaceRole === "member") {
@@ -123,11 +108,11 @@ export default function ProjectDetailPage() {
       return projectMemberRole === "owner" || projectMemberRole === "editor";
     }
 
-    // stakeholder: nooit todos editten
+    // stakeholder: geen todo edits
     return false;
   }, [workspaceRole, project, userId, projectMemberRole]);
 
-  async function loadAll() {
+  async function loadProjectAndTodos() {
     const user = await requireUser(router);
     if (!user) return;
     setUserId(user.id);
@@ -135,17 +120,22 @@ export default function ProjectDetailPage() {
     const ws = await getActiveWorkspace();
     if (ws) setWorkspaceRole(ws.role);
 
+    // project
     const { data: proj, error: projErr } = await supabase
       .from("projects")
-      .select(
-        "id,name,description,status,owner_id,created_by,deadline,estimated_minutes,priority,project_type,phase,location_link"
-      )
+      .select("id,name,description,status,owner_id,created_by,deadline,priority,project_type,phase,location_link")
       .eq("id", projectId)
       .single();
 
-    if (projErr) return alert(projErr.message);
+    if (projErr) {
+      alert(projErr.message);
+      router.push("/projects");
+      return;
+    }
+
     setProject(proj as any);
 
+    // membership role (samenwerking)
     const { data: pm } = await supabase
       .from("project_members")
       .select("role")
@@ -155,153 +145,123 @@ export default function ProjectDetailPage() {
 
     setProjectMemberRole((pm as any)?.role ?? null);
 
+    // todos + estimated_minutes
     const { data: td, error: tdErr } = await supabase
       .from("todos")
-      .select("id,title,is_done,inserted_at,assigned_to")
+      .select("id,title,is_done,inserted_at,assigned_to,estimated_minutes")
       .eq("project_id", projectId)
       .order("inserted_at", { ascending: false });
 
-    if (tdErr) return alert(tdErr.message);
+    if (tdErr) {
+      alert(tdErr.message);
+      return;
+    }
     setTodos((td as any) ?? []);
-
-    // time data (best effort)
-    await loadTimeData(projectId);
   }
 
-  async function loadTimeData(pid: string) {
-    setTimeLoading(true);
-
-    // totals uit view
-    const { data: totals, error: totalsErr } = await supabase
-      .from("project_executed_totals")
-      .select("project_id, spent_minutes")
+  async function loadTotals(pid: string) {
+    // planned = sum todos.estimated_minutes
+    const { data: plan, error: planErr } = await supabase
+      .from("project_planned_totals")
+      .select("planned_minutes")
       .eq("project_id", pid)
       .maybeSingle();
 
-    if (totalsErr) {
-      console.error("Load totals error:", totalsErr);
-      // niet hard falen
-    }
-    setSpentMinutes((totals as any)?.spent_minutes ?? 0);
+    if (planErr) console.error("Load planned totals error:", planErr);
+    setPlannedMinutes((plan as any)?.planned_minutes ?? 0);
 
-    // laatste 10 entries
-    const { data: e, error: eErr } = await supabase
+    // executed = sum time_entries.minutes where entry_date <= today
+    const { data: exec, error: execErr } = await supabase
+      .from("project_executed_totals")
+      .select("executed_minutes")
+      .eq("project_id", pid)
+      .maybeSingle();
+
+    if (execErr) console.error("Load executed totals error:", execErr);
+    setExecutedMinutes((exec as any)?.executed_minutes ?? 0);
+  }
+
+  async function loadRecentEntries(pid: string) {
+    setEntriesLoading(true);
+
+    const { data, error } = await supabase
       .from("time_entries")
-      .select("id, project_id, todo_id, user_id, entry_date, minutes, note, inserted_at")
+      .select("id,todo_id,project_id,user_id,logged_by,entry_date,minutes,note,inserted_at")
       .eq("project_id", pid)
       .order("inserted_at", { ascending: false })
       .limit(10);
 
-    if (eErr) {
-      console.error("Load entries error:", eErr);
+    if (error) {
+      console.error("Load entries error:", error);
       setEntries([]);
     } else {
-      setEntries((e as TimeEntry[]) ?? []);
+      setEntries((data as TimeEntry[]) ?? []);
     }
 
-    setTimeLoading(false);
+    setEntriesLoading(false);
   }
 
   useEffect(() => {
-    loadAll();
+    loadProjectAndTodos();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Zodra project is geladen: totals (stap 6)
+  useEffect(() => {
+    if (!project?.id) return;
+    loadTotals(project.id);
+    loadRecentEntries(project.id); // optioneel
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id]);
+
+  async function refreshAll() {
+    await loadProjectAndTodos();
+    if (project?.id) {
+      await loadTotals(project.id);
+      await loadRecentEntries(project.id);
+    }
+  }
+
+  // CRUD todos
   async function addTodo(e: React.FormEvent) {
     e.preventDefault();
     if (!canEditTodos) return;
 
-    const clean = title.trim();
+    const clean = newTodoTitle.trim();
     if (!clean) return;
 
     const { error } = await supabase.from("todos").insert({
       title: clean,
       project_id: projectId,
       assigned_to: null,
+      estimated_minutes: null, // kun je later in UI laten invullen
     });
 
     if (error) return alert("Geen rechten of fout: " + error.message);
 
-    setTitle("");
-    loadAll();
+    setNewTodoTitle("");
+    await refreshAll();
   }
 
   async function toggleDone(todo: Todo) {
     if (!canEditTodos) return;
 
-    const { error } = await supabase
-      .from("todos")
-      .update({ is_done: !todo.is_done })
-      .eq("id", todo.id);
+    const { error } = await supabase.from("todos").update({ is_done: !todo.is_done }).eq("id", todo.id);
+    if (error) return alert("Geen rechten of fout: " + error.message);
 
-    if (error) alert("Geen rechten of fout: " + error.message);
-    loadAll();
+    await refreshAll();
   }
 
   async function removeTodo(todo: Todo) {
     if (!canEditTodos) return;
 
     const { error } = await supabase.from("todos").delete().eq("id", todo.id);
-    if (error) alert("Geen rechten of fout: " + error.message);
-    loadAll();
+    if (error) return alert("Geen rechten of fout: " + error.message);
+
+    await refreshAll();
   }
 
-  async function addTimeEntry() {
-    if (!project) return;
-    if (timeSaving) return;
-
-    const minutes = hoursTextToMinutes(entryHours);
-    if (!minutes) return alert("Vul geldige uren in (bijv. 1.5).");
-
-    const ws = await getActiveWorkspace();
-    if (!ws?.workspaceId) return alert("Geen workspace gevonden.");
-
-    const { data: authData } = await supabase.auth.getUser();
-    const uid = authData.user?.id;
-    if (!uid) return alert("Niet ingelogd.");
-
-    setTimeSaving(true);
-
-    const { error } = await supabase.from("time_entries").insert({
-      workspace_id: ws.workspaceId,
-      project_id: project.id,
-      todo_id: null, // MVP: later kun je dit koppelen aan een todo
-      user_id: uid,
-      entry_date: entryDate,
-      minutes,
-      note: entryNote.trim() || null,
-    });
-
-    setTimeSaving(false);
-
-    if (error) {
-      console.error("Insert time entry error:", error);
-      alert(error.message);
-      return;
-    }
-
-    setEntryHours("");
-    setEntryNote("");
-    await loadTimeData(project.id);
-  }
-
-  async function deleteEntry(entryId: string) {
-    const ok = confirm("Tijdregistratie verwijderen?");
-    if (!ok) return;
-
-    const { error } = await supabase.from("time_entries").delete().eq("id", entryId);
-
-    if (error) {
-      console.error("Delete time entry error:", error);
-      alert(error.message);
-      return;
-    }
-
-    if (project?.id) await loadTimeData(project.id);
-  }
-
-  const projectTypeLabel = project?.project_type ?? "standard";
-  const priorityLabel = project?.priority ?? "medium";
+  const progress = useMemo(() => pct(executedMinutes, plannedMinutes), [executedMinutes, plannedMinutes]);
 
   return (
     <main className="p-6 max-w-3xl mx-auto">
@@ -310,235 +270,170 @@ export default function ProjectDetailPage() {
           ← Terug
         </Button>
 
-        <div className="text-sm text-gray-500">
-          Workspace rol: {workspaceRole} {projectMemberRole ? `• Project rol: ${projectMemberRole}` : ""}
-        </div>
-      </div>
-
-      <div className="mt-4 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold truncate">{project?.name ?? "Project"}</h1>
-          {project?.description ? <p className="text-gray-600 mt-1">{project.description}</p> : null}
-
-          {project ? (
-            <div className="mt-2 flex items-center gap-2 flex-wrap">
-              <span className="text-sm px-2 py-0.5 rounded-full bg-gray-100">{project.status}</span>
-
-              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                prio: {priorityLabel}
-              </span>
-
-              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                type: {projectTypeLabel}
-              </span>
-
-              {project.deadline ? (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                  deadline: {project.deadline}
-                </span>
-              ) : null}
-
-              {project.phase ? (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                  fase: {project.phase}
-                </span>
-              ) : null}
-
-              {!canEditProject ? <span className="text-sm text-gray-500">Alleen-lezen</span> : null}
-            </div>
-          ) : null}
-
-          {project?.location_link ? (
-            <div className="mt-2 text-sm">
-              <span className="text-gray-500">Locatie:</span>{" "}
-              <a
-                className="text-blue-600 underline break-all"
-                href={project.location_link}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {project.location_link}
-              </a>
-            </div>
-          ) : null}
-
-          {project ? (
-            <div className="mt-2 text-sm text-gray-600">
-              Planning: <span className="font-medium">{minutesToHoursText(project.estimated_minutes)}</span>
-            </div>
-          ) : null}
-        </div>
-
-        <div className="shrink-0 flex flex-col gap-2">
-          {canEditProject ? (
-            <Button variant="outline" onClick={() => router.push(`/projects/${projectId}/edit`)}>
-              Project bewerken
-            </Button>
-          ) : null}
-
-          <Button variant="outline" onClick={() => router.push(`/today`)}>
-            Vandaag →
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => router.push("/hours")}>
+            Uren plannen →
+          </Button>
+          <Button variant="outline" onClick={refreshAll}>
+            Verversen
           </Button>
         </div>
       </div>
 
-      {/* TODOS */}
-      {canEditTodos ? (
-        <form onSubmit={addTodo} className="flex gap-2 mt-6">
-          <input
-            className="flex-1 border rounded-md px-3 py-2"
-            placeholder="Nieuwe taak..."
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-          <Button type="submit">Toevoegen</Button>
-        </form>
-      ) : (
-        <div className="mt-6 text-sm text-gray-600">
-          Je kunt taken niet aanpassen in dit project (geen edit-rechten).
-        </div>
-      )}
+      <div className="mt-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold truncate">{project?.name ?? "Project"}</h1>
+            {project?.description ? <p className="text-gray-600 mt-1">{project.description}</p> : null}
 
-      <ul className="mt-4 grid gap-2">
-        {todos.map((t) => (
-          <li key={t.id} className="border rounded-lg p-3 flex justify-between items-center gap-3">
-            <label className="flex gap-3 items-center flex-1">
-              <input
-                type="checkbox"
-                checked={t.is_done}
-                onChange={() => toggleDone(t)}
-                disabled={!canEditTodos}
-              />
-              <span className={t.is_done ? "line-through text-gray-500" : ""}>{t.title}</span>
-            </label>
-            {canEditTodos ? (
-              <Button variant="danger" onClick={() => removeTodo(t)}>
-                Verwijder
-              </Button>
+            {project ? (
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <span className="text-sm px-2 py-0.5 rounded-full bg-gray-100">{project.status}</span>
+
+                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
+                  prio: {project.priority ?? "medium"}
+                </span>
+
+                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
+                  type: {project.project_type ?? "standard"}
+                </span>
+
+                {project.deadline ? (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
+                    deadline: {project.deadline}
+                  </span>
+                ) : null}
+
+                {project.phase ? (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
+                    fase: {project.phase}
+                  </span>
+                ) : null}
+
+                {!canEditProject ? <span className="text-sm text-gray-500">Alleen-lezen</span> : null}
+              </div>
             ) : null}
-          </li>
-        ))}
-      </ul>
 
-      {/* TIME + PROGRESS */}
-      <section className="mt-8 border rounded-lg p-4">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">Voortgang & tijd</h2>
-          <Button
-            variant="outline"
-            onClick={() => project?.id && loadTimeData(project.id)}
-            disabled={timeLoading}
-          >
-            {timeLoading ? "Verversen…" : "Verversen"}
-          </Button>
+            {project?.location_link ? (
+              <div className="mt-2 text-sm">
+                <span className="text-gray-500">Locatie:</span>{" "}
+                <a className="text-blue-600 underline break-all" href={project.location_link} target="_blank" rel="noreferrer">
+                  {project.location_link}
+                </a>
+              </div>
+            ) : null}
+          </div>
+
+          {canEditProject ? (
+            <div className="shrink-0">
+              <Button variant="outline" onClick={() => router.push(`/projects/${projectId}/edit`)}>
+                Project bewerken
+              </Button>
+            </div>
+          ) : null}
         </div>
+      </div>
 
-        {project?.estimated_minutes ? (
+      {/* ✅ Stap 6: Project voortgang = executed/planned (tasks) */}
+      <section className="mt-6 border rounded-lg p-4">
+        <h2 className="text-lg font-semibold">Voortgang</h2>
+
+        {plannedMinutes > 0 ? (
           <div className="mt-3">
-            {(() => {
-              const planned = project.estimated_minutes ?? 0;
-              const pct = calcPct(spentMinutes, planned) ?? 0;
-
-              return (
-                <>
-                  <ProgressBar
-                    value={pct}
-                    label={`${minutesToHoursText(spentMinutes)} / ${minutesToHoursText(planned)} (${pct}%)`}
-                  />
-                  <div className="text-xs text-gray-500 mt-2">
-                    Spent = totaal gelogde tijd. Planned = estimated_minutes van het project.
-                  </div>
-                </>
-              );
-            })()}
+            <ProgressBar
+              value={progress ?? 0}
+              label={`${minutesToHoursText(executedMinutes)} / ${minutesToHoursText(plannedMinutes)} (${progress ?? 0}%)`}
+            />
+            <div className="mt-2 text-xs text-gray-500">
+              *Uitgevoerd* telt alleen uren met datum t/m vandaag. Uren in de toekomst zijn alleen planning.
+            </div>
           </div>
         ) : (
           <div className="mt-3 text-sm text-gray-600">
-            Nog geen planning (estimated time) ingevuld voor dit project.
+            Nog geen taak-ramingen ingevuld (planned = 0). Vul per taak de benodigde tijd in.
+          </div>
+        )}
+      </section>
+
+      {/* TODOS */}
+      <section className="mt-6">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">Taken</h2>
+
+          <div className="text-sm text-gray-500">
+            Workspace rol: {workspaceRole} {projectMemberRole ? `• Project rol: ${projectMemberRole}` : ""}
+          </div>
+        </div>
+
+        {canEditTodos ? (
+          <form onSubmit={addTodo} className="flex gap-2 mt-3">
+            <input
+              className="flex-1 border rounded-md px-3 py-2"
+              placeholder="Nieuwe taak..."
+              value={newTodoTitle}
+              onChange={(e) => setNewTodoTitle(e.target.value)}
+            />
+            <Button type="submit">Toevoegen</Button>
+          </form>
+        ) : (
+          <div className="mt-3 text-sm text-gray-600">
+            Je kunt taken niet aanpassen in dit project (geen edit-rechten).
           </div>
         )}
 
-        <div className="mt-6 grid gap-3">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="grid gap-1">
-              <label className="text-sm font-medium">Datum</label>
-              <input
-                type="date"
-                className="border rounded-md px-3 py-2"
-                value={entryDate}
-                onChange={(e) => setEntryDate(e.target.value)}
-                disabled={timeSaving}
-              />
-            </div>
+        <ul className="mt-4 grid gap-2">
+          {todos.map((t) => (
+            <li key={t.id} className="border rounded-lg p-3 flex justify-between items-center gap-3">
+              <label className="flex gap-3 items-center flex-1 min-w-0">
+                <input type="checkbox" checked={t.is_done} onChange={() => toggleDone(t)} disabled={!canEditTodos} />
+                <div className="min-w-0">
+                  <div className={t.is_done ? "line-through text-gray-500" : ""}>{t.title}</div>
+                  <div className="text-xs text-gray-500">
+                    Benodigd: {t.estimated_minutes ? minutesToHoursText(t.estimated_minutes) : "—"} • Assignee:{" "}
+                    {t.assigned_to ? "yes" : "—"}
+                  </div>
+                </div>
+              </label>
 
-            <div className="grid gap-1">
-              <label className="text-sm font-medium">Uren</label>
-              <input
-                className="border rounded-md px-3 py-2"
-                value={entryHours}
-                onChange={(e) => setEntryHours(e.target.value)}
-                placeholder="bijv. 1.5"
-                inputMode="decimal"
-                disabled={timeSaving}
-              />
-              <div className="text-xs text-gray-500">Wordt opgeslagen als minuten.</div>
-            </div>
+              {canEditTodos ? (
+                <Button variant="danger" onClick={() => removeTodo(t)}>
+                  Verwijder
+                </Button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </section>
 
-            <div className="grid gap-1">
-              <label className="text-sm font-medium">Actie</label>
-              <Button onClick={addTimeEntry} disabled={timeSaving}>
-                {timeSaving ? "Opslaan…" : "Log tijd"}
-              </Button>
-            </div>
-          </div>
-
-          <div className="grid gap-1">
-            <label className="text-sm font-medium">Notitie (optioneel)</label>
-            <input
-              className="border rounded-md px-3 py-2"
-              value={entryNote}
-              onChange={(e) => setEntryNote(e.target.value)}
-              placeholder="Bijv. analyse gedaan / meeting / etc."
-              disabled={timeSaving}
-            />
-          </div>
+      {/* Optioneel: laatste time entries (handig bij testen) */}
+      <section className="mt-8 border rounded-lg p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Laatste planning/registraties</h2>
+          <Button variant="outline" onClick={() => project?.id && loadRecentEntries(project.id)} disabled={entriesLoading}>
+            {entriesLoading ? "Laden…" : "Verversen"}
+          </Button>
         </div>
 
-        <div className="mt-6">
-          <h3 className="font-medium">Laatste registraties</h3>
-
-          {timeLoading ? (
-            <div className="mt-3 text-sm text-gray-500">Laden…</div>
-          ) : entries.length === 0 ? (
-            <div className="mt-3 text-sm text-gray-600">Nog geen registraties.</div>
-          ) : (
-            <ul className="mt-3 grid gap-2">
-              {entries.map((en) => (
-                <li key={en.id} className="border rounded-md p-3 flex justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm">
-                      <span className="font-medium">{en.entry_date}</span>{" "}
-                      <span className="text-gray-600">• {minutesToHoursText(en.minutes)}</span>
-                    </div>
-                    {en.note ? (
-                      <div className="text-sm text-gray-600 mt-1 break-words">{en.note}</div>
-                    ) : null}
-                    <div className="text-xs text-gray-400 mt-1">
-                      {new Date(en.inserted_at).toLocaleString()}
-                    </div>
-                  </div>
-
-                  <div className="shrink-0">
-                    {/* RLS vangt af dat je alleen eigen entries mag deleten */}
-                    <Button variant="danger" onClick={() => deleteEntry(en.id)}>
-                      Verwijder
-                    </Button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        {entriesLoading ? (
+          <div className="mt-3 text-sm text-gray-500">Laden…</div>
+        ) : entries.length === 0 ? (
+          <div className="mt-3 text-sm text-gray-600">Nog geen entries.</div>
+        ) : (
+          <ul className="mt-3 grid gap-2">
+            {entries.map((e) => (
+              <li key={e.id} className="border rounded-md p-3">
+                <div className="text-sm">
+                  <span className="font-medium">{e.entry_date}</span> • {minutesToHoursText(e.minutes)}
+                  {e.todo_id ? <span className="text-gray-600"> • taak: {e.todo_id}</span> : null}
+                </div>
+                {e.note ? <div className="text-sm text-gray-600 mt-1">{e.note}</div> : null}
+                <div className="text-xs text-gray-400 mt-1">
+                  user_id: {e.user_id} • logged_by: {e.logged_by ?? "—"}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </main>
   );
