@@ -427,7 +427,9 @@ export default function ProjectDetailPage() {
                     disabled={!canEditTodos}
                   />
                   <div className="min-w-0">
-                    <div className={t.is_done ? "line-through text-gray-500" : ""}>{t.title}</div>
+                    <div className={`font-medium ${t.is_done ? "line-through text-gray-500" : ""}`}>
+                         {t.title}
+                    </div>
                     <div className="text-xs text-gray-500">
                       Benodigd: {t.estimated_minutes ? minutesToHoursText(t.estimated_minutes) : "—"} •{" "}
                       Toegewezen: {t.assigned_to ? t.assigned_to.slice(0, 8) : "—"}
