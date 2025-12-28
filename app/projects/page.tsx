@@ -218,13 +218,7 @@ export default function ProjectsPage() {
         <WorkspaceSwitcher />
       </div>
 
-      <div className="text-sm text-gray-500">Rol: {role}</div>
-
-      {workspaceId ? (
-        <div className="text-xs text-gray-400 mt-1">
-          Workspace: <span className="font-mono">{workspaceId}</span>
-        </div>
-      ) : null}
+      
     </div>
 
     {/* Rechterkant: primaire actie + menu */}
