@@ -57,6 +57,11 @@ export default function ProjectsKanbanPage() {
   const [role, setRole] = useState<WorkspaceRole>("member");
 
   const [projects, setProjects] = useState<ProjectRow[]>([]);
+  const projectsRef = useRef<ProjectRow[]>([]);
+  useEffect(() => {
+    projectsRef.current = projects;
+  }, [projects]);
+
   const [plannedByProject, setPlannedByProject] = useState<Record<string, number>>({});
   const [executedByProject, setExecutedByProject] = useState<Record<string, number>>({});
 
@@ -67,6 +72,10 @@ export default function ProjectsKanbanPage() {
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Drag & drop state
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverStatus, setDragOverStatus] = useState<ProjectStatus | null>(null);
 
   // voorkomt race conditions: alleen laatste load mag state zetten
   const loadSeq = useRef(0);
@@ -107,7 +116,9 @@ export default function ProjectsKanbanPage() {
       // 1) Projects
       const { data: pr, error: prErr } = await supabase
         .from("projects")
-        .select("id,workspace_id,name,description,status,priority,project_type,deadline,owner_id,created_by,inserted_at")
+        .select(
+          "id,workspace_id,name,description,status,priority,project_type,deadline,owner_id,created_by,inserted_at"
+        )
         .eq("workspace_id", ws.workspaceId)
         .order("inserted_at", { ascending: false });
 
@@ -208,8 +219,8 @@ export default function ProjectsKanbanPage() {
         filterOwner === "all"
           ? true
           : filterOwner === "none"
-            ? p.owner_id === null
-            : p.owner_id === filterOwner;
+          ? p.owner_id === null
+          : p.owner_id === filterOwner;
 
       return prioOk && ownerOk;
     });
@@ -225,6 +236,22 @@ export default function ProjectsKanbanPage() {
     for (const p of filteredProjects) m[p.status].push(p);
     return m;
   }, [filteredProjects]);
+
+  async function updateProjectStatus(projectId: string, nextStatus: ProjectStatus) {
+    const prev = projectsRef.current;
+
+    // Optimistic UI
+    setProjects((cur) => cur.map((p) => (p.id === projectId ? { ...p, status: nextStatus } : p)));
+
+    const { error } = await supabase.from("projects").update({ status: nextStatus }).eq("id", projectId);
+
+    if (error) {
+      console.error(error);
+      alert(error.message);
+      // rollback
+      setProjects(prev);
+    }
+  }
 
   if (loading) {
     return (
@@ -308,9 +335,37 @@ export default function ProjectsKanbanPage() {
       {/* Kanban */}
       <section className="mt-6">
         <div className="overflow-x-auto pb-2">
-          <div className="min-w-[960px] grid grid-cols-[repeat(4,260px)] gap-4">
+          {/* Fixed column widths so cards never overflow columns */}
+          <div className="min-w-[1080px] grid grid-cols-[repeat(4,260px)] gap-4">
             {STATUS_COLUMNS.map((col) => (
-              <div key={col.key} className="rounded-lg border bg-gray-50">
+              <div
+                key={col.key}
+                className={[
+                  "rounded-lg border bg-gray-50 transition-colors",
+                  dragOverStatus === col.key ? "ring-2 ring-blue-400 bg-blue-50/30" : "",
+                ].join(" ")}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOverStatus(col.key);
+                }}
+                onDragLeave={() => {
+                  setDragOverStatus((s) => (s === col.key ? null : s));
+                }}
+                onDrop={async (e) => {
+                  e.preventDefault();
+                  const pid = e.dataTransfer.getData("text/plain");
+                  setDragOverStatus(null);
+                  setDraggingId(null);
+
+                  if (!pid) return;
+
+                  const p = projectsRef.current.find((x) => x.id === pid);
+                  if (!p) return;
+                  if (p.status === col.key) return;
+
+                  await updateProjectStatus(pid, col.key);
+                }}
+              >
                 <div className="px-3 py-2 border-b bg-white rounded-t-lg flex items-center justify-between">
                   <div className="font-semibold">{col.label}</div>
                   <div className="text-xs text-gray-500">{byStatus[col.key].length}</div>
@@ -333,8 +388,22 @@ export default function ProjectsKanbanPage() {
                       return (
                         <div
                           key={p.id}
-                          className="rounded-lg border bg-white p-3 shadow-sm hover:shadow transition-shadow
-             w-full max-w-full overflow-hidden"
+                          draggable
+                          style={{ cursor: "grab" }}
+                          onDragStart={(e) => {
+                            setDraggingId(p.id);
+                            e.dataTransfer.setData("text/plain", p.id);
+                            e.dataTransfer.effectAllowed = "move";
+                          }}
+                          onDragEnd={() => {
+                            setDraggingId(null);
+                            setDragOverStatus(null);
+                          }}
+                          className={[
+                            "rounded-lg border bg-white p-3 shadow-sm hover:shadow transition-shadow",
+                            "w-full max-w-full overflow-hidden",
+                            draggingId === p.id ? "opacity-60 ring-2 ring-blue-400" : "",
+                          ].join(" ")}
                         >
                           <div className="flex items-start justify-between gap-2 min-w-0">
                             <div className="min-w-0">
@@ -350,7 +419,7 @@ export default function ProjectsKanbanPage() {
                               variant="outline"
                               className="shrink-0"
                               onClick={() => router.push(`/projects/${p.id}`)}
-                              >
+                            >
                               Open
                             </Button>
                           </div>
@@ -371,6 +440,22 @@ export default function ProjectsKanbanPage() {
                             ) : null}
                           </div>
 
+                          {/* Mobile fallback: status dropdown (iOS DnD is inconsistent) */}
+                          <div className="mt-2 md:hidden">
+                            <label className="text-[11px] text-gray-500">Status</label>
+                            <select
+                              className="mt-1 w-full border rounded-md px-2 py-1 text-sm"
+                              value={p.status}
+                              onChange={(e) => updateProjectStatus(p.id, e.target.value as ProjectStatus)}
+                            >
+                              {STATUS_COLUMNS.map((c) => (
+                                <option key={c.key} value={c.key}>
+                                  {c.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
                           <div className="mt-3">
                             {planned > 0 ? (
                               <>
@@ -378,9 +463,7 @@ export default function ProjectsKanbanPage() {
                                   value={percent}
                                   label={`${minutesToHoursText(executed)} / ${minutesToHoursText(planned)} (${percent}%)`}
                                 />
-                                <div className="mt-1 text-[11px] text-gray-500">
-                                  owner: {ownerLabel}
-                                </div>
+                                <div className="mt-1 text-[11px] text-gray-500">owner: {ownerLabel}</div>
                               </>
                             ) : (
                               <div className="text-sm text-gray-500">
@@ -388,6 +471,10 @@ export default function ProjectsKanbanPage() {
                                 <div className="text-[11px] text-gray-400 mt-1">owner: {ownerLabel}</div>
                               </div>
                             )}
+                          </div>
+
+                          <div className="mt-2 text-[11px] text-gray-400 hidden md:block">
+                            Sleep deze kaart naar een andere kolom om de status te wijzigen.
                           </div>
                         </div>
                       );
@@ -400,7 +487,7 @@ export default function ProjectsKanbanPage() {
         </div>
 
         <div className="mt-2 text-xs text-gray-500">
-          Tip: later kunnen we drag & drop toevoegen om de status te wijzigen.
+          Drag & drop wijzigt de project status. Op mobiel kun je ook via het status dropdown menu wisselen.
         </div>
       </section>
     </main>
