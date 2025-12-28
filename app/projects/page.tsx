@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appContext";
 import WorkspaceSwitcher from "@/app/components/WorkspaceSwitcher";
 import ActionsMenu from "@/app/components/ActionsMenu";
+import { badgeBase, badgeClassForStatus, badgeClassForPriority } from "@/app/lib/badges";
 
 type Priority = "low" | "medium" | "high" | "very_high";
 type ProjectType = "standard" | "pdca" | "dmaic";
@@ -28,35 +29,7 @@ type Project = {
   project_type: ProjectType | null;
 };
 
-function badgeClassForStatus(status: ProjectStatus) {
-  switch (status) {
-    case "proposed":
-      return "bg-yellow-100 text-yellow-800";
-    case "active":
-      return "bg-blue-100 text-blue-800";
-    case "done":
-      return "bg-green-100 text-green-800";
-    case "archived":
-      return "bg-gray-100 text-gray-700";
-    default:
-      return "bg-gray-100 text-gray-700";
-  }
-}
 
-function badgeClassForPriority(priority: Priority | null | undefined) {
-  switch (priority) {
-    case "low":
-      return "bg-gray-100 text-gray-700";
-    case "medium":
-      return "bg-blue-100 text-blue-800";
-    case "high":
-      return "bg-orange-100 text-orange-800";
-    case "very_high":
-      return "bg-red-100 text-red-800";
-    default:
-      return "bg-gray-100 text-gray-700";
-  }
-}
 
 function labelProjectType(t: ProjectType | null | undefined) {
   return t ?? "standard";

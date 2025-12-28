@@ -7,6 +7,7 @@ import ProgressBar from "@/app/components/ProgressBar";
 import WorkspaceSwitcher from "@/app/components/WorkspaceSwitcher";
 import { supabase } from "@/lib/supabaseClient";
 import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appContext";
+import { statusBadgeClass, priorityBadgeClass, metaBadgeClass } from "@/app/lib/badges";
 
 type ProjectStatus = "proposed" | "active" | "done" | "archived";
 type Priority = "low" | "medium" | "high" | "very_high";
@@ -425,20 +426,21 @@ export default function ProjectsKanbanPage() {
                           </div>
 
                           <div className="mt-2 flex flex-wrap gap-2">
-                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
+                            <span className={statusBadgeClass(p.status)}>{p.status}</span>
+
+                            <span className={priorityBadgeClass(p.priority)}>
                               prio: {p.priority ?? "medium"}
                             </span>
-                            {p.project_type ? (
-                              <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                                type: {p.project_type}
-                              </span>
-                            ) : null}
-                            {p.deadline ? (
-                              <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                                deadline: {p.deadline}
-                              </span>
-                            ) : null}
+
+                              {p.project_type ? (
+                                <span className={metaBadgeClass()}>type: {p.project_type}</span>
+                              ) : null}
+
+                              {p.deadline ? (
+                                <span className={metaBadgeClass()}>deadline: {p.deadline}</span>
+                              ) : null}
                           </div>
+
 
                           {/* Mobile fallback: status dropdown (iOS DnD is inconsistent) */}
                           <div className="mt-2 md:hidden">
