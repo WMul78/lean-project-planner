@@ -13,8 +13,10 @@ type TodoRow = {
   title: string;
   assigned_to: string | null;
   estimated_minutes: number | null;
+  is_done: boolean; // 👈 nieuw
   projects: { name: string } | null;
 };
+
 
 type EntryCell = {
   id: string;
@@ -116,11 +118,13 @@ export default function HoursPlannerPage() {
 
     // 1) mijn taken (assigned_to = ik)
     const { data: td, error: tdErr } = await supabase
-      .from("todos")
-      .select("id,project_id,title,assigned_to,estimated_minutes,projects(name)")
-      .eq("assigned_to", user.id)
-      .order("project_id", { ascending: true })
-      .order("inserted_at", { ascending: false });
+    .from("todos")
+    .select("id,project_id,title,assigned_to,estimated_minutes,is_done,projects(name)")
+    .eq("assigned_to", user.id)
+    .eq("is_done", false) // 👈 alleen open taken
+    .order("project_id", { ascending: true })
+    .order("inserted_at", { ascending: false });
+
 
     if (tdErr) {
       console.error(tdErr);
