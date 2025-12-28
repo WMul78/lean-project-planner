@@ -13,6 +13,7 @@ type ProjectStatus = "proposed" | "active" | "done" | "archived";
 type Priority = "low" | "medium" | "high" | "very_high";
 type ViewMode = "projects" | "todos" | "both";
 type SortMode = "priority_desc" | "newest";
+type TaskStatus = "todo" | "doing" | "blocked" | "done";
 
 type ProjectRow = {
   id: string;
@@ -32,7 +33,7 @@ type TodoRow = {
   id: string;
   project_id: string;
   title: string;
-  is_done: boolean;
+  status: TaskStatus;
   assigned_to: string | null;
   estimated_minutes: number | null;
   inserted_at: string;
@@ -227,9 +228,9 @@ export default function ProjectsKanbanPage() {
       // 4) Todos (geen workspace_id, dus via project_id IN ids)
       const { data: td, error: tdErr } = await supabase
         .from("todos")
-        .select("id,project_id,title,is_done,assigned_to,estimated_minutes,inserted_at")
+        .select("id,project_id,title,status,assigned_to,estimated_minutes,inserted_at")
         .in("project_id", ids)
-        .eq("is_done", false)
+        .neq("status", "done")
         .order("inserted_at", { ascending: false });
 
       if (seq !== loadSeq.current) return;
@@ -451,6 +452,12 @@ export default function ProjectsKanbanPage() {
     return (
       <div className="rounded-md border bg-white px-3 py-2 w-full max-w-full overflow-hidden">
         <div className="font-medium text-sm truncate">{t.title}</div>
+        <div className="flex items-center justify-between gap-2">
+          <span className={statusBadgeClass(t.status)}>
+            {t.status}
+          </span>
+        </div>
+
         <div className="mt-1 text-[11px] text-gray-500">
           {t.estimated_minutes ? `raming: ${minutesToHoursText(t.estimated_minutes)}` : "geen raming"}
         </div>

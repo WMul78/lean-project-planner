@@ -34,6 +34,26 @@ export function badgeClassForPriority(priority: string | null | undefined) {
   }
 }
 
+export function badgeClassForTaskStatus(status: string) {
+  switch (status) {
+    case "todo":
+      return "bg-gray-100 text-gray-700";
+    case "doing":
+      return "bg-blue-100 text-blue-800";
+    case "blocked":
+      return "bg-red-100 text-red-800";
+    case "done":
+      return "bg-green-100 text-green-800";
+    default:
+      return "bg-gray-100 text-gray-700";
+  }
+}
+
+export function taskStatusBadgeClass(status: string) {
+  return `${badgeBase} ${badgeClassForTaskStatus(status)}`;
+}
+
+
 // Handige helpers: direct "base + kleur"
 export function statusBadgeClass(status: string) {
   return `${badgeBase} ${badgeClassForStatus(status)}`;
