@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
 import { useParams, useRouter } from "next/navigation";
 import Button from "@/app/components/Button";
 import ProgressBar from "@/app/components/ProgressBar";
+import { supabase } from "@/lib/supabaseClient";
 import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appContext";
 
 type Priority = "low" | "medium" | "high" | "very_high";
@@ -19,7 +19,6 @@ type Project = {
   owner_id: string | null;
   created_by: string;
 
-  // nieuwe velden
   deadline: string | null; // YYYY-MM-DD
   priority: Priority | null;
   project_type: ProjectType | null;
@@ -36,25 +35,27 @@ type Todo = {
   estimated_minutes: number | null;
 };
 
-type TimeEntry = {
-  id: string;
-  todo_id: string | null;
-  project_id: string;
-  user_id: string;
-  logged_by: string | null;
-  entry_date: string;
-  minutes: number;
-  note: string | null;
-  inserted_at: string;
-};
-
 function minutesToHoursText(min: number | null | undefined) {
   const m = min ?? 0;
   const h = Math.round((m / 60) * 10) / 10;
   return `${h}u`;
 }
 
-function pct(executed: number, planned: number) {
+function minutesToHoursInput(min: number | null | undefined) {
+  if (!min) return "";
+  const h = Math.round((min / 60) * 10) / 10;
+  return String(h);
+}
+
+function hoursInputToMinutes(txt: string) {
+  const clean = txt.replace(",", ".").trim();
+  if (!clean) return null;
+  const n = Number(clean);
+  if (Number.isNaN(n) || n < 0) return null;
+  return Math.round(n * 60);
+}
+
+function calcPct(executed: number, planned: number) {
   if (!planned || planned <= 0) return null;
   return Math.min(100, Math.round((executed / planned) * 100));
 }
@@ -72,13 +73,12 @@ export default function ProjectDetailPage() {
   const [todos, setTodos] = useState<Todo[]>([]);
   const [newTodoTitle, setNewTodoTitle] = useState("");
 
-  // ✅ Stap 6: planned/executed totals (project-level)
+  // ✅ Stap 6 totals
   const [plannedMinutes, setPlannedMinutes] = useState<number>(0);
   const [executedMinutes, setExecutedMinutes] = useState<number>(0);
 
-  // optioneel: laatste entries tonen (handig voor debug/vertrouwen)
-  const [entries, setEntries] = useState<TimeEntry[]>([]);
-  const [entriesLoading, setEntriesLoading] = useState(false);
+  // ✅ Workspace members voor assignee dropdown
+  const [members, setMembers] = useState<{ user_id: string }[]>([]);
 
   const canEditProject = useMemo(() => {
     if (!userId || !project) return false;
@@ -112,7 +112,12 @@ export default function ProjectDetailPage() {
     return false;
   }, [workspaceRole, project, userId, projectMemberRole]);
 
-  async function loadProjectAndTodos() {
+  const progressPct = useMemo(
+    () => calcPct(executedMinutes, plannedMinutes),
+    [executedMinutes, plannedMinutes]
+  );
+
+  async function loadProject() {
     const user = await requireUser(router);
     if (!user) return;
     setUserId(user.id);
@@ -120,7 +125,6 @@ export default function ProjectDetailPage() {
     const ws = await getActiveWorkspace();
     if (ws) setWorkspaceRole(ws.role);
 
-    // project
     const { data: proj, error: projErr } = await supabase
       .from("projects")
       .select("id,name,description,status,owner_id,created_by,deadline,priority,project_type,phase,location_link")
@@ -135,7 +139,7 @@ export default function ProjectDetailPage() {
 
     setProject(proj as any);
 
-    // membership role (samenwerking)
+    // membership role (voor samenwerking)
     const { data: pm } = await supabase
       .from("project_members")
       .select("role")
@@ -144,8 +148,9 @@ export default function ProjectDetailPage() {
       .maybeSingle();
 
     setProjectMemberRole((pm as any)?.role ?? null);
+  }
 
-    // todos + estimated_minutes
+  async function loadTodos() {
     const { data: td, error: tdErr } = await supabase
       .from("todos")
       .select("id,title,is_done,inserted_at,assigned_to,estimated_minutes")
@@ -154,6 +159,7 @@ export default function ProjectDetailPage() {
 
     if (tdErr) {
       alert(tdErr.message);
+      setTodos([]);
       return;
     }
     setTodos((td as any) ?? []);
@@ -181,48 +187,43 @@ export default function ProjectDetailPage() {
     setExecutedMinutes((exec as any)?.executed_minutes ?? 0);
   }
 
-  async function loadRecentEntries(pid: string) {
-    setEntriesLoading(true);
+  async function loadWorkspaceMembers() {
+    const ws = await getActiveWorkspace();
+    if (!ws?.workspaceId) return;
 
     const { data, error } = await supabase
-      .from("time_entries")
-      .select("id,todo_id,project_id,user_id,logged_by,entry_date,minutes,note,inserted_at")
-      .eq("project_id", pid)
-      .order("inserted_at", { ascending: false })
-      .limit(10);
+      .from("workspace_members")
+      .select("user_id")
+      .eq("workspace_id", ws.workspaceId);
 
     if (error) {
-      console.error("Load entries error:", error);
-      setEntries([]);
-    } else {
-      setEntries((data as TimeEntry[]) ?? []);
+      console.error("Load members error:", error);
+      setMembers([]);
+      return;
     }
 
-    setEntriesLoading(false);
+    setMembers(((data as any[]) ?? []).map((r) => ({ user_id: r.user_id })));
+  }
+
+  async function refreshAll() {
+    await loadProject();
+    await loadTodos();
+    await loadWorkspaceMembers();
+    if (projectId) await loadTotals(projectId);
   }
 
   useEffect(() => {
-    loadProjectAndTodos();
+    // init
+    (async () => {
+      await loadProject();
+      await loadTodos();
+      await loadWorkspaceMembers();
+      await loadTotals(projectId);
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Zodra project is geladen: totals (stap 6)
-  useEffect(() => {
-    if (!project?.id) return;
-    loadTotals(project.id);
-    loadRecentEntries(project.id); // optioneel
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.id]);
-
-  async function refreshAll() {
-    await loadProjectAndTodos();
-    if (project?.id) {
-      await loadTotals(project.id);
-      await loadRecentEntries(project.id);
-    }
-  }
-
-  // CRUD todos
+  // ---- Todos CRUD ----
   async function addTodo(e: React.FormEvent) {
     e.preventDefault();
     if (!canEditTodos) return;
@@ -234,7 +235,7 @@ export default function ProjectDetailPage() {
       title: clean,
       project_id: projectId,
       assigned_to: null,
-      estimated_minutes: null, // kun je later in UI laten invullen
+      estimated_minutes: null,
     });
 
     if (error) return alert("Geen rechten of fout: " + error.message);
@@ -261,7 +262,43 @@ export default function ProjectDetailPage() {
     await refreshAll();
   }
 
-  const progress = useMemo(() => pct(executedMinutes, plannedMinutes), [executedMinutes, plannedMinutes]);
+  // ---- Todo fields updates (estimate + assignee) ----
+  async function updateTodoEstimate(todoId: string, hoursText: string) {
+    if (!canEditTodos) return;
+
+    const minutes = hoursInputToMinutes(hoursText);
+    const next = minutes === null ? null : minutes;
+
+    const { error } = await supabase
+      .from("todos")
+      .update({ estimated_minutes: next })
+      .eq("id", todoId);
+
+    if (error) {
+      console.error(error);
+      alert(error.message);
+      return;
+    }
+
+    await refreshAll(); // planned totals updaten
+  }
+
+  async function updateTodoAssignee(todoId: string, nextUserId: string | null) {
+    if (!canEditTodos) return;
+
+    const { error } = await supabase
+      .from("todos")
+      .update({ assigned_to: nextUserId })
+      .eq("id", todoId);
+
+    if (error) {
+      console.error(error);
+      alert(error.message);
+      return;
+    }
+
+    await refreshAll();
+  }
 
   return (
     <main className="p-6 max-w-3xl mx-auto">
@@ -280,72 +317,70 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      <div className="mt-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-semibold truncate">{project?.name ?? "Project"}</h1>
-            {project?.description ? <p className="text-gray-600 mt-1">{project.description}</p> : null}
+      <div className="mt-4 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold truncate">{project?.name ?? "Project"}</h1>
+          {project?.description ? <p className="text-gray-600 mt-1">{project.description}</p> : null}
 
-            {project ? (
-              <div className="mt-2 flex items-center gap-2 flex-wrap">
-                <span className="text-sm px-2 py-0.5 rounded-full bg-gray-100">{project.status}</span>
+          {project ? (
+            <div className="mt-2 flex items-center gap-2 flex-wrap">
+              <span className="text-sm px-2 py-0.5 rounded-full bg-gray-100">{project.status}</span>
 
+              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
+                prio: {project.priority ?? "medium"}
+              </span>
+
+              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
+                type: {project.project_type ?? "standard"}
+              </span>
+
+              {project.deadline ? (
                 <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                  prio: {project.priority ?? "medium"}
+                  deadline: {project.deadline}
                 </span>
+              ) : null}
 
+              {project.phase ? (
                 <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                  type: {project.project_type ?? "standard"}
+                  fase: {project.phase}
                 </span>
+              ) : null}
 
-                {project.deadline ? (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                    deadline: {project.deadline}
-                  </span>
-                ) : null}
+              {!canEditProject ? <span className="text-sm text-gray-500">Alleen-lezen</span> : null}
+            </div>
+          ) : null}
 
-                {project.phase ? (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                    fase: {project.phase}
-                  </span>
-                ) : null}
-
-                {!canEditProject ? <span className="text-sm text-gray-500">Alleen-lezen</span> : null}
-              </div>
-            ) : null}
-
-            {project?.location_link ? (
-              <div className="mt-2 text-sm">
-                <span className="text-gray-500">Locatie:</span>{" "}
-                <a className="text-blue-600 underline break-all" href={project.location_link} target="_blank" rel="noreferrer">
-                  {project.location_link}
-                </a>
-              </div>
-            ) : null}
-          </div>
-
-          {canEditProject ? (
-            <div className="shrink-0">
-              <Button variant="outline" onClick={() => router.push(`/projects/${projectId}/edit`)}>
-                Project bewerken
-              </Button>
+          {project?.location_link ? (
+            <div className="mt-2 text-sm">
+              <span className="text-gray-500">Locatie:</span>{" "}
+              <a className="text-blue-600 underline break-all" href={project.location_link} target="_blank" rel="noreferrer">
+                {project.location_link}
+              </a>
             </div>
           ) : null}
         </div>
+
+        {canEditProject ? (
+          <div className="shrink-0">
+            <Button variant="outline" onClick={() => router.push(`/projects/${projectId}/edit`)}>
+              Project bewerken
+            </Button>
+          </div>
+        ) : null}
       </div>
 
-      {/* ✅ Stap 6: Project voortgang = executed/planned (tasks) */}
+      {/* ✅ Voortgang (stap 6) */}
       <section className="mt-6 border rounded-lg p-4">
         <h2 className="text-lg font-semibold">Voortgang</h2>
 
         {plannedMinutes > 0 ? (
           <div className="mt-3">
             <ProgressBar
-              value={progress ?? 0}
-              label={`${minutesToHoursText(executedMinutes)} / ${minutesToHoursText(plannedMinutes)} (${progress ?? 0}%)`}
+              value={progressPct ?? 0}
+              label={`${minutesToHoursText(executedMinutes)} / ${minutesToHoursText(plannedMinutes)} (${progressPct ?? 0}%)`}
             />
             <div className="mt-2 text-xs text-gray-500">
-              *Uitgevoerd* telt alleen uren met datum t/m vandaag. Uren in de toekomst zijn alleen planning.
+              Uitgevoerd telt alleen uren met datum t/m vandaag. Uren in de toekomst zijn alleen planning.
             </div>
           </div>
         ) : (
@@ -355,11 +390,10 @@ export default function ProjectDetailPage() {
         )}
       </section>
 
-      {/* TODOS */}
+      {/* Taken */}
       <section className="mt-6">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">Taken</h2>
-
           <div className="text-sm text-gray-500">
             Workspace rol: {workspaceRole} {projectMemberRole ? `• Project rol: ${projectMemberRole}` : ""}
           </div>
@@ -383,57 +417,71 @@ export default function ProjectDetailPage() {
 
         <ul className="mt-4 grid gap-2">
           {todos.map((t) => (
-            <li key={t.id} className="border rounded-lg p-3 flex justify-between items-center gap-3">
-              <label className="flex gap-3 items-center flex-1 min-w-0">
-                <input type="checkbox" checked={t.is_done} onChange={() => toggleDone(t)} disabled={!canEditTodos} />
-                <div className="min-w-0">
-                  <div className={t.is_done ? "line-through text-gray-500" : ""}>{t.title}</div>
-                  <div className="text-xs text-gray-500">
-                    Benodigd: {t.estimated_minutes ? minutesToHoursText(t.estimated_minutes) : "—"} • Assignee:{" "}
-                    {t.assigned_to ? "yes" : "—"}
+            <li key={t.id} className="border rounded-lg p-3">
+              <div className="flex justify-between items-start gap-3">
+                <label className="flex gap-3 items-center flex-1 min-w-0">
+                  <input
+                    type="checkbox"
+                    checked={t.is_done}
+                    onChange={() => toggleDone(t)}
+                    disabled={!canEditTodos}
+                  />
+                  <div className="min-w-0">
+                    <div className={t.is_done ? "line-through text-gray-500" : ""}>{t.title}</div>
+                    <div className="text-xs text-gray-500">
+                      Benodigd: {t.estimated_minutes ? minutesToHoursText(t.estimated_minutes) : "—"} •{" "}
+                      Toegewezen: {t.assigned_to ? t.assigned_to.slice(0, 8) : "—"}
+                    </div>
+                  </div>
+                </label>
+
+                {canEditTodos ? (
+                  <Button variant="danger" onClick={() => removeTodo(t)}>
+                    Verwijder
+                  </Button>
+                ) : null}
+              </div>
+
+              {/* ✅ Edit velden: estimate + assignee */}
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div className="grid gap-1">
+                  <label className="text-xs text-gray-500">Benodigd (uren)</label>
+                  <input
+                    className="border rounded-md px-2 py-1 text-sm"
+                    defaultValue={minutesToHoursInput(t.estimated_minutes)}
+                    placeholder="bijv. 2"
+                    inputMode="decimal"
+                    disabled={!canEditTodos}
+                    onBlur={(e) => updateTodoEstimate(t.id, e.target.value)}
+                  />
+                </div>
+
+                <div className="grid gap-1">
+                  <label className="text-xs text-gray-500">Toegewezen aan</label>
+                  <select
+                    className="border rounded-md px-2 py-1 text-sm"
+                    value={t.assigned_to ?? ""}
+                    disabled={!canEditTodos}
+                    onChange={(e) => updateTodoAssignee(t.id, e.target.value || null)}
+                  >
+                    <option value="">— niemand —</option>
+                    {userId ? <option value={userId}>Ik</option> : null}
+                    {members
+                      .filter((m) => m.user_id !== userId)
+                      .map((m) => (
+                        <option key={m.user_id} value={m.user_id}>
+                          {m.user_id.slice(0, 8)}
+                        </option>
+                      ))}
+                  </select>
+                  <div className="text-xs text-gray-400">
+                    (MVP: toont user-id. Later kunnen we naam/email tonen via profiles.)
                   </div>
                 </div>
-              </label>
-
-              {canEditTodos ? (
-                <Button variant="danger" onClick={() => removeTodo(t)}>
-                  Verwijder
-                </Button>
-              ) : null}
+              </div>
             </li>
           ))}
         </ul>
-      </section>
-
-      {/* Optioneel: laatste time entries (handig bij testen) */}
-      <section className="mt-8 border rounded-lg p-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Laatste planning/registraties</h2>
-          <Button variant="outline" onClick={() => project?.id && loadRecentEntries(project.id)} disabled={entriesLoading}>
-            {entriesLoading ? "Laden…" : "Verversen"}
-          </Button>
-        </div>
-
-        {entriesLoading ? (
-          <div className="mt-3 text-sm text-gray-500">Laden…</div>
-        ) : entries.length === 0 ? (
-          <div className="mt-3 text-sm text-gray-600">Nog geen entries.</div>
-        ) : (
-          <ul className="mt-3 grid gap-2">
-            {entries.map((e) => (
-              <li key={e.id} className="border rounded-md p-3">
-                <div className="text-sm">
-                  <span className="font-medium">{e.entry_date}</span> • {minutesToHoursText(e.minutes)}
-                  {e.todo_id ? <span className="text-gray-600"> • taak: {e.todo_id}</span> : null}
-                </div>
-                {e.note ? <div className="text-sm text-gray-600 mt-1">{e.note}</div> : null}
-                <div className="text-xs text-gray-400 mt-1">
-                  user_id: {e.user_id} • logged_by: {e.logged_by ?? "—"}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
       </section>
     </main>
   );
