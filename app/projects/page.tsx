@@ -239,6 +239,10 @@ export default function ProjectsPage() {
             onClick: () => router.push("/hours"),
           },
           {
+            label: "Kanban",
+            onClick: () => router.push("/kanban"),
+          },
+          {
             label: "Account",
             onClick: () => router.push("/account"),
           },
