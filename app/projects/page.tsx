@@ -218,7 +218,9 @@ export default function ProjectsPage() {
         <WorkspaceSwitcher />
       </div>
 
-      
+      <div className="text-sm text-gray-500">Rol: {role}</div>
+
+        
     </div>
 
     {/* Rechterkant: primaire actie + menu */}
