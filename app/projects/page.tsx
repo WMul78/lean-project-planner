@@ -7,6 +7,7 @@ import ProgressBar from "@/app/components/ProgressBar";
 import { supabase } from "@/lib/supabaseClient";
 import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appContext";
 import WorkspaceSwitcher from "@/app/components/WorkspaceSwitcher";
+import ActionsMenu from "@/app/components/ActionsMenu";
 
 type Priority = "low" | "medium" | "high" | "very_high";
 type ProjectType = "standard" | "pdca" | "dmaic";
@@ -208,49 +209,58 @@ export default function ProjectsPage() {
   }
 
   return (
-    <main className="p-6 max-w-3xl mx-auto">
-      <header className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Projecten</h1>
+   <main className="p-6 max-w-3xl mx-auto">
+  <header className="flex items-start justify-between gap-4">
+    <div>
+      <h1 className="text-2xl font-semibold">Projecten</h1>
 
-          <div className="mt-2">
-            <WorkspaceSwitcher />
-          </div>
+      <div className="mt-2">
+        <WorkspaceSwitcher />
+      </div>
 
-          <div className="text-sm text-gray-500">Rol: {role}</div>
+      <div className="text-sm text-gray-500">Rol: {role}</div>
 
-          {workspaceId ? (
-            <div className="text-xs text-gray-400 mt-1">
-              Workspace: <span className="font-mono">{workspaceId}</span>
-            </div>
-          ) : null}
+      {workspaceId ? (
+        <div className="text-xs text-gray-400 mt-1">
+          Workspace: <span className="font-mono">{workspaceId}</span>
         </div>
+      ) : null}
+    </div>
 
-        <div className="flex flex-col gap-2 items-end">
-          <Button variant="outline" onClick={signOut}>
-            Uitloggen
-          </Button>
+    {/* Rechterkant: primaire actie + menu */}
+    <div className="flex items-center gap-2">
+      {/* Primaire actie */}
+      <Button onClick={() => router.push("/projects/new")}>
+        {role === "stakeholder" ? "Project voorstellen" : "Nieuw project"}
+      </Button>
 
-          <Button onClick={() => router.push("/projects/new")}>
-            {role === "stakeholder" ? "Project voorstellen" : "Nieuw project"}
-          </Button>
+      {/* Acties menu */}
+      <ActionsMenu
+        icon="dots"
+        items={[
+          {
+            label: "Uren plannen",
+            onClick: () => router.push("/hours"),
+          },
+          {
+            label: "Account",
+            onClick: () => router.push("/account"),
+          },
+          {
+            label: "Gebruikers beheren",
+            onClick: () => router.push("/admin/users"),
+            disabled: role !== "owner" && role !== "admin",
+          },
+          {
+            label: "Uitloggen",
+            onClick: signOut,
+            danger: true,
+          },
+        ]}
+      />
+    </div>
+  </header>
 
-          <Button variant="outline" onClick={() => router.push("/hours")}>
-            Uren plannen
-          </Button>
-
-          <Button variant="outline" onClick={() => router.push("/account")}>
-            Account
-          </Button>
-
-          {canManageUsers && (
-            <Button variant="outline" onClick={() => router.push("/admin/users")}>
-              Gebruikers beheren
-            </Button>
-
-          )}
-        </div>
-      </header>
 
       {loading ? (
         <div className="mt-8 text-gray-500">Laden...</div>
