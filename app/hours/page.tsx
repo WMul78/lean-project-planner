@@ -96,11 +96,14 @@ export default function HoursPlannerPage() {
   }
 
   async function load() {
-    setLoading(true);
+  setLoading(true);
 
+  try {
     const user = await requireUser(router);
-    if (!user) return;
-
+    if (!user) {
+      // requireUser kan al redirecten, maar we zetten loading alsnog uit
+      return;
+    }
     setUserId(user.id);
 
     const ws = await getActiveWorkspace();
@@ -125,7 +128,6 @@ export default function HoursPlannerPage() {
       setTodos([]);
       setCells({});
       setExecutedByTodo({});
-      setLoading(false);
       return;
     }
 
@@ -136,7 +138,6 @@ export default function HoursPlannerPage() {
     if (ids.length === 0) {
       setCells({});
       setExecutedByTodo({});
-      setLoading(false);
       return;
     }
 
@@ -180,18 +181,20 @@ export default function HoursPlannerPage() {
       }
       setExecutedByTodo(m);
     }
-
+  } finally {
     setLoading(false);
   }
+}
+
 
 useEffect(() => {
   setMobileDayIndex(0);
 }, [weekStart]);
 
- // useEffect(() => {
- //   load();
+  useEffect(() => {
+    load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  // }, [weekStart]);
+   }, [weekStart]);
 
   async function setCell(todo: TodoRow, dateISO: string, hoursText: string) {
     if (!workspaceId || !userId) return;
@@ -582,4 +585,5 @@ if (loading) {
       </>
     )}
   </main>
-);}
+);
+}
