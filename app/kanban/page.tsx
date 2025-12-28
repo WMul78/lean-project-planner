@@ -7,12 +7,14 @@ import ProgressBar from "@/app/components/ProgressBar";
 import WorkspaceSwitcher from "@/app/components/WorkspaceSwitcher";
 import { supabase } from "@/lib/supabaseClient";
 import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appContext";
-import { statusBadgeClass, priorityBadgeClass, metaBadgeClass } from "@/app/lib/badges";
+import { statusBadgeClass, priorityBadgeClass, metaBadgeClass, badgeBase } from "@/app/lib/badges";
 
 type ProjectStatus = "proposed" | "active" | "done" | "archived";
 type Priority = "low" | "medium" | "high" | "very_high";
 type ViewMode = "projects" | "todos" | "both";
 type SortMode = "priority_desc" | "newest";
+
+// ✅ Nieuwe task statuses (MVP)
 type TaskStatus = "todo" | "doing" | "blocked" | "done";
 
 type ProjectRow = {
@@ -33,7 +35,8 @@ type TodoRow = {
   id: string;
   project_id: string;
   title: string;
-  status: TaskStatus;
+  status: TaskStatus; // ✅ nieuw
+  is_done: boolean; // blijft bestaan (compat)
   assigned_to: string | null;
   estimated_minutes: number | null;
   inserted_at: string;
@@ -42,10 +45,7 @@ type TodoRow = {
 type TotalsRowPlanned = { project_id: string; planned_minutes: number };
 type TotalsRowExecuted = { project_id: string; executed_minutes: number };
 
-type OwnerOption = {
-  id: string; // user_id
-  label: string;
-};
+type OwnerOption = { id: string; label: string };
 
 const STATUS_COLUMNS: { key: ProjectStatus; label: string }[] = [
   { key: "proposed", label: "Proposed" },
@@ -79,6 +79,25 @@ function priorityRank(p: Priority | null | undefined) {
   }
 }
 
+// ✅ Task badge mapping (zelfde stijl als projects)
+function badgeClassForTaskStatus(status: TaskStatus) {
+  switch (status) {
+    case "todo":
+      return "bg-gray-100 text-gray-700";
+    case "doing":
+      return "bg-blue-100 text-blue-800";
+    case "blocked":
+      return "bg-red-100 text-red-800";
+    case "done":
+      return "bg-green-100 text-green-800";
+    default:
+      return "bg-gray-100 text-gray-700";
+  }
+}
+function taskStatusBadgeClass(status: TaskStatus) {
+  return `${badgeBase} ${badgeClassForTaskStatus(status)}`;
+}
+
 export default function ProjectsKanbanPage() {
   const router = useRouter();
 
@@ -107,11 +126,11 @@ export default function ProjectsKanbanPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Drag & drop state
+  // Drag & drop state (project cards)
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<ProjectStatus | null>(null);
 
-  // voorkomt race conditions: alleen laatste load mag state zetten
+  // voorkomt race conditions
   const loadSeq = useRef(0);
 
   const load = useCallback(async () => {
@@ -171,7 +190,7 @@ export default function ProjectsKanbanPage() {
       const list = (pr as any as ProjectRow[]) ?? [];
       setProjects(list);
 
-      // 2) Owners (workspace_members + profiles)
+      // 2) Owners
       const { data: mem, error: memErr } = await supabase
         .from("workspace_members")
         .select("user_id, profiles(full_name,email)")
@@ -192,9 +211,8 @@ export default function ProjectsKanbanPage() {
         setOwners(opts);
       }
 
-      // 3) Totals via views
+      // 3) Totals
       const ids = list.map((p) => p.id);
-
       if (ids.length === 0) {
         setPlannedByProject({});
         setExecutedByProject({});
@@ -225,10 +243,11 @@ export default function ProjectsKanbanPage() {
       }
       setExecutedByProject(execMap);
 
-      // 4) Todos (geen workspace_id, dus via project_id IN ids)
+      // 4) Todos: geen workspace_id, dus via project_id IN ids
+      // We tonen in kanban standaard geen "done" taken
       const { data: td, error: tdErr } = await supabase
         .from("todos")
-        .select("id,project_id,title,status,assigned_to,estimated_minutes,inserted_at")
+        .select("id,project_id,title,status,is_done,assigned_to,estimated_minutes,inserted_at")
         .in("project_id", ids)
         .neq("status", "done")
         .order("inserted_at", { ascending: false });
@@ -260,14 +279,13 @@ export default function ProjectsKanbanPage() {
     load();
   }, [load]);
 
-  // reload wanneer workspace switcher verandert
   useEffect(() => {
     const handler = () => load();
     window.addEventListener("workspace-changed", handler);
     return () => window.removeEventListener("workspace-changed", handler);
   }, [load]);
 
-  // ---- Filtering + sorting ----
+  // ---- Filtering + sorting (projects) ----
   const filteredProjects = useMemo(() => {
     return projects.filter((p) => {
       const prioOk = filterPriority === "all" ? true : (p.priority ?? "medium") === filterPriority;
@@ -276,8 +294,8 @@ export default function ProjectsKanbanPage() {
         filterOwner === "all"
           ? true
           : filterOwner === "none"
-          ? p.owner_id === null
-          : p.owner_id === filterOwner;
+            ? p.owner_id === null
+            : p.owner_id === filterOwner;
 
       return prioOk && ownerOk;
     });
@@ -289,7 +307,6 @@ export default function ProjectsKanbanPage() {
       arr.sort((a, b) => {
         const d = priorityRank(b.priority) - priorityRank(a.priority);
         if (d !== 0) return d;
-        // fallback: nieuwste eerst
         return a.inserted_at < b.inserted_at ? 1 : -1;
       });
     } else {
@@ -300,8 +317,8 @@ export default function ProjectsKanbanPage() {
 
   const filteredProjectIds = useMemo(() => new Set(sortedFilteredProjects.map((p) => p.id)), [sortedFilteredProjects]);
 
+  // Todos volgen projectfilters (owner/prio) — MVP
   const filteredTodos = useMemo(() => {
-    // taken volgen projectfilter (owner/prio) — logisch: filter op owner = project owner
     return todos.filter((t) => filteredProjectIds.has(t.project_id));
   }, [todos, filteredProjectIds]);
 
@@ -311,25 +328,31 @@ export default function ProjectsKanbanPage() {
       if (!m[t.project_id]) m[t.project_id] = [];
       m[t.project_id].push(t);
     }
-    // sort taken: newest eerst (of titel als je dat liever hebt)
+    // Sort tasks: blocked -> doing -> todo (zodat "problemen" bovenaan staan), daarna newest
+    const rank: Record<TaskStatus, number> = { blocked: 3, doing: 2, todo: 1, done: 0 };
     for (const pid of Object.keys(m)) {
-      m[pid].sort((a, b) => (a.inserted_at < b.inserted_at ? 1 : -1));
+      m[pid].sort((a, b) => {
+        const d = (rank[b.status] ?? 0) - (rank[a.status] ?? 0);
+        if (d !== 0) return d;
+        return a.inserted_at < b.inserted_at ? 1 : -1;
+      });
     }
     return m;
   }, [filteredTodos]);
 
   const byStatus = useMemo(() => {
-    const m: Record<ProjectStatus, ProjectRow[]> = {
-      proposed: [],
-      active: [],
-      done: [],
-      archived: [],
-    };
+    const m: Record<ProjectStatus, ProjectRow[]> = { proposed: [], active: [], done: [], archived: [] };
     for (const p of sortedFilteredProjects) m[p.status].push(p);
     return m;
   }, [sortedFilteredProjects]);
 
-  // ---- Status update (DnD + mobile dropdown) ----
+  const ownerLabelById = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const o of owners) m[o.id] = o.label;
+    return m;
+  }, [owners]);
+
+  // ---- Updates ----
   async function updateProjectStatus(projectId: string, nextStatus: ProjectStatus) {
     const prev = projectsRef.current;
 
@@ -341,42 +364,43 @@ export default function ProjectsKanbanPage() {
     if (error) {
       console.error(error);
       alert(error.message);
-      // rollback
-      setProjects(prev);
+      setProjects(prev); // rollback
     }
   }
 
-  const ownerLabelById = useMemo(() => {
-    const m: Record<string, string> = {};
-    for (const o of owners) m[o.id] = o.label;
-    return m;
-  }, [owners]);
+  async function updateTodoStatus(todoId: string, nextStatus: TaskStatus) {
+    // Optimistic UI (in-place)
+    const prev = todos;
+    setTodos((cur) => cur.map((t) => (t.id === todoId ? { ...t, status: nextStatus, is_done: nextStatus === "done" } : t)));
 
-  // ---- UI helpers ----
-  function ProjectCard({
-    p,
-    compact,
-  }: {
-    p: ProjectRow;
-    compact?: boolean;
-  }) {
+    const { error } = await supabase
+      .from("todos")
+      .update({ status: nextStatus, is_done: nextStatus === "done" })
+      .eq("id", todoId);
+
+    if (error) {
+      console.error(error);
+      alert(error.message);
+      setTodos(prev); // rollback
+    }
+  }
+
+  // ---- UI components ----
+  function ProjectCard({ p, compact }: { p: ProjectRow; compact?: boolean }) {
     const planned = plannedByProject[p.id] ?? 0;
     const executed = executedByProject[p.id] ?? 0;
     const percent = pct(executed, planned);
 
-    const ownerLabel =
-      p.owner_id === null ? "—" : ownerLabelById[p.owner_id] ?? p.owner_id.slice(0, 8);
+    const ownerLabel = p.owner_id === null ? "—" : ownerLabelById[p.owner_id] ?? p.owner_id.slice(0, 8);
 
     return (
       <div
         draggable
         style={{ cursor: "grab" }}
-       onDragStart={(e) => {
-        // eerst dataTransfer zetten (dit moet synchroon)
+        onDragStart={(e) => {
+          // ✅ IMPORTANT: setData first, then state update next frame (fixes “can’t drag”)
           e.dataTransfer.setData("text/plain", p.id);
           e.dataTransfer.effectAllowed = "move";
-
-        // daarna pas state updaten (voorkomt dat browser drag annuleert door re-render)
           requestAnimationFrame(() => setDraggingId(p.id));
         }}
         onDragEnd={() => {
@@ -408,17 +432,15 @@ export default function ProjectsKanbanPage() {
 
         <div className="mt-2 flex flex-wrap gap-2">
           <span className={statusBadgeClass(p.status)}>{p.status}</span>
-          <span className={priorityBadgeClass(p.priority)}>
-            prio: {p.priority ?? "medium"}
-          </span>
+          <span className={priorityBadgeClass(p.priority)}>prio: {p.priority ?? "medium"}</span>
           {p.project_type ? <span className={metaBadgeClass()}>type: {p.project_type}</span> : null}
           {p.deadline ? <span className={metaBadgeClass()}>deadline: {p.deadline}</span> : null}
           <span className={metaBadgeClass()}>owner: {ownerLabel}</span>
         </div>
 
-        {/* Mobile fallback (iOS DnD is inconsistent) */}
+        {/* Mobile fallback for project status */}
         <div className="mt-2 md:hidden">
-          <label className="text-[11px] text-gray-500">Status</label>
+          <label className="text-[11px] text-gray-500">Project status</label>
           <select
             className="mt-1 w-full border rounded-md px-2 py-1 text-sm"
             value={p.status}
@@ -451,24 +473,40 @@ export default function ProjectsKanbanPage() {
   function TodoCard({ t, projectId }: { t: TodoRow; projectId: string }) {
     return (
       <div className="rounded-md border bg-white px-3 py-2 w-full max-w-full overflow-hidden">
-        <div className="font-medium text-sm truncate">{t.title}</div>
-        <div className="flex items-center justify-between gap-2">
-          <span className={statusBadgeClass(t.status)}>
-            {t.status}
-          </span>
-        </div>
+        <div className="flex items-start justify-between gap-2 min-w-0">
+          <div className="min-w-0">
+            <div className="font-medium text-sm truncate">{t.title}</div>
+            <div className="mt-1 flex flex-wrap gap-2">
+              <span className={taskStatusBadgeClass(t.status)}>{t.status}</span>
+              {t.estimated_minutes ? (
+                <span className={metaBadgeClass()}>raming: {minutesToHoursText(t.estimated_minutes)}</span>
+              ) : (
+                <span className={metaBadgeClass()}>geen raming</span>
+              )}
+            </div>
+          </div>
 
-        <div className="mt-1 text-[11px] text-gray-500">
-          {t.estimated_minutes ? `raming: ${minutesToHoursText(t.estimated_minutes)}` : "geen raming"}
-        </div>
-        <div className="mt-2 flex items-center justify-between gap-2">
           <Button
             variant="outline"
             className="text-xs px-2 py-1 shrink-0"
             onClick={() => router.push(`/projects/${projectId}`)}
           >
-            Open project
+            Open
           </Button>
+        </div>
+
+        <div className="mt-2">
+          <label className="text-[11px] text-gray-500">Taak status</label>
+          <select
+            className="mt-1 w-full border rounded-md px-2 py-1 text-xs"
+            value={t.status}
+            onChange={(e) => updateTodoStatus(t.id, e.target.value as TaskStatus)}
+          >
+            <option value="todo">todo</option>
+            <option value="doing">doing</option>
+            <option value="blocked">blocked</option>
+            <option value="done">done</option>
+          </select>
         </div>
       </div>
     );
@@ -578,14 +616,13 @@ export default function ProjectsKanbanPage() {
         {loadError ? <div className="mt-3 text-sm text-red-600">{loadError}</div> : null}
 
         <div className="mt-3 text-xs text-gray-500">
-          Drag & drop wijzigt projectstatus. Taken volgen altijd de status van hun project.
+          Drag & drop wijzigt <span className="font-medium">projectstatus</span>. Taken hebben nu een eigen status via dropdown.
         </div>
       </section>
 
       {/* Kanban */}
       <section className="mt-6">
         <div className="overflow-x-auto pb-2">
-          {/* Fixed column widths so cards never overflow columns */}
           <div className="min-w-[1080px] grid grid-cols-[repeat(4,260px)] gap-4">
             {STATUS_COLUMNS.map((col) => (
               <div
@@ -596,6 +633,7 @@ export default function ProjectsKanbanPage() {
                 ].join(" ")}
                 onDragOver={(e) => {
                   e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
                   setDragOverStatus(col.key);
                 }}
                 onDragLeave={() => {
@@ -632,15 +670,10 @@ export default function ProjectsKanbanPage() {
 
                       return (
                         <div key={p.id} className="grid gap-2">
-                          {/* Project card (of compacte header in todos-only) */}
-                          {showProject ? (
-                            <ProjectCard p={p} compact={false} />
-                          ) : (
-                            // todos-only: compact project header, zodat taken context hebben
-                            <ProjectCard p={p} compact={true} />
-                          )}
+                          {/* Project card (of compact header in todos-only) */}
+                          {showProject ? <ProjectCard p={p} compact={false} /> : <ProjectCard p={p} compact={true} />}
 
-                          {/* Todos onder project */}
+                          {/* Todos */}
                           {showTodos ? (
                             projectTodos.length === 0 ? null : (
                               <div className="grid gap-2">
