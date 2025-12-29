@@ -220,7 +220,7 @@ export default function ProjectsKanbanPage() {
         .from("todo_status_auto")
         .select("id,project_id,title,inserted_at,assigned_to,estimated_minutes,is_done,executed_minutes,auto_status")
         .in("project_id", ids)
-        .neq("auto_status", "done")
+     //   .neq("auto_status", "done")
         .order("inserted_at", { ascending: false });
 
       if (seq !== loadSeq.current) return;
