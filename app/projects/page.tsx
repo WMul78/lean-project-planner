@@ -207,7 +207,13 @@ export default function ProjectsPage() {
             ? p.owner_id === null
             : p.owner_id === filterOwner;
 
-      const statusOk = filterStatus === "all" ? true : p.status === filterStatus;
+      const statusOk =
+  filterStatus === "all"
+    ? true
+    : filterStatus === "open"
+      ? p.status === "proposed" || p.status === "active"
+      : p.status === filterStatus;
+
 
       return ownerOk && statusOk;
     });
@@ -250,11 +256,7 @@ export default function ProjectsPage() {
           </div>
 
           <div className="text-sm text-gray-500">Role: {role}</div>
-          {workspaceId ? (
-            <div className="text-xs text-gray-400 mt-1">
-              Workspace: <span className="font-mono">{workspaceId}</span>
-            </div>
-          ) : null}
+          
         </div>
 
         <div className="flex items-center gap-2">
@@ -291,6 +293,7 @@ export default function ProjectsPage() {
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
             >
+              <option value="open">Open (proposed + active)</option>
               <option value="all">All</option>
               <option value="proposed">proposed</option>
               <option value="active">active</option>
