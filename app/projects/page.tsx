@@ -7,7 +7,6 @@ import ProgressBar from "@/app/components/ProgressBar";
 import { supabase } from "@/lib/supabaseClient";
 import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appContext";
 import WorkspaceSwitcher from "@/app/components/WorkspaceSwitcher";
-import ActionsMenu from "@/app/components/ActionsMenu";
 import { badgeBase, badgeClassForStatus, badgeClassForPriority } from "@/app/lib/badges";
 
 type Priority = "low" | "medium" | "high" | "very_high";
@@ -203,34 +202,7 @@ export default function ProjectsPage() {
         {role === "stakeholder" ? "Project voorstellen" : "Nieuw project"}
       </Button>
 
-      {/* Acties menu */}
-      <ActionsMenu
-        icon="dots"
-        items={[
-          {
-            label: "Uren plannen",
-            onClick: () => router.push("/hours"),
-          },
-          {
-            label: "Kanban",
-            onClick: () => router.push("/kanban"),
-          },
-          {
-            label: "Account",
-            onClick: () => router.push("/account"),
-          },
-          {
-            label: "Gebruikers beheren",
-            onClick: () => router.push("/admin/users"),
-            disabled: role !== "owner" && role !== "admin",
-          },
-          {
-            label: "Uitloggen",
-            onClick: signOut,
-            danger: true,
-          },
-        ]}
-      />
+     
     </div>
   </header>
 
