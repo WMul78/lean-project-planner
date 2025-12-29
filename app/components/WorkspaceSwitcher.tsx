@@ -172,11 +172,12 @@ export default function WorkspaceSwitcher() {
         </select>
 
         <Button
-          variant="outline"
-          onClick={() => setShowManage((v) => !v)}
-          type="button"
+        variant="outline"
+        onClick={() => setShowManage((v) => !v)}
+        aria-label="Workspace actions"
+        className="px-3"
         >
-          {showManage ? "Sluiten" : "Beheer"}
+          ⋯
         </Button>
 
         {switching ? <span className="text-xs text-gray-500">wisselen…</span> : null}
