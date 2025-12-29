@@ -66,7 +66,7 @@ export default function ProjectsPage() {
 
   // Filters
   const [filterOwner, setFilterOwner] = useState<string>("all"); // all | none | userId
-  const [filterStatus, setFilterStatus] = useState<string>("all"); // all | proposed | active | done | archived
+  const [filterStatus, setFilterStatus] = useState<string>("open"); // open | all | proposed | active | done | archived
   const [sortMode, setSortMode] = useState<"newest" | "priority_desc">("newest");
 
   const loadSeq = useRef(0);
