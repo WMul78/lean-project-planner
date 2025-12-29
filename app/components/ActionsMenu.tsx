@@ -67,7 +67,7 @@ export default function ActionsMenu({
       <Button variant="outline" onClick={() => setOpen((v) => !v)} aria-label="">
         <span className="inline-flex items-center gap-2">
           <Icon />
-          <span className="hidden sm:inline">Acties</span>
+          <span className="hidden sm:inline">Actions</span>
         </span>
       </Button>
 
