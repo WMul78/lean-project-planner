@@ -37,7 +37,7 @@ type TodoAutoRow = {
   estimated_minutes: number | null;
   is_done: boolean;
   executed_minutes: number;
-  auto_status: "proposed" | "active" | "done"; // uit view
+  auto_status: "proposed" | "active" | "done"; // from view
 };
 
 type TotalsRowPlanned = { project_id: string; planned_minutes: number };
@@ -54,34 +54,32 @@ const STATUS_COLUMNS: { key: ProjectStatus; label: string }[] = [
 
 function minutesToHoursText(min: number) {
   const h = Math.round((min / 60) * 10) / 10;
-  return `${h}u`;
-}
-
-function pct(executed: number, planned: number) {
-  if (!planned || planned <= 0) return 0;
-  return Math.min(100, Math.round((executed / planned) * 100));
+  return `${h}h`;
 }
 
 function priorityRank(p: Priority | null | undefined) {
-  switch (p) {
-    case "very_high":
-      return 4;
-    case "high":
-      return 3;
-    case "medium":
-      return 2;
-    case "low":
-      return 1;
-    default:
-      return 2;
-  }
+  const v = p ?? "medium";
+  if (v === "very_high") return 4;
+  if (v === "high") return 3;
+  if (v === "medium") return 2;
+  return 1;
 }
 
-export default function ProjectsKanbanPage() {
+function clampPct(x: number) {
+  return Math.min(100, Math.max(0, x));
+}
+
+function calcPct(executed: number, planned: number) {
+  if (!planned || planned <= 0) return 0;
+  return clampPct(Math.round((executed / planned) * 100));
+}
+
+export default function KanbanPage() {
   const router = useRouter();
 
-  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [role, setRole] = useState<WorkspaceRole>("member");
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const projectsRef = useRef<ProjectRow[]>([]);
@@ -90,21 +88,18 @@ export default function ProjectsKanbanPage() {
   }, [projects]);
 
   const [todos, setTodos] = useState<TodoAutoRow[]>([]);
-
   const [plannedByProject, setPlannedByProject] = useState<Record<string, number>>({});
   const [executedByProject, setExecutedByProject] = useState<Record<string, number>>({});
 
   const [owners, setOwners] = useState<OwnerOption[]>([]);
 
-  const [filterPriority, setFilterPriority] = useState<"all" | Priority>("all");
-  const [filterOwner, setFilterOwner] = useState<"all" | "none" | string>("all");
-  const [viewMode, setViewMode] = useState<ViewMode>("both");
+  // Filters (keep behavior as-is)
+  const [filterPriority, setFilterPriority] = useState<string>("all"); // all | low | medium | high | very_high
+  const [filterOwner, setFilterOwner] = useState<string>("all"); // all | none | userId
   const [sortMode, setSortMode] = useState<SortMode>("priority_desc");
+  const [viewMode, setViewMode] = useState<ViewMode>("both");
 
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  // Drag & drop (projects only)
+  // Drag & drop UI state
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<ProjectStatus | null>(null);
 
@@ -112,7 +107,6 @@ export default function ProjectsKanbanPage() {
 
   const load = useCallback(async () => {
     const seq = ++loadSeq.current;
-
     setLoading(true);
     setLoadError(null);
 
@@ -124,59 +118,39 @@ export default function ProjectsKanbanPage() {
 
     try {
       const ws = await getActiveWorkspace();
+
       if (!ws?.workspaceId) {
         if (seq === loadSeq.current) {
-          setWorkspaceId(null);
           setRole("member");
           setProjects([]);
           setTodos([]);
           setPlannedByProject({});
           setExecutedByProject({});
           setOwners([]);
-          setLoadError("Geen workspace gevonden.");
+          setLoadError("No active workspace found for this user.");
           setLoading(false);
         }
         return;
       }
 
       if (seq === loadSeq.current) {
-        setWorkspaceId(ws.workspaceId);
         setRole(ws.role);
       }
 
-      // 1) Projects
-      const { data: pr, error: prErr } = await supabase
-        .from("projects")
-        .select("id,workspace_id,name,description,status,priority,project_type,deadline,owner_id,created_by,inserted_at")
-        .eq("workspace_id", ws.workspaceId)
-        .order("inserted_at", { ascending: false });
-
-      if (seq !== loadSeq.current) return;
-
-      if (prErr) {
-        console.error(prErr);
-        setProjects([]);
-        setTodos([]);
-        setLoadError(prErr.message);
-        setLoading(false);
-        return;
-      }
-
-      const projectList = (pr as any as ProjectRow[]) ?? [];
-      setProjects(projectList);
-
-      // 2) Owners (workspace_members + profiles)
-      const { data: mem, error: memErr } = await supabase
+      // 1) Owners (workspace members) for filter dropdown
+      const { data: members, error: memErr } = await supabase
         .from("workspace_members")
         .select("user_id, profiles(full_name,email)")
         .eq("workspace_id", ws.workspaceId)
         .order("created_at", { ascending: true });
 
+      if (seq !== loadSeq.current) return;
+
       if (memErr) {
-        console.warn("Load owners failed:", memErr);
+        console.warn("Load workspace members failed:", memErr);
         setOwners([]);
       } else {
-        const opts: OwnerOption[] = ((mem as any[]) ?? []).map((m) => {
+        const opts: OwnerOption[] = ((members as any[]) ?? []).map((m) => {
           const id = m.user_id as string;
           const full = m.profiles?.full_name as string | null | undefined;
           const email = m.profiles?.email as string | null | undefined;
@@ -185,6 +159,29 @@ export default function ProjectsKanbanPage() {
         });
         setOwners(opts);
       }
+
+      // 2) Projects
+      const { data: pData, error: pErr } = await supabase
+        .from("projects")
+        .select("id,workspace_id,name,description,status,priority,project_type,deadline,owner_id,created_by,inserted_at")
+        .eq("workspace_id", ws.workspaceId)
+        .order("inserted_at", { ascending: false });
+
+      if (seq !== loadSeq.current) return;
+
+      if (pErr) {
+        console.warn("Load projects failed:", pErr);
+        setProjects([]);
+        setTodos([]);
+        setPlannedByProject({});
+        setExecutedByProject({});
+        setLoadError(pErr.message);
+        setLoading(false);
+        return;
+      }
+
+      const projectList = ((pData as any) ?? []) as ProjectRow[];
+      setProjects(projectList);
 
       const ids = projectList.map((p) => p.id);
       if (ids.length === 0) {
@@ -203,24 +200,24 @@ export default function ProjectsKanbanPage() {
 
       if (seq !== loadSeq.current) return;
 
-      if (planErr) console.warn("planned totals error:", planErr);
-      if (execErr) console.warn("executed totals error:", execErr);
+      if (planErr) console.warn("Planned totals load failed:", planErr);
+      if (execErr) console.warn("Executed totals load failed:", execErr);
 
       const planMap: Record<string, number> = {};
-      for (const r of (plan as any as TotalsRowPlanned[]) ?? []) planMap[r.project_id] = r.planned_minutes ?? 0;
+      for (const r of ((plan as any) ?? []) as TotalsRowPlanned[]) planMap[r.project_id] = r.planned_minutes ?? 0;
       setPlannedByProject(planMap);
 
       const execMap: Record<string, number> = {};
-      for (const r of (exec as any as TotalsRowExecuted[]) ?? []) execMap[r.project_id] = r.executed_minutes ?? 0;
+      for (const r of ((exec as any) ?? []) as TotalsRowExecuted[]) execMap[r.project_id] = r.executed_minutes ?? 0;
       setExecutedByProject(execMap);
 
-      // 4) Todos via view todo_status_auto (geen workspace_id -> in(project_id))
-      // MVP: we tonen geen done taken in kanban
+      // 4) Todos via view todo_status_auto (no workspace_id -> filter by project_id)
+      // MVP: we do not show done tasks in Kanban
       const { data: td, error: tdErr } = await supabase
         .from("todo_status_auto")
         .select("id,project_id,title,inserted_at,assigned_to,estimated_minutes,is_done,executed_minutes,auto_status")
         .in("project_id", ids)
-     //   .neq("auto_status", "done")
+        .neq("auto_status", "done")
         .order("inserted_at", { ascending: false });
 
       if (seq !== loadSeq.current) return;
@@ -241,7 +238,7 @@ export default function ProjectsKanbanPage() {
       setPlannedByProject({});
       setExecutedByProject({});
       setOwners([]);
-      setLoadError(e?.message ?? "Fout bij laden.");
+      setLoadError(e?.message ?? "Failed to load Kanban data.");
       setLoading(false);
     }
   }, [router]);
@@ -256,7 +253,7 @@ export default function ProjectsKanbanPage() {
     return () => window.removeEventListener("workspace-changed", handler);
   }, [load]);
 
-  // ---- Filters / sorting projects ----
+  // ---- Filters / sorting projects (keep behavior as-is) ----
   const filteredProjects = useMemo(() => {
     return projects.filter((p) => {
       const prioOk = filterPriority === "all" ? true : (p.priority ?? "medium") === filterPriority;
@@ -294,7 +291,7 @@ export default function ProjectsKanbanPage() {
 
   const filteredProjectIds = useMemo(() => new Set(sortedFilteredProjects.map((p) => p.id)), [sortedFilteredProjects]);
 
-  // ---- Tasks follow project filters (owner/prio), but get own column status ----
+  // Tasks follow project filters (owner/priority), but have their own Kanban column status.
   const filteredTodos = useMemo(() => {
     return todos.filter((t) => filteredProjectIds.has(t.project_id));
   }, [todos, filteredProjectIds]);
@@ -317,7 +314,7 @@ export default function ProjectsKanbanPage() {
       m[todoColumnStatus(t)].push(t);
     }
 
-    // sort tasks by project priority (hoog -> laag), then by newest
+    // Sort tasks by project priority (high -> low), then newest
     for (const k of Object.keys(m) as ProjectStatus[]) {
       m[k].sort((a, b) => {
         const pa = projectById[a.project_id]?.priority;
@@ -348,150 +345,95 @@ export default function ProjectsKanbanPage() {
     setProjects((cur) => cur.map((p) => (p.id === projectId ? { ...p, status: nextStatus } : p)));
 
     const { error } = await supabase.from("projects").update({ status: nextStatus }).eq("id", projectId);
+
     if (error) {
-      console.error(error);
-      alert(error.message);
+      // Revert optimistic update
       setProjects(prev);
+      alert(error.message);
     }
   }
 
-  function ProjectCard({ p, compact }: { p: ProjectRow; compact?: boolean }) {
+  function ProjectCard({ p, compact }: { p: ProjectRow; compact: boolean }) {
     const planned = plannedByProject[p.id] ?? 0;
     const executed = executedByProject[p.id] ?? 0;
-    const percent = pct(executed, planned);
-    const ownerLabel = p.owner_id === null ? "—" : ownerLabelById[p.owner_id] ?? p.owner_id.slice(0, 8);
+    const pct = calcPct(executed, planned);
+
+    const ownerLabel = p.owner_id ? ownerLabelById[p.owner_id] ?? p.owner_id.slice(0, 8) : "—";
 
     return (
       <div
+        className={[
+          "border rounded-lg bg-white p-3 shadow-sm",
+          draggingId === p.id ? "opacity-60" : "",
+        ].join(" ")}
         draggable
-        style={{ cursor: "grab" }}
         onDragStart={(e) => {
           e.dataTransfer.setData("text/plain", p.id);
           e.dataTransfer.effectAllowed = "move";
-          requestAnimationFrame(() => setDraggingId(p.id)); // important: stable DnD
+          setDraggingId(p.id);
         }}
-        onDragEnd={() => {
-          setDraggingId(null);
-          setDragOverStatus(null);
-        }}
-        className={[
-          "rounded-lg border bg-white p-3 shadow-sm hover:shadow transition-shadow",
-          "w-full max-w-full overflow-hidden",
-          draggingId === p.id ? "opacity-60 ring-2 ring-blue-400" : "",
-        ].join(" ")}
+        onDragEnd={() => setDraggingId(null)}
       >
-        <div className="flex items-start justify-between gap-2 min-w-0">
+        <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="font-medium truncate">{p.name}</div>
-            {!compact && p.description ? (
+
+            {compact ? null : p.description ? (
               <div className="text-sm text-gray-600 mt-1 line-clamp-2">{p.description}</div>
             ) : null}
+
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className={statusBadgeClass(p.status)}>{p.status}</span>
+              <span className={priorityBadgeClass(p.priority)}>{p.priority ?? "medium"}</span>
+              {p.project_type ? <span className={metaBadgeClass()}>{p.project_type}</span> : null}
+              <span className={metaBadgeClass()}>Owner: {ownerLabel}</span>
+              {p.deadline ? <span className={metaBadgeClass()}>Deadline: {p.deadline}</span> : null}
+            </div>
+
+            <div className="mt-3">
+              {/* Your working ProgressBar API */}
+              <ProgressBar value={pct} />
+              <div className="mt-1 text-xs text-gray-500">
+                Planned: {minutesToHoursText(planned)} • Executed: {minutesToHoursText(executed)}
+              </div>
+            </div>
           </div>
 
-          <Button
-            variant="outline"
-            className="shrink-0"
-            onClick={() => router.push(`/projects/${p.id}`)}
-          >
-            Open
-          </Button>
-        </div>
-
-        <div className="mt-2 flex flex-wrap gap-2">
-          <span className={statusBadgeClass(p.status)}>{p.status}</span>
-          <span className={priorityBadgeClass(p.priority)}>prio: {p.priority ?? "medium"}</span>
-          {p.project_type ? <span className={metaBadgeClass()}>type: {p.project_type}</span> : null}
-          {p.deadline ? <span className={metaBadgeClass()}>deadline: {p.deadline}</span> : null}
-          <span className={metaBadgeClass()}>owner: {ownerLabel}</span>
-        </div>
-
-        <div className="mt-2 md:hidden">
-          <label className="text-[11px] text-gray-500">Project status</label>
-          <select
-            className="mt-1 w-full border rounded-md px-2 py-1 text-sm"
-            value={p.status}
-            onChange={(e) => updateProjectStatus(p.id, e.target.value as ProjectStatus)}
-          >
-            {STATUS_COLUMNS.map((c) => (
-              <option key={c.key} value={c.key}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {!compact ? (
-          <div className="mt-3">
-            {planned > 0 ? (
-              <ProgressBar
-                value={percent}
-                label={`${minutesToHoursText(executed)} / ${minutesToHoursText(planned)} (${percent}%)`}
-              />
-            ) : (
-              <div className="text-sm text-gray-500">Geen raming (planned = 0)</div>
-            )}
+          <div className="shrink-0">
+            <Button variant="outline" onClick={() => router.push(`/projects/${p.id}`)}>
+              Open
+            </Button>
           </div>
-        ) : null}
+        </div>
       </div>
     );
   }
 
   function TodoCard({ t }: { t: TodoAutoRow }) {
     const p = projectById[t.project_id];
-    const projectName = p?.name ?? "Project";
-    const prio = p?.priority ?? "medium";
-    const planned = t.estimated_minutes ?? 0;
-    const executed = t.executed_minutes ?? 0;
-    const percent = planned > 0 ? pct(executed, planned) : 0;
+    const ownerLabel = p?.owner_id ? ownerLabelById[p.owner_id] ?? p.owner_id.slice(0, 8) : "—";
 
     return (
-      <div className="rounded-md border bg-white px-3 py-2 w-full max-w-full overflow-hidden">
-        <div className="flex items-start justify-between gap-2 min-w-0">
-          <div className="min-w-0">
-            <div className="font-medium text-sm truncate">{t.title}</div>
-            <div className="mt-1 flex flex-wrap gap-2">
-              <span className={metaBadgeClass()}>project: {projectName}</span>
-              <span className={priorityBadgeClass(prio)}>prio: {prio}</span>
-              {planned > 0 ? (
-                <span className={metaBadgeClass()}>
-                  {minutesToHoursText(executed)} / {minutesToHoursText(planned)} ({percent}%)
-                </span>
-              ) : (
-                <span className={metaBadgeClass()}>geen raming</span>
-              )}
-            </div>
-          </div>
-
-          <Button
-            variant="outline"
-            className="text-xs px-2 py-1 shrink-0"
-            onClick={() => router.push(`/projects/${t.project_id}`)}
-          >
-            Open
-          </Button>
-        </div>
-
-        {planned > 0 ? (
-          <div className="mt-2">
-            <ProgressBar
-              value={percent}
-              label={`${minutesToHoursText(executed)} / ${minutesToHoursText(planned)} (${percent}%)`}
-            />
-          </div>
-        ) : null}
-
-        <div className="mt-2 text-[11px] text-gray-500">
-          Status is automatisch op basis van voortgang: 0% proposed, 1–99% active, 100% done.
+      <div className="border rounded-lg bg-white p-3 shadow-sm">
+        <div className="text-sm font-medium">{t.title}</div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {p ? (
+            <>
+              <span className={metaBadgeClass()}>Project: {p.name}</span>
+              <span className={priorityBadgeClass(p.priority)}>{p.priority ?? "medium"}</span>
+              <span className={metaBadgeClass()}>Owner: {ownerLabel}</span>
+            </>
+          ) : (
+            <span className={metaBadgeClass()}>Project: unknown</span>
+          )}
+          {t.estimated_minutes ? (
+            <span className={metaBadgeClass()}>Estimate: {minutesToHoursText(t.estimated_minutes)}</span>
+          ) : null}
+          {typeof t.executed_minutes === "number" ? (
+            <span className={metaBadgeClass()}>Logged: {minutesToHoursText(t.executed_minutes)}</span>
+          ) : null}
         </div>
       </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <main className="p-6 max-w-6xl mx-auto">
-        <div className="text-gray-500">Laden…</div>
-      </main>
     );
   }
 
@@ -499,40 +441,33 @@ export default function ProjectsKanbanPage() {
     <main className="p-6 max-w-6xl mx-auto">
       <header className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Projecten • Kanban</h1>
+          <h1 className="text-2xl font-semibold">Kanban</h1>
+
           <div className="mt-2">
             <WorkspaceSwitcher />
           </div>
-          <div className="text-sm text-gray-500">Rol: {role}</div>
-          {workspaceId ? (
-            <div className="text-xs text-gray-400 mt-1">
-              Workspace: <span className="font-mono">{workspaceId}</span>
-            </div>
-          ) : null}
+
+          <div className="text-sm text-gray-500">Role: {role}</div>
+
+          {/* Workspace ID removed on purpose */}
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => router.push("/projects")}>
-            ← Lijst
-          </Button>
-          <Button onClick={() => router.push("/projects/new")}>
-            {role === "stakeholder" ? "Project voorstellen" : "Nieuw project"}
-          </Button>
+          <Button onClick={() => router.push("/projects")}>Projects</Button>
         </div>
       </header>
 
-      <section className="mt-5 border rounded-lg p-4">
-        <div className="font-medium">Filters</div>
-
-        <div className="mt-3 grid gap-3 sm:grid-cols-4">
-          <div>
-            <label className="text-xs text-gray-500">Prioriteit</label>
+      <section className="mt-6 border rounded-lg p-4 bg-white">
+        {/* Filters (keep the same set of filters) */}
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+          <div className="grid gap-1">
+            <div className="text-xs text-gray-500">Priority</div>
             <select
-              className="mt-1 w-full border rounded-md px-3 py-2 text-sm"
+              className="border rounded-md px-3 py-2 text-sm"
               value={filterPriority}
-              onChange={(e) => setFilterPriority(e.target.value as any)}
+              onChange={(e) => setFilterPriority(e.target.value)}
             >
-              <option value="all">Alle</option>
+              <option value="all">All</option>
               <option value="low">low</option>
               <option value="medium">medium</option>
               <option value="high">high</option>
@@ -540,15 +475,15 @@ export default function ProjectsKanbanPage() {
             </select>
           </div>
 
-          <div>
-            <label className="text-xs text-gray-500">Owner</label>
+          <div className="grid gap-1">
+            <div className="text-xs text-gray-500">Owner</div>
             <select
-              className="mt-1 w-full border rounded-md px-3 py-2 text-sm"
+              className="border rounded-md px-3 py-2 text-sm"
               value={filterOwner}
               onChange={(e) => setFilterOwner(e.target.value)}
             >
-              <option value="all">Alle</option>
-              <option value="none">— geen owner —</option>
+              <option value="all">All</option>
+              <option value="none">Unassigned</option>
               {owners.map((o) => (
                 <option key={o.id} value={o.id}>
                   {o.label}
@@ -557,101 +492,113 @@ export default function ProjectsKanbanPage() {
             </select>
           </div>
 
-          <div>
-            <label className="text-xs text-gray-500">Weergave</label>
+          <div className="grid gap-1">
+            <div className="text-xs text-gray-500">Sort</div>
             <select
-              className="mt-1 w-full border rounded-md px-3 py-2 text-sm"
-              value={viewMode}
-              onChange={(e) => setViewMode(e.target.value as ViewMode)}
-            >
-              <option value="projects">Projecten</option>
-              <option value="todos">Taken</option>
-              <option value="both">Beide</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="text-xs text-gray-500">Sortering</label>
-            <select
-              className="mt-1 w-full border rounded-md px-3 py-2 text-sm"
+              className="border rounded-md px-3 py-2 text-sm"
               value={sortMode}
               onChange={(e) => setSortMode(e.target.value as SortMode)}
             >
-              <option value="priority_desc">Prioriteit (hoog → laag)</option>
-              <option value="newest">Nieuwste eerst</option>
+              <option value="priority_desc">Priority (high → low)</option>
+              <option value="newest">Newest</option>
+            </select>
+          </div>
+
+          <div className="grid gap-1">
+            <div className="text-xs text-gray-500">View</div>
+            <select
+              className="border rounded-md px-3 py-2 text-sm"
+              value={viewMode}
+              onChange={(e) => setViewMode(e.target.value as ViewMode)}
+            >
+              <option value="both">Projects + tasks</option>
+              <option value="projects">Projects only</option>
+              <option value="todos">Tasks only</option>
             </select>
           </div>
         </div>
-
-        {loadError ? <div className="mt-3 text-sm text-red-600">{loadError}</div> : null}
       </section>
 
-      <section className="mt-6">
-        <div className="overflow-x-auto pb-2">
-          <div className="min-w-[1080px] grid grid-cols-[repeat(4,260px)] gap-4">
-            {STATUS_COLUMNS.map((col) => (
-              <div
-                key={col.key}
-                className={[
-                  "rounded-lg border bg-gray-50 transition-colors",
-                  dragOverStatus === col.key ? "ring-2 ring-blue-400 bg-blue-50/30" : "",
-                ].join(" ")}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                  setDragOverStatus(col.key);
-                }}
-                onDragLeave={() => setDragOverStatus((s) => (s === col.key ? null : s))}
-                onDrop={async (e) => {
-                  e.preventDefault();
-                  const pid = e.dataTransfer.getData("text/plain");
-                  setDragOverStatus(null);
-                  setDraggingId(null);
-
-                  if (!pid) return;
-
-                  const p = projectsRef.current.find((x) => x.id === pid);
-                  if (!p) return;
-                  if (p.status === col.key) return;
-
-                  await updateProjectStatus(pid, col.key);
-                }}
-              >
-                <div className="px-3 py-2 border-b bg-white rounded-t-lg flex items-center justify-between">
-                  <div className="font-semibold">{col.label}</div>
-                  <div className="text-xs text-gray-500">
-                    {projectsByColumn[col.key].length} proj • {todosByColumn[col.key].length} taken
-                  </div>
-                </div>
-
-                <div className="p-3 grid gap-3">
-                  {/* Projects */}
-                  {(viewMode === "projects" || viewMode === "both") ? (
-                    projectsByColumn[col.key].length === 0 ? (
-                      <div className="text-sm text-gray-500">Geen projecten</div>
-                    ) : (
-                      projectsByColumn[col.key].map((p) => <ProjectCard key={p.id} p={p} compact={false} />)
-                    )
-                  ) : null}
-
-                  {/* Tasks */}
-                  {(viewMode === "todos" || viewMode === "both") ? (
-                    todosByColumn[col.key].length === 0 ? (
-                      <div className="text-sm text-gray-500">Geen taken</div>
-                    ) : (
-                      todosByColumn[col.key].map((t) => <TodoCard key={t.id} t={t} />)
-                    )
-                  ) : null}
-                </div>
-              </div>
-            ))}
+      {loading ? (
+        <div className="mt-8 text-gray-500">Loading…</div>
+      ) : loadError ? (
+        <div className="mt-8 text-gray-600">
+          <div className="font-medium text-red-700">Could not load Kanban</div>
+          <div className="mt-2 text-sm text-gray-600">{loadError}</div>
+          <div className="mt-4">
+            <Button variant="outline" onClick={load}>
+              Retry
+            </Button>
           </div>
         </div>
+      ) : (
+        <section className="mt-6">
+          <div className="overflow-x-auto">
+            <div className="min-w-[1050px] grid grid-cols-4 gap-4">
+              {STATUS_COLUMNS.map((col) => (
+                <div
+                  key={col.key}
+                  className={[
+                    "border rounded-lg bg-gray-50",
+                    dragOverStatus === col.key ? "ring-2 ring-blue-400 bg-blue-50/30" : "",
+                  ].join(" ")}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    setDragOverStatus(col.key);
+                  }}
+                  onDragLeave={() => setDragOverStatus((s) => (s === col.key ? null : s))}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    const pid = e.dataTransfer.getData("text/plain");
+                    setDragOverStatus(null);
+                    setDraggingId(null);
 
-        <div className="mt-2 text-xs text-gray-500">
-          Takenstatus wordt automatisch bepaald op basis van voortgang (uren t/m vandaag).
-        </div>
-      </section>
+                    if (!pid) return;
+
+                    const p = projectsRef.current.find((x) => x.id === pid);
+                    if (!p) return;
+                    if (p.status === col.key) return;
+
+                    await updateProjectStatus(pid, col.key);
+                  }}
+                >
+                  <div className="px-3 py-2 border-b bg-white rounded-t-lg flex items-center justify-between">
+                    <div className="font-semibold">{col.label}</div>
+                    <div className="text-xs text-gray-500">
+                      {projectsByColumn[col.key].length} proj • {todosByColumn[col.key].length} tasks
+                    </div>
+                  </div>
+
+                  <div className="p-3 grid gap-3">
+                    {/* Projects */}
+                    {viewMode === "projects" || viewMode === "both" ? (
+                      projectsByColumn[col.key].length === 0 ? (
+                        <div className="text-sm text-gray-500">No projects</div>
+                      ) : (
+                        projectsByColumn[col.key].map((p) => <ProjectCard key={p.id} p={p} compact={false} />)
+                      )
+                    ) : null}
+
+                    {/* Tasks */}
+                    {viewMode === "todos" || viewMode === "both" ? (
+                      todosByColumn[col.key].length === 0 ? (
+                        <div className="text-sm text-gray-500">No tasks</div>
+                      ) : (
+                        todosByColumn[col.key].map((t) => <TodoCard key={t.id} t={t} />)
+                      )
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-2 text-xs text-gray-500">
+            Task status is automatically derived from progress (hours logged up to today).
+          </div>
+        </section>
+      )}
     </main>
   );
 }
