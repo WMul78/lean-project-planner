@@ -185,7 +185,7 @@ export default function ProjectsPage() {
    <main className="p-6 max-w-3xl mx-auto">
   <header className="flex items-start justify-between gap-4">
     <div>
-      <h1 className="text-2xl font-semibold">Projecten</h1>
+      <h1 className="text-2xl font-semibold">Projects Overview</h1>
 
       <div className="mt-2">
         <WorkspaceSwitcher />
