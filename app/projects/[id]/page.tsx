@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Button from "@/app/components/Button";
 import ProgressBar from "@/app/components/ProgressBar";
@@ -11,6 +11,22 @@ import { badgeBase, badgeClassForStatus, badgeClassForPriority, metaBadgeClass }
 type Priority = "low" | "medium" | "high" | "very_high";
 type ProjectType = "standard" | "pdca" | "dmaic";
 type ProjectStatus = "proposed" | "active" | "done" | "archived";
+
+const PHASES: Record<Exclude<ProjectType, "standard">, { value: string; label: string }[]> = {
+  pdca: [
+    { value: "plan", label: "Plan" },
+    { value: "do", label: "Do" },
+    { value: "check", label: "Check" },
+    { value: "act", label: "Act" },
+  ],
+  dmaic: [
+    { value: "define", label: "Define" },
+    { value: "measure", label: "Measure" },
+    { value: "analyze", label: "Analyze" },
+    { value: "improve", label: "Improve" },
+    { value: "control", label: "Control" },
+  ],
+};
 
 type Project = {
   id: string;
@@ -27,19 +43,26 @@ type Project = {
   location_link: string | null;
 };
 
-type Todo = {
+type TodoAuto = {
   id: string;
+  project_id: string;
   title: string;
-  is_done: boolean;
   inserted_at: string;
   assigned_to: string | null;
   estimated_minutes: number | null;
+  executed_minutes: number; // from view todo_executed_totals / todo_status_auto
+  auto_status: "proposed" | "active" | "done"; // from view
+  // NEW (requires view/table update)
+  phase: string | null;
+  sort_order: number | null;
 };
+
+type Member = { id: string; full_name: string; email: string | null };
 
 function minutesToHoursText(min: number | null | undefined) {
   const m = min ?? 0;
   const h = Math.round((m / 60) * 10) / 10;
-  return `${h}u`;
+  return `${h}h`;
 }
 
 function minutesToHoursInput(min: number | null | undefined) {
@@ -61,6 +84,13 @@ function calcPct(executed: number, planned: number) {
   return Math.min(100, Math.round((executed / planned) * 100));
 }
 
+function clampPhase(projectType: ProjectType | null | undefined, phase: string | null | undefined) {
+  if (!projectType || projectType === "standard") return null;
+  if (!phase) return null;
+  const allowed = new Set(PHASES[projectType].map((p) => p.value));
+  return allowed.has(phase) ? phase : null;
+}
+
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
   const projectId = params.id;
@@ -71,64 +101,51 @@ export default function ProjectDetailPage() {
   const [projectMemberRole, setProjectMemberRole] = useState<string | null>(null);
 
   const [project, setProject] = useState<Project | null>(null);
-  const [todos, setTodos] = useState<Todo[]>([]);
+  const [todos, setTodos] = useState<TodoAuto[]>([]);
+  const todosRef = useRef<TodoAuto[]>([]);
+  useEffect(() => {
+    todosRef.current = todos;
+  }, [todos]);
+
+  const [members, setMembers] = useState<Member[]>([]);
   const [newTodoTitle, setNewTodoTitle] = useState("");
 
-  // ✅ Stap 6 totals
   const [plannedMinutes, setPlannedMinutes] = useState<number>(0);
   const [executedMinutes, setExecutedMinutes] = useState<number>(0);
 
-  // ✅ Workspace members voor assignee dropdown
-  const [members, setMembers] = useState<{ id: string; full_name: string; email?: string | null }[]>([]);
-  const [executedByTodo, setExecutedByTodo] = useState<Record<string, number>>({});
+  // UI prefs
+  const [hideDoneTasks, setHideDoneTasks] = useState<boolean>(true);
 
-  const canEditProject = useMemo(() => {
-    if (!userId || !project) return false;
+  // drag & drop state
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
-    if (workspaceRole === "owner" || workspaceRole === "admin") return true;
+  const canEditProject = useMemo(() => workspaceRole === "owner" || workspaceRole === "admin", [workspaceRole]);
 
-    if (workspaceRole === "member") {
-      if (project.owner_id === userId) return true;
-      return projectMemberRole === "owner" || projectMemberRole === "editor";
-    }
-
-    // stakeholder: alleen eigen proposal (MVP)
-    if (workspaceRole === "stakeholder") {
-      return project.status === "proposed" && project.created_by === userId;
-    }
-
-    return false;
-  }, [workspaceRole, project, userId, projectMemberRole]);
-
+  // Members can edit tasks if they are project member (or owner/admin via workspace)
   const canEditTodos = useMemo(() => {
-    if (!userId || !project) return false;
-
     if (workspaceRole === "owner" || workspaceRole === "admin") return true;
+    return projectMemberRole === "member" || projectMemberRole === "owner" || projectMemberRole === "admin";
+  }, [workspaceRole, projectMemberRole]);
 
-    if (workspaceRole === "member") {
-      if (project.owner_id === userId) return true;
-      return projectMemberRole === "owner" || projectMemberRole === "editor";
-    }
+  const isStakeholder = useMemo(() => workspaceRole === "stakeholder", [workspaceRole]);
 
-  
+  const filteredTodos = useMemo(() => {
+    if (!hideDoneTasks) return todos;
+    return todos.filter((t) => t.auto_status !== "done");
+  }, [todos, hideDoneTasks]);
 
-
-    // stakeholder: geen todo edits
-    return false;
-  }, [workspaceRole, project, userId, projectMemberRole]);
-
-  const progressPct = useMemo(
-    () => calcPct(executedMinutes, plannedMinutes),
-    [executedMinutes, plannedMinutes]
-  );
-
-  const memberNameById = useMemo(() => {
-    const m: Record<string, string> = {};
-    for (const x of members) {
-    m[x.id] = x.full_name || x.email || x.id.slice(0, 8);
-    }
-    return m;
-  } , [members]);
+  const sortedTodos = useMemo(() => {
+    // stable sort: sort_order first, then inserted_at
+    const arr = [...filteredTodos];
+    arr.sort((a, b) => {
+      const ao = a.sort_order ?? 1_000_000;
+      const bo = b.sort_order ?? 1_000_000;
+      if (ao !== bo) return ao - bo;
+      return a.inserted_at < b.inserted_at ? -1 : 1;
+    });
+    return arr;
+  }, [filteredTodos]);
 
   async function loadProject() {
     const user = await requireUser(router);
@@ -136,7 +153,12 @@ export default function ProjectDetailPage() {
     setUserId(user.id);
 
     const ws = await getActiveWorkspace();
-    if (ws) setWorkspaceRole(ws.role);
+    if (!ws?.workspaceId) {
+      alert("No active workspace found.");
+      router.push("/projects");
+      return;
+    }
+    setWorkspaceRole(ws.role);
 
     const { data: proj, error: projErr } = await supabase
       .from("projects")
@@ -150,65 +172,36 @@ export default function ProjectDetailPage() {
       return;
     }
 
-    setProject(proj as any);
+    setProject(proj as Project);
 
-    // membership role (voor samenwerking)
+    // Project membership role (for members collaboration)
     const { data: pm } = await supabase
       .from("project_members")
       .select("role")
       .eq("project_id", projectId)
       .eq("user_id", user.id)
       .maybeSingle();
-
     setProjectMemberRole((pm as any)?.role ?? null);
   }
 
   async function loadTodos() {
-    const { data: td, error: tdErr } = await supabase
-      .from("todos")
-      .select("id,title,is_done,inserted_at,assigned_to,estimated_minutes")
-      .eq("project_id", projectId)
-      .order("inserted_at", { ascending: false });
+    // Prefer the view that calculates auto status based on hours (as you already do in Kanban) :contentReference[oaicite:5]{index=5}
+    const { data, error } = await supabase
+      .from("todo_status_auto")
+      // IMPORTANT: requires view to include phase + sort_order, otherwise remove these fields from select/type
+      .select("id,project_id,title,inserted_at,assigned_to,estimated_minutes,executed_minutes,auto_status,phase,sort_order")
+      .eq("project_id", projectId);
 
-    if (tdErr) {
-      alert(tdErr.message);
+    if (error) {
+      console.error("Load todos failed:", error);
       setTodos([]);
       return;
     }
-    const list = ((td as any) ?? []) as Todo[];
-      setTodos(list);
-      await loadTodoExecutedTotals(list.map((x) => x.id));
 
-    }
-
-async function loadTodoExecutedTotals(todoIds: string[]) {
-  if (todoIds.length === 0) {
-    setExecutedByTodo({});
-    return;
+    setTodos(((data as any) ?? []) as TodoAuto[]);
   }
-
-  const { data, error } = await supabase
-    .from("todo_executed_totals")
-    .select("todo_id, executed_minutes")
-    .in("todo_id", todoIds);
-
-  if (error) {
-    console.error("Load todo executed totals error:", error);
-    setExecutedByTodo({});
-    return;
-  }
-
-  const m: Record<string, number> = {};
-  for (const r of (data as any[]) ?? []) {
-    m[r.todo_id] = r.executed_minutes ?? 0;
-  }
-  setExecutedByTodo(m);
-}
-
-
 
   async function loadTotals(pid: string) {
-    // planned = sum todos.estimated_minutes
     const { data: plan, error: planErr } = await supabase
       .from("project_planned_totals")
       .select("planned_minutes")
@@ -218,7 +211,6 @@ async function loadTodoExecutedTotals(todoIds: string[]) {
     if (planErr) console.error("Load planned totals error:", planErr);
     setPlannedMinutes((plan as any)?.planned_minutes ?? 0);
 
-    // executed = sum time_entries.minutes where entry_date <= today
     const { data: exec, error: execErr } = await supabase
       .from("project_executed_totals")
       .select("executed_minutes")
@@ -230,29 +222,28 @@ async function loadTodoExecutedTotals(todoIds: string[]) {
   }
 
   async function loadWorkspaceMembers() {
-  const ws = await getActiveWorkspace();
-  if (!ws?.workspaceId) return;
+    const ws = await getActiveWorkspace();
+    if (!ws?.workspaceId) return;
 
-  const { data, error } = await supabase
-    .from("workspace_members")
-    .select("user_id, profiles:profiles(full_name,email)")
-    .eq("workspace_id", ws.workspaceId);
+    const { data, error } = await supabase
+      .from("workspace_members")
+      .select("user_id, profiles:profiles(full_name,email)")
+      .eq("workspace_id", ws.workspaceId);
 
-  if (error) {
-    console.error("Load members error:", error);
-    setMembers([]);
-    return;
+    if (error) {
+      console.error("Load members error:", error);
+      setMembers([]);
+      return;
+    }
+
+    setMembers(
+      ((data as any[]) ?? []).map((r) => ({
+        id: r.user_id,
+        full_name: r.profiles?.full_name || r.user_id.slice(0, 8),
+        email: r.profiles?.email ?? null,
+      }))
+    );
   }
-
-  setMembers(
-    ((data as any[]) ?? []).map((r) => ({
-      id: r.user_id,
-      full_name: r.profiles?.full_name || r.user_id.slice(0, 8),
-      email: r.profiles?.email ?? null,
-    }))
-  );
-}
-
 
   async function refreshAll() {
     await loadProject();
@@ -262,7 +253,6 @@ async function loadTodoExecutedTotals(todoIds: string[]) {
   }
 
   useEffect(() => {
-    // init
     (async () => {
       await loadProject();
       await loadTodos();
@@ -276,293 +266,349 @@ async function loadTodoExecutedTotals(todoIds: string[]) {
   async function addTodo(e: React.FormEvent) {
     e.preventDefault();
     if (!canEditTodos) return;
+    if (!project) return;
 
     const clean = newTodoTitle.trim();
     if (!clean) return;
+
+    // compute next sort_order client-side (safe enough for MVP)
+    const current = todosRef.current.filter((t) => t.project_id === projectId);
+    const maxSort = current.reduce((mx, t) => Math.max(mx, t.sort_order ?? 0), 0);
+
+    const defaultPhase = project.project_type && project.project_type !== "standard" ? clampPhase(project.project_type, project.phase) : null;
 
     const { error } = await supabase.from("todos").insert({
       title: clean,
       project_id: projectId,
       assigned_to: null,
       estimated_minutes: null,
+      sort_order: maxSort + 1,
+      phase: defaultPhase,
     });
 
-    if (error) return alert("Geen rechten of fout: " + error.message);
+    if (error) return alert("No permission or error: " + error.message);
 
     setNewTodoTitle("");
     await refreshAll();
   }
 
-  async function toggleDone(todo: Todo) {
+  async function removeTodo(todoId: string) {
     if (!canEditTodos) return;
 
-    const { error } = await supabase.from("todos").update({ is_done: !todo.is_done }).eq("id", todo.id);
-    if (error) return alert("Geen rechten of fout: " + error.message);
+    const { error } = await supabase.from("todos").delete().eq("id", todoId);
+    if (error) return alert("No permission or error: " + error.message);
 
     await refreshAll();
   }
 
-  async function removeTodo(todo: Todo) {
-    if (!canEditTodos) return;
-
-    const { error } = await supabase.from("todos").delete().eq("id", todo.id);
-    if (error) return alert("Geen rechten of fout: " + error.message);
-
-    await refreshAll();
-  }
-
-  // ---- Todo fields updates (estimate + assignee) ----
+  // ---- Todo field updates (estimate + assignee + phase) ----
   async function updateTodoEstimate(todoId: string, hoursText: string) {
     if (!canEditTodos) return;
 
     const minutes = hoursInputToMinutes(hoursText);
     const next = minutes === null ? null : minutes;
 
-    const { error } = await supabase
-      .from("todos")
-      .update({ estimated_minutes: next })
-      .eq("id", todoId);
+    const { error } = await supabase.from("todos").update({ estimated_minutes: next }).eq("id", todoId);
+    if (error) return alert(error.message);
 
-    if (error) {
-      console.error(error);
-      alert(error.message);
-      return;
-    }
-
-    await refreshAll(); // planned totals updaten
+    await refreshAll();
   }
 
   async function updateTodoAssignee(todoId: string, nextUserId: string | null) {
     if (!canEditTodos) return;
 
-    const { error } = await supabase
-      .from("todos")
-      .update({ assigned_to: nextUserId })
-      .eq("id", todoId);
-
-    if (error) {
-      console.error(error);
-      alert(error.message);
-      return;
-    }
+    const { error } = await supabase.from("todos").update({ assigned_to: nextUserId }).eq("id", todoId);
+    if (error) return alert(error.message);
 
     await refreshAll();
   }
 
+  async function updateTodoPhase(todoId: string, nextPhase: string | null) {
+    if (!canEditTodos) return;
+
+    const { error } = await supabase.from("todos").update({ phase: nextPhase }).eq("id", todoId);
+    if (error) return alert(error.message);
+
+    await refreshAll();
+  }
+
+  // ---- Drag & drop reorder (persist sort_order) ----
+  function onDragStart(todoId: string) {
+    if (!canEditTodos) return;
+    setDraggingId(todoId);
+  }
+
+  function onDragOver(todoId: string) {
+    if (!canEditTodos) return;
+    if (!draggingId || draggingId === todoId) return;
+    setDragOverId(todoId);
+  }
+
+  async function onDrop(todoId: string) {
+    if (!canEditTodos) return;
+    const fromId = draggingId;
+    const toId = todoId;
+    setDragOverId(null);
+    setDraggingId(null);
+
+    if (!fromId || fromId === toId) return;
+
+    const cur = sortedTodos; // already filtered + sorted list
+    const fromIdx = cur.findIndex((t) => t.id === fromId);
+    const toIdx = cur.findIndex((t) => t.id === toId);
+    if (fromIdx < 0 || toIdx < 0) return;
+
+    const next = [...cur];
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, moved);
+
+    // Optimistic UI: update local sort_order
+    const optimistic = next.map((t, idx) => ({ ...t, sort_order: idx + 1 }));
+    setTodos((prev) => {
+      // merge optimistic back into full list (including done tasks if hidden)
+      const map = new Map(optimistic.map((t) => [t.id, t]));
+      return prev.map((t) => map.get(t.id) ?? t);
+    });
+
+    // Persist: set sort_order for all items in the reordered list
+    const payload = optimistic.map((t) => ({ id: t.id, sort_order: t.sort_order }));
+    const { error } = await supabase.from("todos").upsert(payload, { onConflict: "id" });
+
+    if (error) {
+      console.error(error);
+      alert(error.message);
+      await refreshAll(); // revert to server truth
+    }
+  }
+
+  if (!project) {
+    return (
+      <main className="p-6 max-w-3xl mx-auto">
+        <div className="text-gray-500">Loading…</div>
+      </main>
+    );
+  }
+
+  const planned = plannedMinutes ?? 0;
+  const executed = executedMinutes ?? 0;
+  const percent = calcPct(executed, planned);
+
+  const statusClass = `${badgeBase} ${badgeClassForStatus(project.status)}`;
+  const prioClass = `${badgeBase} ${badgeClassForPriority(project.priority)}`;
+
+  const canShowPhaseOnTodos = project.project_type && project.project_type !== "standard";
+
   return (
     <main className="p-6 max-w-3xl mx-auto">
-      <div className="flex justify-between items-center gap-3">
-        <Button variant="outline" onClick={() => router.push("/projects")}>
-          ← Terug
-        </Button>
-
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => router.push("/hours")}>
-            Uren plannen →
+      <header className="flex items-start justify-between gap-3">
+        <div>
+          <Button variant="outline" onClick={() => router.push("/projects")}>
+            ← Back
           </Button>
-          <Button variant="outline" onClick={refreshAll}>
-            Verversen
-          </Button>
-        </div>
-      </div>
 
-      <div className="mt-4 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold truncate">{project?.name ?? "Project"}</h1>
-          {project?.description ? <p className="text-gray-600 mt-1">{project.description}</p> : null}
+          <h1 className="text-2xl font-semibold mt-3">{project.name}</h1>
 
-          {project ? (
-            <div className="mt-2 flex items-center gap-2 flex-wrap">
-              <span className={`${badgeBase} ${badgeClassForStatus(project.status)}`}>
-                {project.status}
-              </span>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <span className={statusClass}>status: {project.status}</span>
+            <span className={prioClass}>priority: {project.priority ?? "medium"}</span>
+            {project.project_type ? <span className={metaBadgeClass()}>type: {project.project_type}</span> : null}
+            {project.deadline ? <span className={metaBadgeClass()}>deadline: {project.deadline}</span> : null}
+            {project.location_link ? <span className={metaBadgeClass()}>link</span> : null}
+            <span className={metaBadgeClass()}>role: {workspaceRole}</span>
+          </div>
 
-              <span className={`${badgeBase} ${badgeClassForPriority(project.priority)}`}>
-                prio: {project.priority ?? "medium"}
-              </span>
-
-
-              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                type: {project.project_type ?? "standard"}
-              </span>
-
-              {project.deadline ? (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                  deadline: {project.deadline}
-                </span>
-              ) : null}
-
-              {project.phase ? (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                  fase: {project.phase}
-                </span>
-              ) : null}
-
-              {!canEditProject ? <span className="text-sm text-gray-500">Alleen-lezen</span> : null}
-            </div>
-          ) : null}
-
-          {project?.location_link ? (
-            <div className="mt-2 text-sm">
-              <span className="text-gray-500">Locatie:</span>{" "}
-              <a className="text-blue-600 underline break-all" href={project.location_link} target="_blank" rel="noreferrer">
-                {project.location_link}
-              </a>
-            </div>
-          ) : null}
+          {project.description ? <p className="mt-3 text-sm text-gray-700">{project.description}</p> : null}
         </div>
 
-        {canEditProject ? (
-          <div className="shrink-0">
-            <Button variant="outline" onClick={() => router.push(`/projects/${projectId}/edit`)}>
-              Project bewerken
-            </Button>
-          </div>
-        ) : null}
-      </div>
+        <div className="flex flex-col gap-2 items-end">
+          <Button variant="outline" onClick={() => router.push(`/projects/${projectId}/edit`)} disabled={!canEditProject || isStakeholder}>
+            Edit project
+          </Button>
+        </div>
+      </header>
 
-      {/* ✅ Voortgang (stap 6) */}
-      <section className="mt-6 border rounded-lg p-4">
-        <h2 className="text-lg font-semibold">Voortgang</h2>
-
-        {plannedMinutes > 0 ? (
-          <div className="mt-3">
-            <ProgressBar
-              value={progressPct ?? 0}
-              label={`${minutesToHoursText(executedMinutes)} / ${minutesToHoursText(plannedMinutes)} (${progressPct ?? 0}%)`}
-            />
-            <div className="mt-2 text-xs text-gray-500">
-              Uitgevoerd telt alleen uren met datum t/m vandaag. Uren in de toekomst zijn alleen planning.
+      <section className="mt-6 rounded-lg border bg-white p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="font-semibold">Progress</div>
+            <div className="text-xs text-gray-500">
+              Status of tasks is automatically calculated based on hours logged up to today.
             </div>
           </div>
-        ) : (
-          <div className="mt-3 text-sm text-gray-600">
-            Nog geen taak-ramingen ingevuld (planned = 0). Vul per taak de benodigde tijd in.
+          <div className="text-sm text-gray-700">
+            {minutesToHoursText(executed)} / {minutesToHoursText(planned)}
           </div>
-        )}
+        </div>
+
+        <div className="mt-3">
+          {percent === null ? (
+            <div className="text-sm text-gray-500">No estimate yet (planned = 0)</div>
+          ) : (
+            <ProgressBar value={percent} label={`${minutesToHoursText(executed)} / ${minutesToHoursText(planned)} (${percent}%)`} />
+          )}
+        </div>
       </section>
 
-      {/* Taken */}
-      <section className="mt-6">
+      <section className="mt-6 rounded-lg border bg-white p-4">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">Taken</h2>
-          <div className="text-sm text-gray-500">
-            Workspace rol: {workspaceRole} {projectMemberRole ? `• Project rol: ${projectMemberRole}` : ""}
+          <div>
+            <div className="font-semibold">Tasks</div>
+            <div className="text-xs text-gray-500">
+              Drag & drop to change order. “Done” is based on logged hours (100%).
+            </div>
           </div>
+
+          <label className="text-sm flex items-center gap-2 select-none">
+            <input
+              type="checkbox"
+              className="accent-blue-600"
+              checked={hideDoneTasks}
+              onChange={(e) => setHideDoneTasks(e.target.checked)}
+            />
+            Hide done tasks
+          </label>
         </div>
 
-        {canEditTodos ? (
-          <form onSubmit={addTodo} className="flex gap-2 mt-3">
-            <input
-              className="flex-1 border rounded-md px-3 py-2"
-              placeholder="Nieuwe taak..."
-              value={newTodoTitle}
-              onChange={(e) => setNewTodoTitle(e.target.value)}
-            />
-            <Button type="submit">Toevoegen</Button>
-          </form>
-        ) : (
-          <div className="mt-3 text-sm text-gray-600">
-            Je kunt taken niet aanpassen in dit project (geen edit-rechten).
-          </div>
-        )}
+        <form onSubmit={addTodo} className="mt-4 flex gap-2">
+          <input
+            className="flex-1 border rounded-md px-3 py-2"
+            placeholder={canEditTodos ? "Add a task…" : "You don’t have permission to add tasks"}
+            value={newTodoTitle}
+            onChange={(e) => setNewTodoTitle(e.target.value)}
+            disabled={!canEditTodos}
+          />
+          <Button type="submit" disabled={!canEditTodos}>
+            Add
+          </Button>
+        </form>
 
-        <ul className="mt-4 grid gap-2">
-          {todos.map((t) => (
-            <li key={t.id} className="border rounded-lg p-3">
-              <div className="flex justify-between items-start gap-3">
-                <label className="flex gap-3 items-center flex-1 min-w-0">
-                  <input
-                    type="checkbox"
-                    checked={t.is_done}
-                    onChange={() => toggleDone(t)}
-                    disabled={!canEditTodos}
-                  />
-                  <div className="min-w-0">
-                    <div className={`font-medium ${t.is_done ? "line-through text-gray-500" : ""}`}>
-                         {t.title}
+        <div className="mt-4 grid gap-2">
+          {sortedTodos.length === 0 ? (
+            <div className="text-sm text-gray-500">No tasks</div>
+          ) : (
+            sortedTodos.map((t) => {
+              const pctTodo = calcPct(t.executed_minutes ?? 0, t.estimated_minutes ?? 0);
+              const isDragging = draggingId === t.id;
+              const isOver = dragOverId === t.id;
+
+              return (
+                <div
+                  key={t.id}
+                  draggable={canEditTodos}
+                  onDragStart={() => onDragStart(t.id)}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    onDragOver(t.id);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    onDrop(t.id);
+                  }}
+                  onDragEnd={() => {
+                    setDraggingId(null);
+                    setDragOverId(null);
+                  }}
+                  className={[
+                    "rounded-md border bg-white p-3",
+                    canEditTodos ? "cursor-move" : "cursor-default",
+                    isDragging ? "opacity-60" : "",
+                    isOver ? "ring-2 ring-blue-300" : "",
+                  ].join(" ")}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-medium text-sm truncate">{t.title}</div>
+
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        <span className={metaBadgeClass()}>status: {t.auto_status}</span>
+                        {t.estimated_minutes ? (
+                          <span className={metaBadgeClass()}>
+                            {minutesToHoursText(t.executed_minutes)} / {minutesToHoursText(t.estimated_minutes)}{" "}
+                            {pctTodo === null ? "" : `(${pctTodo}%)`}
+                          </span>
+                        ) : (
+                          <span className={metaBadgeClass()}>no estimate</span>
+                        )}
+                        {canShowPhaseOnTodos ? (
+                          <span className={metaBadgeClass()}>
+                            phase: {t.phase ?? "—"}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-500">
-                      Benodigd: {t.estimated_minutes ? minutesToHoursText(t.estimated_minutes) : "—"} •{" "}
-                      Toegewezen:{" "}
-                        {t.assigned_to ? (memberNameById[t.assigned_to] ?? t.assigned_to.slice(0, 8)) : "—"}
-                    </div>
+
+                    {canEditTodos ? (
+                      <Button variant="danger" className="text-xs px-2 py-1 shrink-0" onClick={() => removeTodo(t.id)}>
+                        Delete
+                      </Button>
+                    ) : null}
                   </div>
-                </label>
-{t.estimated_minutes && t.estimated_minutes > 0 ? (() => {
-  const exec = executedByTodo[t.id] ?? 0;
-  const planned = t.estimated_minutes ?? 0;
-  const percent = Math.min(100, Math.round((exec / planned) * 100));
 
-  return (
-    <div className="mt-2">
-      <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
-        <div className="h-2 bg-blue-500" style={{ width: `${percent}%` }} />
-      </div>
-      <div className="mt-1 text-[11px] text-gray-500">
-        {percent}% • {minutesToHoursText(exec)} / {minutesToHoursText(planned)}
-      </div>
-    </div>
-  );
-})() : (
-  <div className="mt-2 text-[11px] text-gray-400">Geen raming</div>
-)}
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <div className="grid gap-1">
+                      <label className="text-xs text-gray-500">Estimate (hours)</label>
+                      <input
+                        className="border rounded-md px-2 py-1 text-sm"
+                        defaultValue={minutesToHoursInput(t.estimated_minutes)}
+                        placeholder="0"
+                        inputMode="decimal"
+                        disabled={!canEditTodos}
+                        onBlur={(e) => updateTodoEstimate(t.id, e.target.value)}
+                      />
+                    </div>
 
+                    <div className="grid gap-1">
+                      <label className="text-xs text-gray-500">Assignee</label>
+                      <select
+                        className="border rounded-md px-2 py-1 text-sm"
+                        value={t.assigned_to ?? ""}
+                        disabled={!canEditTodos}
+                        onChange={(e) => updateTodoAssignee(t.id, e.target.value || null)}
+                      >
+                        <option value="">— Unassigned —</option>
+                        {members.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.full_name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-                {canEditTodos ? (
-                  <Button variant="danger" onClick={() => removeTodo(t)}>
-                    Verwijder
-                  </Button>
-                ) : null}
-              </div>
+                    {canShowPhaseOnTodos ? (
+                      <div className="grid gap-1">
+                        <label className="text-xs text-gray-500">Phase</label>
+                        <select
+                          className="border rounded-md px-2 py-1 text-sm"
+                          value={t.phase ?? ""}
+                          disabled={!canEditTodos}
+                          onChange={(e) => updateTodoPhase(t.id, e.target.value || null)}
+                        >
+                          <option value="">— None —</option>
+                          {PHASES[project.project_type as Exclude<ProjectType, "standard">].map((p) => (
+                            <option key={p.value} value={p.value}>
+                              {p.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="hidden md:block" />
+                    )}
+                  </div>
 
-              {/* ✅ Edit velden: estimate + assignee */}
-              <div className="mt-2 flex flex-wrap items-end gap-3">
-  {/* Benodigd uren: compact */}
-  <div className="flex flex-col">
-    <label className="text-[11px] text-gray-500 leading-none">Benodigd (u)</label>
-    <input
-      className="mt-1 w-[110px] border rounded-md px-2 py-1 text-sm"
-      defaultValue={minutesToHoursInput(t.estimated_minutes)}
-      placeholder="bijv. 2"
-      inputMode="decimal"
-      disabled={!canEditTodos}
-      onBlur={(e) => updateTodoEstimate(t.id, e.target.value)}
-    />
-  </div>
-
-  {/* Assignee: compact */}
-  <div className="flex flex-col min-w-[160px]">
-    <label className="text-[11px] text-gray-500 leading-none">Toegewezen</label>
-    <select
-      className="mt-1 border rounded-md px-2 py-1 text-sm"
-      value={t.assigned_to ?? ""}
-      disabled={!canEditTodos}
-      onChange={(e) => updateTodoAssignee(t.id, e.target.value || null)}
-    >
-      <option value="">— niemand —</option>
-      {userId ? <option value={userId}>Ik</option> : null}
-      {members
-        .filter((m) => m.id !== userId)
-        .map((m) => (
-          <option key={m.id} value={m.id}>
-          {m.full_name || m.email || m.id.slice(0, 8)}
-          </option>
-
-        ))}
-    </select>
-  </div>
-
-  {/* optioneel: klein hintje rechts */}
-  <div className="text-[11px] text-gray-400 leading-snug pb-1">
-    (later: naam/email)
-  </div>
-</div>
-
-              
-            </li>
-          ))}
-        </ul>
+                  {t.estimated_minutes && pctTodo !== null ? (
+                    <div className="mt-3">
+                      <ProgressBar
+                        value={pctTodo}
+                        label={`${minutesToHoursText(t.executed_minutes)} / ${minutesToHoursText(t.estimated_minutes)} (${pctTodo}%)`}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })
+          )}
+        </div>
       </section>
     </main>
   );
