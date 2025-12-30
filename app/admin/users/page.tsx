@@ -99,14 +99,15 @@ export default function AdminUsersPage() {
   }, []);
 
   async function createInvite() {
-    if (!workspaceId) return;
-    if (busy) return;
+  if (!workspaceId) return;
+  if (busy) return;
 
-    const email = inviteEmail.trim().toLowerCase();
-    if (!email) return alert("Please enter an email address.");
+  const email = inviteEmail.trim().toLowerCase();
+  if (!email) return alert("Please enter an email address.");
 
-    setBusy(true);
+  setBusy(true);
 
+  try {
     // 1) Create invite in DB (returns row incl. id)
     const { data, error } = await supabase.rpc("create_workspace_invite", {
       p_workspace_id: workspaceId,
@@ -115,36 +116,64 @@ export default function AdminUsersPage() {
     });
 
     if (error) {
-      setBusy(false);
       return alert(error.message);
     }
 
-    // 2) Send email via Edge Function (Resend)
-    // If this fails, the invite still exists (pending) and can be retried.
     const inviteId = (data as any)?.id as string | undefined;
-
-    if (inviteId) {
-      const { error: fnErr } = await supabase.functions.invoke("send-workspace-invite", {
-        body: { invite_id: inviteId },
-      });
-
-      if (fnErr) {
-        console.error("Edge function send-workspace-invite failed:", fnErr);
-        alert(
-          "Invite created, but sending the email failed. You can retry by revoking and creating a new invite.\n\n" +
-            fnErr.message
-        );
-      }
-    } else {
-      console.warn("No invite id returned from create_workspace_invite");
+    if (!inviteId) {
+      console.warn("No invite id returned from create_workspace_invite", data);
+      return alert("Invite created, but no invite ID was returned.");
     }
 
-    setInviteEmail("");
-    setInviteRole("stakeholder");
+    // 2) Explicitly attach Authorization header (prevents 401)
+    const { data: sessRes, error: sessErr } = await supabase.auth.getSession();
+    if (sessErr) {
+      console.error("getSession error:", sessErr);
+      return alert("Invite created, but could not read session for sending the email.");
+    }
+
+    const accessToken = sessRes.session?.access_token;
+    if (!accessToken) {
+      return alert("Invite created, but you are not logged in (no session). Please log in again and retry.");
+    }
+
+    // 3) Send email via Edge Function (Resend)
+    const invokeRes = await supabase.functions.invoke("send-workspace-invite", {
+      body: { invite_id: inviteId },
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    // If Edge Function returned non-2xx, Supabase SDK sets invokeRes.error
+    if (invokeRes.error) {
+      console.error("Edge function send-workspace-invite failed:", invokeRes.error);
+      console.error("Edge function response data:", invokeRes.data);
+
+      const details =
+        typeof invokeRes.data === "string"
+          ? invokeRes.data
+          : invokeRes.data
+          ? JSON.stringify(invokeRes.data, null, 2)
+          : "";
+
+      alert(
+        "Invite created, but sending the email failed.\n\n" +
+          (invokeRes.error.message || "Unknown error") +
+          (details ? `\n\nDetails:\n${details}` : "")
+      );
+    } else {
+      // Success
+      setInviteEmail("");
+      setInviteRole("stakeholder");
+    }
 
     await load();
+  } finally {
     setBusy(false);
   }
+}
+
 
   async function revokeInvite(inviteId: string) {
     if (busy) return;
