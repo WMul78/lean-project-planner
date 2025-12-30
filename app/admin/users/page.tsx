@@ -67,7 +67,6 @@ export default function AdminUsersPage() {
       return;
     }
 
-    // Members (top)
     const { data: mem, error: memErr } = await supabase
       .from("workspace_members")
       .select("id,workspace_id,user_id,role,created_at,profiles(email,full_name)")
@@ -77,7 +76,6 @@ export default function AdminUsersPage() {
     if (memErr) console.error(memErr);
     setMembers(((mem as any) ?? []) as Member[]);
 
-    // Invites (only pending)
     const { data: inv, error: invErr } = await supabase
       .from("workspace_invites")
       .select("id,workspace_id,email,role,status,token,created_at,expires_at")
@@ -99,87 +97,87 @@ export default function AdminUsersPage() {
   }, []);
 
   async function createInvite() {
-  if (!workspaceId) return;
-  if (busy) return;
+    if (!workspaceId) return;
+    if (busy) return;
 
-  const email = inviteEmail.trim().toLowerCase();
-  if (!email) return alert("Please enter an email address.");
+    const email = inviteEmail.trim().toLowerCase();
+    if (!email) return alert("Please enter an email address.");
 
-  setBusy(true);
+    setBusy(true);
 
-  try {
-    // 1) Create invite in DB (returns row incl. id)
-    const { data, error } = await supabase.rpc("create_workspace_invite", {
-      p_workspace_id: workspaceId,
-      p_email: email,
-      p_role: inviteRole,
-    });
+    try {
+      // 1) Create invite in DB
+      const { data, error } = await supabase.rpc("create_workspace_invite", {
+        p_workspace_id: workspaceId,
+        p_email: email,
+        p_role: inviteRole,
+      });
 
-    if (error) {
-      return alert(error.message);
+      if (error) return alert(error.message);
+
+      const inviteId = (data as any)?.id as string | undefined;
+      if (!inviteId) {
+        console.warn("No invite id returned from create_workspace_invite", data);
+        return alert("Invite created, but no invite ID was returned.");
+      }
+
+      // 2) Get token
+      const { data: sessRes, error: sessErr } = await supabase.auth.getSession();
+      if (sessErr) {
+        console.error("getSession error:", sessErr);
+        return alert("Invite created, but could not read session for sending the email.");
+      }
+
+      const accessToken = sessRes.session?.access_token;
+      if (!accessToken) {
+        return alert("Invite created, but you are not logged in (no session). Please log in again and retry.");
+      }
+
+      // 3) Send email via Edge Function
+      const invokeRes = await supabase.functions.invoke("send-workspace-invite", {
+        body: { invite_id: inviteId },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (invokeRes.error) {
+        console.error("Edge function send-workspace-invite failed:", invokeRes.error);
+        console.error("Edge function response data:", invokeRes.data);
+
+        const details =
+          typeof invokeRes.data === "string"
+            ? invokeRes.data
+            : invokeRes.data
+            ? JSON.stringify(invokeRes.data, null, 2)
+            : "";
+
+        alert(
+          "Invite created, but sending the email failed.\n\n" +
+            (invokeRes.error.message || "Unknown error") +
+            (details ? `\n\nDetails:\n${details}` : "")
+        );
+      } else {
+        // ✅ Success (don’t rely on invokeRes.data)
+        console.log("Invite email sent (edge ok):", invokeRes.data);
+        setInviteEmail("");
+        setInviteRole("stakeholder");
+      }
+
+      await load();
+    } finally {
+      setBusy(false);
     }
-
-    const inviteId = (data as any)?.id as string | undefined;
-    if (!inviteId) {
-      console.warn("No invite id returned from create_workspace_invite", data);
-      return alert("Invite created, but no invite ID was returned.");
-    }
-
-    // 2) Explicitly attach Authorization header (prevents 401)
-    const { data: sessRes, error: sessErr } = await supabase.auth.getSession();
-    if (sessErr) {
-      console.error("getSession error:", sessErr);
-      return alert("Invite created, but could not read session for sending the email.");
-    }
-
-    const accessToken = sessRes.session?.access_token;
-    if (!accessToken) {
-      return alert("Invite created, but you are not logged in (no session). Please log in again and retry.");
-    }
-
-    // 3) Send email via Edge Function (Resend)
-    const invokeRes = await supabase.functions.invoke("send-workspace-invite", {
-      body: { invite_id: inviteId },
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
-
-    // If Edge Function returned non-2xx, Supabase SDK sets invokeRes.error
-    if (invokeRes.error) {
-      console.error("Edge function send-workspace-invite failed:", invokeRes.error);
-      console.error("Edge function response data:", invokeRes.data);
-
-      const details =
-        typeof invokeRes.data === "string"
-          ? invokeRes.data
-          : invokeRes.data
-          ? JSON.stringify(invokeRes.data, null, 2)
-          : "";
-
-      alert(
-        "Invite created, but sending the email failed.\n\n" +
-          (invokeRes.error.message || "Unknown error") +
-          (details ? `\n\nDetails:\n${details}` : "")
-      );
-    } else {
-      // Success
-      setInviteEmail("");
-      setInviteRole("stakeholder");
-    }
-
-    await load();
-  } finally {
-    setBusy(false);
   }
-}
-
 
   async function revokeInvite(inviteId: string) {
     if (busy) return;
     setBusy(true);
 
-    const { error } = await supabase.from("workspace_invites").update({ status: "revoked" }).eq("id", inviteId);
+    const { error } = await supabase
+      .from("workspace_invites")
+      .update({ status: "revoked" })
+      .eq("id", inviteId);
 
     setBusy(false);
 
@@ -191,7 +189,10 @@ export default function AdminUsersPage() {
     if (busy) return;
     setBusy(true);
 
-    const { error } = await supabase.from("workspace_members").update({ role: nextRole }).eq("id", memberId);
+    const { error } = await supabase
+      .from("workspace_members")
+      .update({ role: nextRole })
+      .eq("id", memberId);
 
     setBusy(false);
 
@@ -205,7 +206,10 @@ export default function AdminUsersPage() {
 
     setBusy(true);
 
-    const { error } = await supabase.from("workspace_members").delete().eq("id", memberId);
+    const { error } = await supabase
+      .from("workspace_members")
+      .delete()
+      .eq("id", memberId);
 
     setBusy(false);
 
@@ -249,22 +253,17 @@ export default function AdminUsersPage() {
 
       <h1 className="mt-4 text-2xl font-semibold">User management</h1>
 
-      {/* Members (FIRST) */}
+      {/* Members */}
       <section className="mt-6">
         <h2 className="text-lg font-semibold">Members</h2>
-        <div className="text-sm text-gray-500 mt-1">
-          Manage workspace roles. (Owner/Admin only)
-        </div>
+        <div className="text-sm text-gray-500 mt-1">Manage workspace roles. (Owner/Admin only)</div>
 
         {members.length === 0 ? (
           <div className="mt-3 text-sm text-gray-500">No members found.</div>
         ) : (
           <ul className="mt-3 grid gap-2">
             {members.map((m) => {
-              const label =
-                m.profiles?.full_name?.trim() ||
-                m.profiles?.email ||
-                m.user_id;
+              const label = m.profiles?.full_name?.trim() || m.profiles?.email || m.user_id;
 
               return (
                 <li key={m.id} className="border rounded-lg p-4 flex justify-between items-center gap-3">
@@ -297,7 +296,7 @@ export default function AdminUsersPage() {
         )}
       </section>
 
-      {/* Invites (BOTTOM) */}
+      {/* Invites (bottom) */}
       <section className="mt-10 border rounded-lg p-4">
         <div className="font-medium">Invite someone</div>
         <div className="text-sm text-gray-600 mt-1">
@@ -329,7 +328,6 @@ export default function AdminUsersPage() {
           </Button>
         </div>
 
-        {/* Pending invites list */}
         <div className="mt-6">
           <h2 className="text-lg font-semibold">Pending invitations</h2>
 
@@ -345,8 +343,6 @@ export default function AdminUsersPage() {
                       role: {i.role} • status: {i.status}
                       {i.expires_at ? ` • expires: ${new Date(i.expires_at).toISOString().slice(0, 10)}` : ""}
                     </div>
-
-                    {/* MVP token display (only while pending) */}
                     <div className="text-xs text-gray-500 mt-1">
                       Token (MVP): <span className="font-mono">{i.token}</span>
                     </div>
