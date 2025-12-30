@@ -24,13 +24,49 @@ export default function LoginPage() {
   }
 
   async function signUp() {
-    setIsLoading(true);
-    const { error } = await supabase.auth.signUp({ email, password });
-    setIsLoading(false);
+  setIsLoading(true);
 
-    if (error) return alert(error.message);
-    alert("Account aangemaakt. Als email-confirm aan staat: check je inbox.");
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    // Optional: help debugging email confirm flows
+    options: {
+      emailRedirectTo: `${window.location.origin}/auth/callback`,
+    },
+  });
+
+  setIsLoading(false);
+
+  console.log("SIGNUP RESULT", {
+    data,
+    error,
+    // Some Supabase errors have extra fields
+    status: (error as any)?.status,
+    code: (error as any)?.code,
+    name: (error as any)?.name,
+    message: (error as any)?.message,
+  });
+
+  if (error) {
+    alert(
+      `SignUp failed:\n` +
+        JSON.stringify(
+          {
+            message: error.message,
+            status: (error as any)?.status,
+            code: (error as any)?.code,
+            name: (error as any)?.name,
+          },
+          null,
+          2
+        )
+    );
+    return;
   }
+
+  alert("Account aangemaakt. Als email-confirm aan staat: check je inbox.");
+}
+
 
   return (
   <main className="min-h-screen flex items-center justify-center bg-gray-100">
