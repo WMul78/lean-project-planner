@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import "frappe-gantt/dist/frappe-gantt.css";
+
 
 :root {
   --background: #ffffff;

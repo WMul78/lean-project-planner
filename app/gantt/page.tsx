@@ -7,6 +7,7 @@ import Button from "@/app/components/Button";
 import WorkspaceSwitcher from "@/app/components/WorkspaceSwitcher";
 import { supabase } from "@/lib/supabaseClient";
 import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appContext";
+import "frappe-gantt/dist/frappe-gantt.css";
 
 // ---- Types (keep minimal for MVP) ----
 type WsMember = {
@@ -370,9 +371,15 @@ export default function GanttPage() {
       </section>
 
       {/* Gantt canvas */}
-      <section className="mt-6 border rounded-lg bg-white p-2 overflow-x-auto">
-        <div ref={ganttRef} />
-      </section>
+      <section className="mt-6 border rounded-lg bg-white">
+  <div className="overflow-x-auto">
+    <div
+      ref={ganttRef}
+      className="min-w-[900px] p-2"
+    />
+  </div>
+</section>
+
 
       <div className="mt-3 text-xs text-gray-500">
         Note: This is read-only MVP. For large workspaces, we’ll add date-range and server-side aggregation.
