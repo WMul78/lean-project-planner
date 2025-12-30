@@ -372,7 +372,11 @@ export default function ProjectDetailPage() {
 
     // Persist: set sort_order for all items in the reordered list
     const payload = optimistic.map((t) => ({ id: t.id, sort_order: t.sort_order }));
-    const { error } = await supabase.from("todos").upsert(payload, { onConflict: "id" });
+    const { error } = await supabase.rpc("reorder_todos", {
+      p_project_id: projectId,
+      p_items: payload, // payload = [{ id, sort_order }, ...]
+    });
+
 
     if (error) {
       console.error(error);
