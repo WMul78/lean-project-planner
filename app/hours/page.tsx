@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "@/app/components/Button";
 import { supabase } from "@/lib/supabaseClient";
 import { getActiveWorkspace, requireUser } from "@/app/lib/appContext";
+import React from "react";
 
 type TodoRow = {
   id: string;
@@ -50,7 +51,7 @@ function addDays(d: Date, n: number) {
 
 function minutesToHoursText(min: number) {
   const h = Math.round((min / 60) * 10) / 10;
-  return `${h}h`;
+  return `${h}u`;
 }
 
 function minutesToHoursInput(min: number | null | undefined) {
@@ -78,12 +79,14 @@ export default function HoursPlannerPage() {
   const days = useMemo(() => Array.from({ length: 5 }, (_, i) => addDays(weekStart, i)), [weekStart]); // Mon–Fri
 
   const [todos, setTodos] = useState<TodoRow[]>([]);
-  const [cells, setCells] = useState<Record<string, EntryCell>>({}); // key = todo|date
+  const [cells, setCells] = useState<Record<string, EntryCell>>({}); // key=todo|date
+
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
-  // Explicit typing prevents index/“untracked” issues
+  // Explicit typing to avoid index/TS issues
   const [executedByTodo, setExecutedByTodo] = useState<Record<string, number>>({});
 
+  const todayISO = useMemo(() => iso(new Date()), []);
   const [mobileDayIndex, setMobileDayIndex] = useState(0); // 0..4
   const mobileDay = days[mobileDayIndex];
   const mobileDayISO = mobileDay ? iso(mobileDay) : "";
@@ -98,6 +101,7 @@ export default function HoursPlannerPage() {
     try {
       const user = await requireUser(router);
       if (!user) return;
+
       setUserId(user.id);
 
       const ws = await getActiveWorkspace();
@@ -126,7 +130,7 @@ export default function HoursPlannerPage() {
         return;
       }
 
-      const todoList = (td as any as TodoRow[]) ?? [];
+      const todoList = ((td as any) ?? []) as TodoRow[];
       setTodos(todoList);
 
       const ids = todoList.map((t) => t.id);
@@ -136,11 +140,11 @@ export default function HoursPlannerPage() {
         return;
       }
 
-      // 2) Load entries for the visible week
+      // 2) Entries in this week (for me)
       const from = iso(days[0]);
-      const to = iso(days[4]);
+      const to = iso(days[days.length - 1]);
 
-      const { data: en, error: enErr } = await supabase
+      const { data: entries, error: eErr } = await supabase
         .from("time_entries")
         .select("id,todo_id,project_id,user_id,entry_date,minutes,note")
         .in("todo_id", ids)
@@ -148,13 +152,14 @@ export default function HoursPlannerPage() {
         .gte("entry_date", from)
         .lte("entry_date", to);
 
-      if (enErr) {
-        console.error(enErr);
+      if (eErr) {
+        console.error(eErr);
+        alert(eErr.message);
         setCells({});
       } else {
         const map: Record<string, EntryCell> = {};
-        for (const r of (en as any[]) ?? []) {
-          map[cellKey(r.todo_id, r.entry_date)] = r as EntryCell;
+        for (const en of ((entries as any) ?? []) as EntryCell[]) {
+          map[cellKey(en.todo_id, en.entry_date)] = en;
         }
         setCells(map);
       }
@@ -195,7 +200,7 @@ export default function HoursPlannerPage() {
     const key = cellKey(todo.id, dateISO);
     const minutes = hoursInputToMinutes(hoursText);
 
-    // Empty => delete if exists
+    // Empty => delete (if something existed)
     if (!minutes) {
       const existing = cells[key];
       if (!existing) return;
@@ -223,8 +228,8 @@ export default function HoursPlannerPage() {
       workspace_id: workspaceId,
       project_id: todo.project_id,
       todo_id: todo.id,
-      user_id: userId, // MVP: this is your own planner (later: assignee planning)
-      logged_by: userId,
+      user_id: userId, // MVP: your own planner (later: assignee)
+      logged_by: userId, // later: owner can plan for others
       entry_date: dateISO,
       minutes,
       note: null,
@@ -296,7 +301,7 @@ export default function HoursPlannerPage() {
         <div>
           <h1 className="text-2xl font-semibold">Plan hours (week)</h1>
           <div className="text-sm text-gray-500">
-            Only your tasks. Future hours do not count towards progress.
+            Only your tasks. Future hours do not count toward progress.
           </div>
         </div>
 
@@ -304,26 +309,24 @@ export default function HoursPlannerPage() {
           <Button variant="outline" onClick={() => router.push("/projects")}>
             ← Projects
           </Button>
+
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={prevWeek}>
+              ← Previous
+            </Button>
+            <Button variant="outline" onClick={() => setWeekStart(startOfWeekMonday(new Date()))}>
+              Today
+            </Button>
+            <Button variant="outline" onClick={nextWeek}>
+              Next →
+            </Button>
+          </div>
+
+          <div className="text-sm text-gray-600">
+            Week starting <span className="font-medium">{iso(days[0])}</span>
+          </div>
         </div>
       </header>
-
-      <div className="mt-4 flex items-center justify-between">
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={prevWeek}>
-            ← Previous
-          </Button>
-          <Button variant="outline" onClick={() => setWeekStart(startOfWeekMonday(new Date()))}>
-            Today
-          </Button>
-          <Button variant="outline" onClick={nextWeek}>
-            Next →
-          </Button>
-        </div>
-
-        <div className="text-sm text-gray-600">
-          Week starting <span className="font-medium">{iso(days[0])}</span>
-        </div>
-      </div>
 
       {/* Mobile day picker */}
       <div className="mt-4 flex items-center justify-between md:hidden">
@@ -416,28 +419,26 @@ export default function HoursPlannerPage() {
 
                         return (
                           <tr key={t.id}>
-                            <td className="border p-2 sticky left-0 bg-white z-10">
+                            <td className="border p-2 align-top sticky left-0 bg-white z-10">
                               <div className="font-medium">{t.title}</div>
                               <div className="text-xs text-gray-500">
-                                Planned:{" "}
-                                {t.estimated_minutes ? minutesToHoursText(t.estimated_minutes) : "—"}
+                                Planned: {minutesToHoursInput(t.estimated_minutes) || "—"}u
                               </div>
                             </td>
 
                             {days.map((d) => {
                               const dISO = iso(d);
                               const key = cellKey(t.id, dISO);
-                              const value = cells[key]?.minutes ?? null;
-                              const isSaving = savingKey === key;
+                              const value = minutesToHoursInput(cells[key]?.minutes);
 
                               return (
                                 <td key={dISO} className="border p-2 align-top">
                                   <input
                                     className="w-full border rounded-md px-2 py-1 text-sm"
-                                    defaultValue={minutesToHoursInput(value)}
+                                    defaultValue={value}
                                     placeholder="0"
                                     inputMode="decimal"
-                                    disabled={isSaving}
+                                    disabled={savingKey === key}
                                     onBlur={(e) => setCell(t, dISO, e.target.value)}
                                   />
                                 </td>
@@ -463,10 +464,97 @@ export default function HoursPlannerPage() {
                   ))}
 
                   <tr>
+                    <td className="border p-2 font-semibold sticky left-0 bg-white z-10">Total</td>
+                    {days.map((d) => {
+                      const dISO = iso(d);
+                      return (
+                        <td key={dISO} className="border p-2 font-semibold">
+                          {minutesToHoursText(dayTotalMinutes(dISO))}
+                        </td>
+                      );
+                    })}
+                    <td className="border p-2" />
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* MOBILE: per day list */}
+          <div className="mt-6 md:hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse table-fixed">
+                <colgroup>
+                  <col style={{ width: 260 }} />
+                  <col style={{ width: 120 }} />
+                  <col style={{ width: 140 }} />
+                </colgroup>
+
+                <thead>
+                  <tr className="text-left bg-white">
+                    <th className="border p-2">Task</th>
+                    <th className="border p-2">Hours</th>
+                    <th className="border p-2">Progress</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {grouped.map((grp) => (
+                    <React.Fragment key={grp.projectId}>
+                      <tr>
+                        <td className="border p-2 font-semibold bg-gray-50" colSpan={3}>
+                          {grp.projectName}
+                        </td>
+                      </tr>
+
+                      {grp.items.map((t) => {
+                        const prog = todoProgress(t);
+                        const exec = executedByTodo[t.id] ?? 0;
+
+                        const key = cellKey(t.id, mobileDayISO);
+                        const value = minutesToHoursInput(cells[key]?.minutes);
+
+                        return (
+                          <tr key={t.id}>
+                            <td className="border p-2 align-top">
+                              <div className="font-medium">{t.title}</div>
+                              <div className="text-xs text-gray-500">
+                                Planned: {minutesToHoursInput(t.estimated_minutes) || "—"}u
+                              </div>
+                            </td>
+
+                            <td className="border p-2 align-top">
+                              <input
+                                className="w-full border rounded-md px-2 py-1 text-sm"
+                                defaultValue={value}
+                                placeholder="0"
+                                inputMode="decimal"
+                                disabled={savingKey === key}
+                                onBlur={(e) => setCell(t, mobileDayISO, e.target.value)}
+                              />
+                            </td>
+
+                            <td className="border p-2 align-top">
+                              {prog === null ? (
+                                <span className="text-sm text-gray-500">—</span>
+                              ) : (
+                                <div className="text-sm">
+                                  <span className="font-medium">{prog}%</span>
+                                  <div className="text-xs text-gray-500">
+                                    executed: {minutesToHoursText(exec)}
+                                  </div>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </React.Fragment>
+                  ))}
+
+                  <tr>
                     <td className="border p-2 font-semibold">Total</td>
-                    <td className="border p-2 font-semibold">
-                      {minutesToHoursText(dayTotalMinutes(mobileDayISO))}
-                    </td>
+                    <td className="border p-2 font-semibold">{minutesToHoursText(dayTotalMinutes(mobileDayISO))}</td>
                     <td className="border p-2" />
                   </tr>
                 </tbody>
