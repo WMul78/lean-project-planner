@@ -46,11 +46,11 @@ export default function ProjectNewPage() {
   const [role, setRole] = useState<WorkspaceRole>("member");
   const [userId, setUserId] = useState<string | null>(null);
 
-  // form state
+  // Form state
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
 
-  const [deadline, setDeadline] = useState<string>(""); // YYYY-MM-DD of ""
+  const [deadline, setDeadline] = useState<string>(""); // YYYY-MM-DD or ""
   const [estimatedHours, setEstimatedHours] = useState<string>("");
 
   const [priority, setPriority] = useState<Priority>("medium");
@@ -74,7 +74,7 @@ export default function ProjectNewPage() {
 
       const ws = await getActiveWorkspace();
       if (!ws?.workspaceId) {
-        alert("Geen actieve workspace gevonden.");
+        alert("No active workspace found.");
         router.push("/projects");
         return;
       }
@@ -82,8 +82,8 @@ export default function ProjectNewPage() {
       setWorkspaceId(ws.workspaceId);
       setRole(ws.role);
 
-      // Defaults per rol:
-      // stakeholder: voorstel
+      // Defaults per role:
+      // stakeholder: proposal
       if (ws.role === "stakeholder") {
         setStatus("proposed");
       } else {
@@ -96,7 +96,7 @@ export default function ProjectNewPage() {
     init();
   }, [router]);
 
-  // Wanneer type verandert: phase reset/valideren
+  // When project type changes: reset/validate phase
   useEffect(() => {
     if (projectType === "standard") {
       if (phase !== "") setPhase("");
@@ -107,35 +107,33 @@ export default function ProjectNewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectType]);
 
-  const statusOptions: { value: ProjectStatus; label: string; disabled?: boolean }[] =
-    useMemo(() => {
-      // MVP: stakeholder mag alleen proposed kiezen (voorkomt dat stakeholder "active" aanmaakt)
-      if (isStakeholder) {
-        return [{ value: "proposed", label: "proposed" }];
-      }
-      return [
-        { value: "proposed", label: "proposed" },
-        { value: "active", label: "active" },
-        { value: "done", label: "done" },
-        { value: "archived", label: "archived" },
-      ];
-    }, [isStakeholder]);
+  const statusOptions: { value: ProjectStatus; label: string; disabled?: boolean }[] = useMemo(() => {
+    // MVP: stakeholder can only choose proposed (prevents stakeholder from creating "active")
+    if (isStakeholder) {
+      return [{ value: "proposed", label: "proposed" }];
+    }
+    return [
+      { value: "proposed", label: "proposed" },
+      { value: "active", label: "active" },
+      { value: "done", label: "done" },
+      { value: "archived", label: "archived" },
+    ];
+  }, [isStakeholder]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (saving) return;
 
     const cleanName = name.trim();
-    if (!cleanName) return alert("Vul een titel in.");
-    if (!workspaceId || !userId) return alert("Geen workspace of gebruiker gevonden.");
+    if (!cleanName) return alert("Please enter a title.");
+    if (!workspaceId || !userId) return alert("No workspace or user found.");
 
     const nextDeadline = deadline ? deadline : null;
     const nextEstimatedMinutes = hoursTextToMinutes(estimatedHours);
-    const nextPhase =
-      projectType === "standard" ? null : (phase.trim() ? phase.trim() : null);
+    const nextPhase = projectType === "standard" ? null : phase.trim() ? phase.trim() : null;
     const loc = locationLink.trim();
 
-    // Stakeholder blijft forced proposed
+    // Stakeholder stays forced proposed
     const nextStatus: ProjectStatus = isStakeholder ? "proposed" : status;
 
     setSaving(true);
@@ -147,7 +145,7 @@ export default function ProjectNewPage() {
       status: nextStatus,
       created_by: userId,
 
-      // jouw bestaande app gebruikt owner_id (voor members vaak gelijk aan created_by)
+      // The app uses owner_id (for members often equal to created_by)
       owner_id: isStakeholder ? null : userId,
 
       deadline: nextDeadline,
@@ -158,11 +156,7 @@ export default function ProjectNewPage() {
       location_link: loc || null,
     };
 
-    const { data, error } = await supabase
-      .from("projects")
-      .insert(payload)
-      .select("id")
-      .single();
+    const { data, error } = await supabase.from("projects").insert(payload).select("id").single();
 
     setSaving(false);
 
@@ -172,14 +166,14 @@ export default function ProjectNewPage() {
       return;
     }
 
-    // navigeer naar project detail
+    // Navigate to project detail
     router.push(`/projects/${data.id}`);
   }
 
   if (loading) {
     return (
       <main className="p-6 max-w-3xl mx-auto">
-        <div className="text-gray-500">Laden…</div>
+        <div className="text-gray-500">Loading…</div>
       </main>
     );
   }
@@ -189,14 +183,14 @@ export default function ProjectNewPage() {
       <header className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">
-            {isStakeholder ? "Project voorstellen" : "Nieuw project"}
+            {isStakeholder ? "Propose project" : "New project"}
           </h1>
 
           <div className="mt-2">
             <WorkspaceSwitcher />
           </div>
 
-          <div className="text-sm text-gray-500">Rol: {role}</div>
+          <div className="text-sm text-gray-500">Role: {role}</div>
           {workspaceId ? (
             <div className="text-xs text-gray-400 mt-1">
               Workspace: <span className="font-mono">{workspaceId}</span>
@@ -206,38 +200,38 @@ export default function ProjectNewPage() {
 
         <div className="flex flex-col gap-2 items-end">
           <Button variant="outline" onClick={() => router.push("/projects")}>
-            ← Terug
+            ← Back
           </Button>
         </div>
       </header>
 
       <form onSubmit={onSubmit} className="mt-6 grid gap-4">
-        {/* Titel */}
+        {/* Title */}
         <div className="grid gap-1">
-          <label className="text-sm font-medium">Titel</label>
+          <label className="text-sm font-medium">Title</label>
           <input
             className="border rounded-md px-3 py-2"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Project titel"
+            placeholder="Project title"
             autoFocus
             disabled={saving}
           />
         </div>
 
-        {/* Omschrijving */}
+        {/* Description */}
         <div className="grid gap-1">
-          <label className="text-sm font-medium">Omschrijving</label>
+          <label className="text-sm font-medium">Description</label>
           <textarea
             className="border rounded-md px-3 py-2 min-h-[100px]"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Korte omschrijving (optioneel)"
+            placeholder="Short description (optional)"
             disabled={saving}
           />
         </div>
 
-        {/* 2 koloms blok */}
+        {/* Two-column block */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Deadline */}
           <div className="grid gap-1">
@@ -251,25 +245,23 @@ export default function ProjectNewPage() {
             />
           </div>
 
-          {/* Tijd benodigd (uren) */}
+          {/* Estimated hours */}
           <div className="grid gap-1">
-            <label className="text-sm font-medium">Tijd benodigd (uren)</label>
+            <label className="text-sm font-medium">Estimated hours</label>
             <input
               className="border rounded-md px-3 py-2"
               value={estimatedHours}
               onChange={(e) => setEstimatedHours(e.target.value)}
-              placeholder="bijv. 2 of 1.5"
+              placeholder="e.g. 2"
               inputMode="decimal"
               disabled={saving}
             />
-            <div className="text-xs text-gray-500">
-              Wordt opgeslagen als minuten (estimated_minutes).
-            </div>
+            <div className="text-xs text-gray-500">Leave empty if unknown.</div>
           </div>
 
-          {/* Prioriteit */}
+          {/* Priority */}
           <div className="grid gap-1">
-            <label className="text-sm font-medium">Prioriteit</label>
+            <label className="text-sm font-medium">Priority</label>
             <select
               className="border rounded-md px-3 py-2"
               value={priority}
@@ -279,7 +271,7 @@ export default function ProjectNewPage() {
               <option value="low">low</option>
               <option value="medium">medium</option>
               <option value="high">high</option>
-              <option value="very_high">very high</option>
+              <option value="very_high">very_high</option>
             </select>
           </div>
 
@@ -299,15 +291,13 @@ export default function ProjectNewPage() {
               ))}
             </select>
             {isStakeholder ? (
-              <div className="text-xs text-gray-500">
-                Stakeholders maken een voorstel aan (status = proposed).
-              </div>
+              <div className="text-xs text-gray-500">Stakeholders can only create proposals.</div>
             ) : null}
           </div>
 
           {/* Type */}
           <div className="grid gap-1">
-            <label className="text-sm font-medium">Type</label>
+            <label className="text-sm font-medium">Project type</label>
             <select
               className="border rounded-md px-3 py-2"
               value={projectType}
@@ -320,53 +310,47 @@ export default function ProjectNewPage() {
             </select>
           </div>
 
-          {/* Fase */}
+          {/* Phase (only for pdca/dmaic) */}
           <div className="grid gap-1">
-            <label className="text-sm font-medium">Fase</label>
-
-            {projectType === "standard" ? (
-              <input
-                className="border rounded-md px-3 py-2 bg-gray-50 text-gray-500"
-                value="—"
-                disabled
-              />
-            ) : (
-              <select
-                className="border rounded-md px-3 py-2"
-                value={phase}
-                onChange={(e) => setPhase(e.target.value)}
-                disabled={saving}
-              >
-                <option value="">— kies fase —</option>
-                {PHASES[projectType].map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            )}
+            <label className="text-sm font-medium">Phase</label>
+            <select
+              className="border rounded-md px-3 py-2"
+              value={phase}
+              onChange={(e) => setPhase(e.target.value)}
+              disabled={saving || projectType === "standard"}
+            >
+              <option value="">—</option>
+              {PHASES[projectType].map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+            <div className="text-xs text-gray-500">
+              Only applicable for PDCA/DMAIC projects.
+            </div>
           </div>
         </div>
 
-        {/* Locatie */}
+        {/* Location link */}
         <div className="grid gap-1">
-          <label className="text-sm font-medium">Locatie (link)</label>
+          <label className="text-sm font-medium">Location link</label>
           <input
             className="border rounded-md px-3 py-2"
             value={locationLink}
             onChange={(e) => setLocationLink(e.target.value)}
-            placeholder="bijv. https://... of filepad (later)"
+            placeholder="e.g. https://... or a file path (later)"
             disabled={saving}
           />
           <div className="text-xs text-gray-500">
-            MVP: vrije tekst. Later kun je validatie doen op URL vs file path.
+            MVP: free text. Later you can validate URL vs file path.
           </div>
         </div>
 
         {/* Actions */}
         <div className="flex gap-2 pt-2">
           <Button type="submit" disabled={saving}>
-            {saving ? "Aanmaken…" : isStakeholder ? "Voorstel indienen" : "Aanmaken"}
+            {saving ? "Creating…" : isStakeholder ? "Submit proposal" : "Create"}
           </Button>
           <Button
             variant="outline"
@@ -374,7 +358,7 @@ export default function ProjectNewPage() {
             onClick={() => router.push("/projects")}
             disabled={saving}
           >
-            Annuleren
+            Cancel
           </Button>
         </div>
       </form>

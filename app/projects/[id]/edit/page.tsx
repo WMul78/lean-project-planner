@@ -8,7 +8,7 @@ import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appCon
 
 type Priority = "low" | "medium" | "high" | "very_high";
 type ProjectType = "standard" | "pdca" | "dmaic";
-type ProjectStatus = "proposed" | "active" | "done" | "archived"; // later evt. "on_hold"
+type ProjectStatus = "proposed" | "active" | "done" | "archived"; // later maybe "on_hold"
 
 type ProjectRow = {
   id: string;
@@ -20,7 +20,7 @@ type ProjectRow = {
   owner_id: string | null;
   created_by: string;
 
-  deadline: string | null; // date in ISO (YYYY-MM-DD)
+  deadline: string | null; // ISO date (YYYY-MM-DD)
   estimated_minutes: number | null;
   priority: Priority;
   project_type: ProjectType;
@@ -47,7 +47,7 @@ const PHASES: Record<ProjectType, { value: string; label: string }[]> = {
 
 function minutesToHoursText(min: number | null) {
   if (!min || min <= 0) return "";
-  const hours = Math.round((min / 60) * 10) / 10; // 1 decimaal
+  const hours = Math.round((min / 60) * 10) / 10; // 1 decimal
   return String(hours);
 }
 
@@ -77,8 +77,8 @@ export default function ProjectEditPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
 
-  const [deadline, setDeadline] = useState<string>(""); // YYYY-MM-DD of ""
-  const [estimatedHours, setEstimatedHours] = useState<string>(""); // UI in uren
+  const [deadline, setDeadline] = useState<string>(""); // YYYY-MM-DD or ""
+  const [estimatedHours, setEstimatedHours] = useState<string>(""); // UI in hours
   const [priority, setPriority] = useState<Priority>("medium");
   const [status, setStatus] = useState<ProjectStatus>("active");
   const [projectType, setProjectType] = useState<ProjectType>("standard");
@@ -95,7 +95,7 @@ export default function ProjectEditPage() {
       return projectMemberRole === "owner" || projectMemberRole === "editor";
     }
 
-    // stakeholder: edit alleen eigen proposal (MVP: alleen als proposed + created_by=self)
+    // stakeholder: only edit own proposal (MVP: only if proposed + created_by=self)
     if (workspaceRole === "stakeholder") {
       return project.status === "proposed" && project.created_by === userId;
     }
@@ -135,7 +135,7 @@ export default function ProjectEditPage() {
     const pr = proj as ProjectRow;
     setProject(pr);
 
-    // Project membership role (voor member samenwerking)
+    // Project membership role (for member collaboration)
     const { data: pm } = await supabase
       .from("project_members")
       .select("role")
@@ -163,7 +163,7 @@ export default function ProjectEditPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  // Wanneer type verandert: phase valideren/resetten
+  // When type changes: validate/reset phase
   useEffect(() => {
     const allowed = new Set(PHASES[projectType].map((p) => p.value));
     if (!phase) return;
@@ -180,24 +180,23 @@ export default function ProjectEditPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!project) return;
-    if (!canEdit) return alert("Je hebt geen rechten om dit project te bewerken.");
+    if (!canEdit) return alert("You don't have permission to edit this project.");
     if (saving) return;
 
     const cleanName = name.trim();
-    if (!cleanName) return alert("Vul een titel in.");
+    if (!cleanName) return alert("Please enter a title.");
 
-    // eenvoudige validatie locatie link
+    // Basic validation for location link
     const loc = locationLink.trim();
-    if (loc && loc.length > 500) return alert("Locatie link is te lang.");
+    if (loc && loc.length > 500) return alert("Location link is too long.");
 
-    // phase: als standard => null
-    const nextPhase =
-      projectType === "standard" ? null : (phase.trim() ? phase.trim() : null);
+    // phase: if standard => null
+    const nextPhase = projectType === "standard" ? null : phase.trim() ? phase.trim() : null;
 
     // deadline: "" => null
     const nextDeadline = deadline ? deadline : null;
 
-    const nextEstimatedMinutes = hoursTextToMinutes(estimatedHours); // null als leeg/invalid
+    const nextEstimatedMinutes = hoursTextToMinutes(estimatedHours); // null if empty/invalid
 
     setSaving(true);
 
@@ -229,7 +228,7 @@ export default function ProjectEditPage() {
   if (loading) {
     return (
       <main className="p-6 max-w-3xl mx-auto">
-        <div className="text-gray-500">Laden…</div>
+        <div className="text-gray-500">Loading…</div>
       </main>
     );
   }
@@ -237,10 +236,10 @@ export default function ProjectEditPage() {
   if (!project) {
     return (
       <main className="p-6 max-w-3xl mx-auto">
-        <div className="text-gray-600">Project niet gevonden.</div>
+        <div className="text-gray-600">Project not found.</div>
         <div className="mt-4">
           <Button variant="outline" onClick={() => router.push("/projects")}>
-            ← Terug
+            ← Back
           </Button>
         </div>
       </main>
@@ -251,52 +250,48 @@ export default function ProjectEditPage() {
     <main className="p-6 max-w-3xl mx-auto">
       <div className="flex justify-between items-center gap-3">
         <Button variant="outline" onClick={() => router.push(`/projects/${project.id}`)}>
-          ← Terug
+          ← Back
         </Button>
 
         <div className="text-sm text-gray-500">
-          Workspace rol: {workspaceRole} {projectMemberRole ? `• Project rol: ${projectMemberRole}` : ""}
+          Workspace role: {workspaceRole} {projectMemberRole ? `• Project role: ${projectMemberRole}` : ""}
         </div>
       </div>
 
-      <h1 className="mt-4 text-2xl font-semibold">Project bewerken</h1>
+      <h1 className="mt-4 text-2xl font-semibold">Edit project</h1>
       <div className="mt-1 text-sm text-gray-500">
-        {project.name} {!canEdit ? "• Alleen-lezen" : null}
+        {project.name} {!canEdit ? "• Read-only" : null}
       </div>
 
       {!canEdit ? (
         <div className="mt-6 border rounded-lg p-4 bg-gray-50 text-sm text-gray-700">
-          Je hebt geen rechten om dit project te wijzigen.
+          You don't have permission to modify this project.
         </div>
       ) : null}
 
       <form onSubmit={onSubmit} className="mt-6 grid gap-4">
-        {/* Titel */}
+        {/* Title */}
         <div className="grid gap-1">
-          <label className="text-sm font-medium">Titel</label>
+          <label className="text-sm font-medium">Title</label>
           <input
             className="border rounded-md px-3 py-2"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            disabled={!canEdit || saving}
-            placeholder="Project titel"
-            autoFocus
+            disabled={saving}
           />
         </div>
 
-        {/* Omschrijving */}
+        {/* Description */}
         <div className="grid gap-1">
-          <label className="text-sm font-medium">Omschrijving</label>
+          <label className="text-sm font-medium">Description</label>
           <textarea
-            className="border rounded-md px-3 py-2 min-h-[100px]"
+            className="border rounded-md px-3 py-2 min-h-[110px]"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            disabled={!canEdit || saving}
-            placeholder="Korte omschrijving (optioneel)"
+            disabled={saving}
           />
         </div>
 
-        {/* 2 koloms blok */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Deadline */}
           <div className="grid gap-1">
@@ -306,37 +301,36 @@ export default function ProjectEditPage() {
               className="border rounded-md px-3 py-2"
               value={deadline}
               onChange={(e) => setDeadline(e.target.value)}
-              disabled={!canEdit || saving}
+              disabled={saving}
             />
           </div>
 
-          {/* Tijd benodigd (uren) */}
+          {/* Estimate */}
           <div className="grid gap-1">
-            <label className="text-sm font-medium">Tijd benodigd (uren)</label>
+            <label className="text-sm font-medium">Estimated hours</label>
             <input
               className="border rounded-md px-3 py-2"
               value={estimatedHours}
               onChange={(e) => setEstimatedHours(e.target.value)}
-              disabled={!canEdit || saving}
-              placeholder="bijv. 2 of 1.5"
+              placeholder="e.g. 2"
               inputMode="decimal"
+              disabled={saving}
             />
-            <div className="text-xs text-gray-500">Wordt opgeslagen als minuten (estimated_minutes).</div>
           </div>
 
-          {/* Prioriteit */}
+          {/* Priority */}
           <div className="grid gap-1">
-            <label className="text-sm font-medium">Prioriteit</label>
+            <label className="text-sm font-medium">Priority</label>
             <select
               className="border rounded-md px-3 py-2"
               value={priority}
               onChange={(e) => setPriority(e.target.value as Priority)}
-              disabled={!canEdit || saving}
+              disabled={saving}
             >
               <option value="low">low</option>
               <option value="medium">medium</option>
               <option value="high">high</option>
-              <option value="very_high">very high</option>
+              <option value="very_high">very_high</option>
             </select>
           </div>
 
@@ -347,26 +341,23 @@ export default function ProjectEditPage() {
               className="border rounded-md px-3 py-2"
               value={status}
               onChange={(e) => setStatus(e.target.value as ProjectStatus)}
-              disabled={!canEdit || saving}
+              disabled={saving}
             >
               <option value="proposed">proposed</option>
               <option value="active">active</option>
               <option value="done">done</option>
               <option value="archived">archived</option>
             </select>
-            <div className="text-xs text-gray-500">
-              Later kun je “on_hold” toevoegen als je die status wilt ondersteunen.
-            </div>
           </div>
 
           {/* Type */}
           <div className="grid gap-1">
-            <label className="text-sm font-medium">Type</label>
+            <label className="text-sm font-medium">Project type</label>
             <select
               className="border rounded-md px-3 py-2"
               value={projectType}
               onChange={(e) => setProjectType(e.target.value as ProjectType)}
-              disabled={!canEdit || saving}
+              disabled={saving}
             >
               <option value="standard">standard</option>
               <option value="pdca">pdca</option>
@@ -374,53 +365,45 @@ export default function ProjectEditPage() {
             </select>
           </div>
 
-          {/* Fase */}
+          {/* Phase */}
           <div className="grid gap-1">
-            <label className="text-sm font-medium">Fase</label>
-
-            {projectType === "standard" ? (
-              <input
-                className="border rounded-md px-3 py-2 bg-gray-50 text-gray-500"
-                value="—"
-                disabled
-              />
-            ) : (
-              <select
-                className="border rounded-md px-3 py-2"
-                value={phase}
-                onChange={(e) => setPhase(e.target.value)}
-                disabled={!canEdit || saving}
-              >
-                <option value="">— kies fase —</option>
-                {PHASES[projectType].map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            )}
+            <label className="text-sm font-medium">Phase</label>
+            <select
+              className="border rounded-md px-3 py-2"
+              value={phase}
+              onChange={(e) => setPhase(e.target.value)}
+              disabled={saving || projectType === "standard"}
+            >
+              <option value="">—</option>
+              {PHASES[projectType].map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+            <div className="text-xs text-gray-500">Only applicable for PDCA/DMAIC projects.</div>
           </div>
         </div>
 
-        {/* Locatie */}
+        {/* Location link */}
         <div className="grid gap-1">
-          <label className="text-sm font-medium">Locatie (link)</label>
+          <label className="text-sm font-medium">Location link</label>
           <input
             className="border rounded-md px-3 py-2"
             value={locationLink}
             onChange={(e) => setLocationLink(e.target.value)}
-            disabled={!canEdit || saving}
-            placeholder="bijv. https://... of filepad (later)"
+            placeholder="e.g. https://... or a file path (later)"
+            disabled={saving}
           />
           <div className="text-xs text-gray-500">
-            MVP: vrije tekst. Later kun je validatie doen op URL vs file path.
+            MVP: free text. Later you can validate URL vs file path.
           </div>
         </div>
 
         {/* Actions */}
         <div className="flex gap-2 pt-2">
-          <Button type="submit" disabled={!canEdit || saving}>
-            {saving ? "Opslaan…" : "Opslaan"}
+          <Button type="submit" disabled={saving}>
+            {saving ? "Saving…" : "Save"}
           </Button>
           <Button
             variant="outline"
@@ -428,7 +411,7 @@ export default function ProjectEditPage() {
             onClick={() => router.push(`/projects/${project.id}`)}
             disabled={saving}
           >
-            Annuleren
+            Cancel
           </Button>
         </div>
       </form>
