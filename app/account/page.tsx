@@ -6,85 +6,170 @@ import Button from "@/app/components/Button";
 import { supabase } from "@/lib/supabaseClient";
 import { requireUser } from "@/app/lib/appContext";
 
+type Profile = {
+  id: string;
+  email: string | null;
+  full_name: string | null;
+};
+
 export default function AccountPage() {
   const router = useRouter();
-  const [fullName, setFullName] = useState("");
-  const [saving, setSaving] = useState(false);
+
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState<string | null>(null);
 
   useEffect(() => {
-    (async () => {
+    async function load() {
+      setLoading(true);
+
       const user = await requireUser(router);
-      if (!user) return;
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+
+      setEmail(user.email ?? null);
 
       const { data, error } = await supabase
         .from("profiles")
-        .select("full_name")
+        .select("id,email,full_name")
         .eq("id", user.id)
-        .maybeSingle();
+        .single();
 
-      if (error) console.error(error);
+      if (error) {
+        console.error("Load profile error:", error);
+        alert(error.message);
+        setLoading(false);
+        return;
+      }
 
-      setFullName((data as any)?.full_name ?? "");
+      const p = data as Profile;
+      setProfile(p);
+      setFullName(p.full_name ?? "");
+
       setLoading(false);
-    })();
+    }
+
+    load();
   }, [router]);
 
-  async function save() {
+  async function saveProfile(e: React.FormEvent) {
+    e.preventDefault();
+    if (!profile) return;
+    if (saving) return;
+
+    const cleanName = fullName.trim();
+
     setSaving(true);
-
-    const { data: sessionData } = await supabase.auth.getSession();
-    const uid = sessionData.session?.user?.id;
-
-    if (!uid) {
-      setSaving(false);
-      return;
-    }
 
     const { error } = await supabase
       .from("profiles")
-      .update({ full_name: fullName })
-      .eq("id", uid);
+      .update({
+        full_name: cleanName || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", profile.id);
 
     setSaving(false);
 
-    if (error) return alert(error.message);
-    alert("Naam opgeslagen!");
+    if (error) {
+      console.error("Save profile error:", error);
+      alert(error.message);
+      return;
+    }
+
+    alert("Profile updated.");
+  }
+
+  async function signOut() {
+    await supabase.auth.signOut();
+    router.push("/login");
+  }
+
+  if (loading) {
+    return (
+      <main className="p-6 max-w-2xl mx-auto">
+        <div className="text-gray-500">Loading…</div>
+      </main>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <main className="p-6 max-w-2xl mx-auto">
+        <div className="text-gray-600">Profile not found.</div>
+        <div className="mt-4">
+          <Button variant="outline" onClick={() => router.push("/projects")}>
+            ← Back
+          </Button>
+        </div>
+      </main>
+    );
   }
 
   return (
-    <main className="p-6 max-w-xl mx-auto">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Account</h1>
-        <Button variant="outline" onClick={() => router.push("/projects")}>
-          ← Projecten
-        </Button>
-      </div>
-
-      {loading ? (
-        <div className="mt-6 text-gray-500">Laden…</div>
-      ) : (
-        <>
-          <div className="mt-6">
-            <label className="text-sm text-gray-600">Naam</label>
-            <input
-              className="mt-2 w-full border rounded-md px-3 py-2"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Bijv. Jan Jansen"
-            />
-            <div className="mt-2 text-xs text-gray-400">
-              Deze naam wordt gebruikt bij het toewijzen van taken.
-            </div>
+    <main className="p-6 max-w-2xl mx-auto">
+      <header className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Account</h1>
+          <div className="text-sm text-gray-500">
+            Manage your personal account details
           </div>
+        </div>
 
-          <div className="mt-4">
-            <Button onClick={save} disabled={saving}>
-              {saving ? "Opslaan…" : "Opslaan"}
-            </Button>
+        <div className="flex flex-col gap-2 items-end">
+          <Button variant="outline" onClick={() => router.push("/projects")}>
+            ← Projects
+          </Button>
+        </div>
+      </header>
+
+      <form onSubmit={saveProfile} className="mt-6 grid gap-4">
+        {/* Email */}
+        <div className="grid gap-1">
+          <label className="text-sm font-medium">Email</label>
+          <input
+            className="border rounded-md px-3 py-2 bg-gray-100 text-gray-700"
+            value={email ?? ""}
+            disabled
+          />
+          <div className="text-xs text-gray-500">
+            Email address is managed via authentication settings.
           </div>
-        </>
-      )}
+        </div>
+
+        {/* Full name */}
+        <div className="grid gap-1">
+          <label className="text-sm font-medium">Full name</label>
+          <input
+            className="border rounded-md px-3 py-2"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            placeholder="Your name"
+            disabled={saving}
+          />
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-2 pt-2">
+          <Button type="submit" disabled={saving}>
+            {saving ? "Saving…" : "Save changes"}
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={signOut}
+            disabled={saving}
+          >
+            Sign out
+          </Button>
+        </div>
+      </form>
     </main>
   );
 }
