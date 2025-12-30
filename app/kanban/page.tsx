@@ -111,6 +111,9 @@ export default function ProjectsKanbanPage() {
 
   const loadSeq = useRef(0);
 
+  // Stakeholders can view Kanban but should not be able to change project status.
+  const canMoveProjects = role !== "stakeholder";
+
   const load = useCallback(async () => {
     const seq = ++loadSeq.current;
 
@@ -364,21 +367,24 @@ export default function ProjectsKanbanPage() {
 
     return (
       <div
-        draggable
-        style={{ cursor: "grab" }}
+        draggable={canMoveProjects}
+        style={{ cursor: canMoveProjects ? "grab" : "default" }}
         onDragStart={(e) => {
+          if (!canMoveProjects) return;
           e.dataTransfer.setData("text/plain", p.id);
           e.dataTransfer.effectAllowed = "move";
-          requestAnimationFrame(() => setDraggingId(p.id)); // Important: stable HTML5 DnD
+          requestAnimationFrame(() => setDraggingId(p.id));
         }}
         onDragEnd={() => {
+          if (!canMoveProjects) return;
           setDraggingId(null);
           setDragOverStatus(null);
-        }}
+         }}
         className={[
           "rounded-lg border bg-white p-3 shadow-sm hover:shadow transition-shadow",
           "w-full max-w-full overflow-hidden",
           draggingId === p.id ? "opacity-60 ring-2 ring-blue-400" : "",
+          !canMoveProjects ? "select-text" : "",
         ].join(" ")}
       >
         <div className="flex items-start justify-between gap-2 min-w-0">
@@ -575,32 +581,40 @@ export default function ProjectsKanbanPage() {
           <div className="min-w-[1080px] grid grid-cols-[repeat(4,260px)] gap-4">
             {STATUS_COLUMNS.map((col) => (
               <div
-                key={col.key}
-                className={[
-                  "rounded-lg border bg-gray-50 transition-colors",
-                  dragOverStatus === col.key ? "ring-2 ring-blue-400 bg-blue-50/30" : "",
-                ].join(" ")}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                  setDragOverStatus(col.key);
-                }}
-                onDragLeave={() => setDragOverStatus((s) => (s === col.key ? null : s))}
-                onDrop={async (e) => {
-                  e.preventDefault();
-                  const pid = e.dataTransfer.getData("text/plain");
-                  setDragOverStatus(null);
-                  setDraggingId(null);
+              key={col.key}
+              className={[
+                "rounded-lg border bg-gray-50 transition-colors",
+                canMoveProjects && dragOverStatus === col.key
+                  ? "ring-2 ring-blue-400 bg-blue-50/30"
+                  : "",
+              ].join(" ")}
+              onDragOver={(e) => {
+              if (!canMoveProjects) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                setDragOverStatus(col.key);
+              }}
+              onDragLeave={() => {
+                if (!canMoveProjects) return;
+                setDragOverStatus((s) => (s === col.key ? null : s));
+              }}
+              onDrop={async (e) => {
+                if (!canMoveProjects) return;
+                e.preventDefault();
 
-                  if (!pid) return;
+                const pid = e.dataTransfer.getData("text/plain");
+               setDragOverStatus(null);
+               setDraggingId(null);
 
-                  const p = projectsRef.current.find((x) => x.id === pid);
-                  if (!p) return;
-                  if (p.status === col.key) return;
+               if (!pid) return;
 
-                  await updateProjectStatus(pid, col.key);
-                }}
-              >
+               const p = projectsRef.current.find((x) => x.id === pid);
+                if (!p) return;
+                if (p.status === col.key) return;
+
+                await updateProjectStatus(pid, col.key);
+              }}
+            >
                 <div className="px-3 py-2 border-b bg-white rounded-t-lg flex items-center justify-between">
                   <div className="font-semibold">{col.label}</div>
                   <div className="text-xs text-gray-500">
