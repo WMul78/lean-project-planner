@@ -174,7 +174,17 @@ export default function GanttPage() {
 
   // -------------------- Load gantt data --------------------
   const loadGanttData = useCallback(async (wsId: string, uid: string) => {
-    setLoadError(null);
+  setLoadError(null);
+
+  try {
+    // ... jouw bestaande code blijft hetzelfde ...
+  } catch (e: any) {
+    console.error("loadGanttData failed:", e);
+    setTasks([]);
+    setLoadError(String(e?.message ?? e));
+  }
+
+
 
     // 1) time_entries (planning) for workspace+user
     const { data: entries, error: eErr } = await supabase
@@ -402,12 +412,14 @@ export default function GanttPage() {
 
   // -------------------- UI --------------------
   if (loading) {
-    return (
-      <main className="p-6 max-w-6xl mx-auto">
-        <div className="text-gray-500">Loading…</div>
-      </main>
-    );
-  }
+  return (
+    <main className="p-6 max-w-6xl mx-auto">
+      <div className="text-gray-500">Loading…</div>
+      {loadError ? <div className="mt-3 text-sm text-red-600">{loadError}</div> : null}
+    </main>
+  );
+}
+
 
   return (
     <main className="p-6 max-w-6xl mx-auto">
