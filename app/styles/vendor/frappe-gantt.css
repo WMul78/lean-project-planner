@@ -15,13 +15,13 @@
 }
 
 /* =========================================================
-   Lean Planner – calm, readable Gantt colors
-   - Tasks: light pastel fill + slightly darker progress
-   - Headers: even lighter fill + subtle outline
-   - Labels: dark gray for readability on pastel bars
+   Lean Planner – inverted intensity
+   - Headers: darker (project anchor)
+   - Tasks: lighter (calm)
+   - Labels: readable on both
    ========================================================= */
 
-/* Ensure labels stay readable */
+/* Always readable labels */
 .gantt-task-blue .bar-label,
 .gantt-task-green .bar-label,
 .gantt-task-purple .bar-label,
@@ -38,7 +38,7 @@
   font-weight: 500;
 }
 
-/* Slight indent for tasks */
+/* Indent tasks */
 .gantt-task-blue .bar-label,
 .gantt-task-green .bar-label,
 .gantt-task-purple .bar-label,
@@ -48,7 +48,17 @@
   transform: translateX(8px);
 }
 
-/* ----- Header rows (project) ----- */
+/* Header rows: slightly bolder label */
+.gantt-header-blue .bar-label,
+.gantt-header-green .bar-label,
+.gantt-header-purple .bar-label,
+.gantt-header-amber .bar-label,
+.gantt-header-teal .bar-label,
+.gantt-header-indigo .bar-label {
+  font-weight: 700 !important;
+}
+
+/* ----- Header rows (project): darker fill ----- */
 .gantt-header-blue .bar,
 .gantt-header-green .bar,
 .gantt-header-purple .bar,
@@ -59,17 +69,7 @@
   stroke-width: 1 !important;
 }
 
-/* Make header progress subtle (often 0 anyway) */
-.gantt-header-blue .bar-progress,
-.gantt-header-green .bar-progress,
-.gantt-header-purple .bar-progress,
-.gantt-header-amber .bar-progress,
-.gantt-header-teal .bar-progress,
-.gantt-header-indigo .bar-progress {
-  opacity: 0.35 !important;
-}
-
-/* ----- Task rows ----- */
+/* ----- Task rows: lighter fill ----- */
 .gantt-task-blue .bar,
 .gantt-task-green .bar,
 .gantt-task-purple .bar,
@@ -79,46 +79,55 @@
   opacity: 1 !important;
 }
 
-/* ===== Colors (calm, higher contrast between projects) ===== */
-/* Blue */
-.gantt-task-blue .bar,
-.gantt-header-blue .bar { fill: #bfdbfe !important; }          /* blue-200 */
+/* Progress: keep subtle and consistent */
 .gantt-task-blue .bar-progress,
-.gantt-header-blue .bar-progress { fill: #60a5fa !important; } /* blue-400 */
-.gantt-header-blue .bar { stroke: #93c5fd !important; }        /* blue-300 */
-
-/* Green */
-.gantt-task-green .bar,
-.gantt-header-green .bar { fill: #bbf7d0 !important; }         /* green-200 */
 .gantt-task-green .bar-progress,
-.gantt-header-green .bar-progress { fill: #4ade80 !important; }/* green-400 */
-.gantt-header-green .bar { stroke: #86efac !important; }       /* green-300 */
-
-/* Purple */
-.gantt-task-purple .bar,
-.gantt-header-purple .bar { fill: #ddd6fe !important; }        /* violet-200 */
 .gantt-task-purple .bar-progress,
-.gantt-header-purple .bar-progress { fill: #a78bfa !important; }/* violet-400 */
-.gantt-header-purple .bar { stroke: #c4b5fd !important; }      /* violet-300 */
-
-/* Amber */
-.gantt-task-amber .bar,
-.gantt-header-amber .bar { fill: #fde68a !important; }         /* amber-200 */
 .gantt-task-amber .bar-progress,
-.gantt-header-amber .bar-progress { fill: #fbbf24 !important; }/* amber-400 */
-.gantt-header-amber .bar { stroke: #fcd34d !important; }       /* amber-300 */
-
-/* Teal */
-.gantt-task-teal .bar,
-.gantt-header-teal .bar { fill: #99f6e4 !important; }          /* teal-200 */
 .gantt-task-teal .bar-progress,
-.gantt-header-teal .bar-progress { fill: #2dd4bf !important; } /* teal-400 */
-.gantt-header-teal .bar { stroke: #5eead4 !important; }        /* teal-300 */
-
-/* Indigo */
-.gantt-task-indigo .bar,
-.gantt-header-indigo .bar { fill: #c7d2fe !important; }        /* indigo-200 */
 .gantt-task-indigo .bar-progress,
-.gantt-header-indigo .bar-progress { fill: #818cf8 !important; }/* indigo-400 */
-.gantt-header-indigo .bar { stroke: #a5b4fc !important; }      /* indigo-300 */
+.gantt-header-blue .bar-progress,
+.gantt-header-green .bar-progress,
+.gantt-header-purple .bar-progress,
+.gantt-header-amber .bar-progress,
+.gantt-header-teal .bar-progress,
+.gantt-header-indigo .bar-progress {
+  opacity: 0.65 !important;
+}
 
+/* ===== Colors (more distinct) ===== */
+/* BLUE: header darker (400), task lighter (200) */
+.gantt-header-blue .bar { fill: #60a5fa !important; stroke: #3b82f6 !important; } /* blue-400/500 */
+.gantt-task-blue .bar { fill: #bfdbfe !important; }                                /* blue-200 */
+.gantt-header-blue .bar-progress,
+.gantt-task-blue .bar-progress { fill: #1d4ed8 !important; }                       /* blue-700 */
+
+/* GREEN */
+.gantt-header-green .bar { fill: #4ade80 !important; stroke: #22c55e !important; } /* green-400/500 */
+.gantt-task-green .bar { fill: #bbf7d0 !important; }                                /* green-200 */
+.gantt-header-green .bar-progress,
+.gantt-task-green .bar-progress { fill: #15803d !important; }                       /* green-700 */
+
+/* PURPLE -> shift toward MAGENTA/ROSE so it's clearly not blue */
+.gantt-header-purple .bar { fill: #f472b6 !important; stroke: #ec4899 !important; } /* pink-400/500 */
+.gantt-task-purple .bar { fill: #fce7f3 !important; }                                /* pink-100/200-ish */
+.gantt-header-purple .bar-progress,
+.gantt-task-purple .bar-progress { fill: #be185d !important; }                       /* pink-700 */
+
+/* AMBER */
+.gantt-header-amber .bar { fill: #fbbf24 !important; stroke: #f59e0b !important; }  /* amber-400/500 */
+.gantt-task-amber .bar { fill: #fde68a !important; }                                 /* amber-200 */
+.gantt-header-amber .bar-progress,
+.gantt-task-amber .bar-progress { fill: #b45309 !important; }                        /* amber-700 */
+
+/* TEAL */
+.gantt-header-teal .bar { fill: #2dd4bf !important; stroke: #14b8a6 !important; }   /* teal-400/500 */
+.gantt-task-teal .bar { fill: #99f6e4 !important; }                                  /* teal-200 */
+.gantt-header-teal .bar-progress,
+.gantt-task-teal .bar-progress { fill: #0f766e !important; }                         /* teal-700 */
+
+/* INDIGO (keeps distance from blue because it's deeper) */
+.gantt-header-indigo .bar { fill: #818cf8 !important; stroke: #6366f1 !important; } /* indigo-400/500 */
+.gantt-task-indigo .bar { fill: #c7d2fe !important; }                                /* indigo-200 */
+.gantt-header-indigo .bar-progress,
+.gantt-task-indigo .bar-progress { fill: #3730a3 !important; }                       /* indigo-800 */
