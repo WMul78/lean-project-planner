@@ -161,24 +161,25 @@ export default function HomePage() {
   <ScreenshotCard
     title="Kanban overview"
     src="/landing/kanban.png"
-    alt="Kanban screenshot"
+    alt="Kanban board overview screenshot"
   />
   <ScreenshotCard
     title="Plan hours (week)"
     src="/landing/hours.png"
-    alt="Hours planner screenshot"
+    alt="Weekly hours planning screenshot"
   />
   <ScreenshotCard
-    title="Workspace management"
-    src="/landing/workspaces.png"
-    alt="Workspaces screenshot"
+    title="Gantt planning"
+    src="/landing/gantt.png"
+    alt="Gantt chart planning screenshot"
   />
   <ScreenshotCard
     title="Projects overview"
     src="/landing/projects.png"
-    alt="Projects screenshot"
+    alt="Projects overview screenshot"
   />
 </div>
+
       </section>
 
       {/* FOOTER */}
