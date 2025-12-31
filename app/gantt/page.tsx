@@ -243,38 +243,101 @@ function projectColorClass(projectId: string) {
       execByTodo.set(r.todo_id, r.executed_minutes ?? 0);
     }
 
-   // 4) Build Gantt tasks
-const ganttTasks: GanttTask[] = todoIds
-  .map((id) => {
-    const agg = byTodo.get(id)!;
-    const todo = todoById.get(id);
-    if (!todo) return null;
+// 4) Build Gantt tasks (grouped by project)
+type ProjectGroup = {
+  projectId: string;
+  projectName: string;
+  items: Array<{
+    todoId: string;
+    todoTitle: string;
+    start: string;
+    end: string; // already +1 day applied
+    progress: number;
+  }>;
+  minStart: string;
+  maxEnd: string;
+};
 
-    const projectName = todo.projects?.name ?? "Project";
-    const name = `${projectName} • ${todo.title}`;
+const groupsMap = new Map<string, ProjectGroup>();
 
-    const planned = Math.max(0, agg.plannedMinutes);
-    const executed = Math.max(0, execByTodo.get(id) ?? 0);
-    const progress =
-      planned > 0 ? Math.min(100, Math.round((executed / planned) * 100)) : 0;
+for (const todoId of todoIds) {
+  const agg = byTodo.get(todoId)!;
+  const todo = todoById.get(todoId);
+  if (!todo) continue;
 
-    // Add +1 day to end so that a single-day planned task renders with visible width
-    const endPlus = addOneDayISO(agg.max);
+  const projectId = todo.project_id;
+  const projectName = todo.projects?.name ?? "Project";
+  const start = agg.min;
+  const end = addOneDayISO(agg.max);
 
-    return {
-      id,
-      name,
-      start: agg.min,
-      end: endPlus,
-      progress,
-      custom_class: projectColorClass(todo.project_id),
-    };
-  })
-  .filter(Boolean) as GanttTask[];
+  const planned = Math.max(0, agg.plannedMinutes);
+  const executed = Math.max(0, execByTodo.get(todoId) ?? 0);
+  const progress =
+    planned > 0 ? Math.min(100, Math.round((executed / planned) * 100)) : 0;
 
+  if (!groupsMap.has(projectId)) {
+    groupsMap.set(projectId, {
+      projectId,
+      projectName,
+      items: [],
+      minStart: start,
+      maxEnd: end,
+    });
+  }
 
-    // Sort: earliest first
-    ganttTasks.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+  const g = groupsMap.get(projectId)!;
+  g.items.push({
+    todoId,
+    todoTitle: todo.title,
+    start,
+    end,
+    progress,
+  });
+
+  if (start < g.minStart) g.minStart = start;
+  if (end > g.maxEnd) g.maxEnd = end;
+}
+
+// Sort projects by earliest start (or alphabetically if you prefer)
+const groups = Array.from(groupsMap.values()).sort((a, b) => {
+  if (a.minStart !== b.minStart) return a.minStart < b.minStart ? -1 : 1;
+  return a.projectName.localeCompare(b.projectName);
+});
+
+// Build final gantt task list: header row + tasks
+const ganttTasks: GanttTask[] = [];
+
+for (const g of groups) {
+  const colorClass = projectColorClass(g.projectId);
+
+  // Project "header" row
+  ganttTasks.push({
+    id: `project:${g.projectId}`,
+    name: g.projectName,
+    start: g.minStart,
+    end: g.maxEnd,
+    progress: 0,
+    custom_class: `gantt-project-header ${colorClass}`,
+  });
+
+  // Sort tasks inside project by start date (then name)
+  g.items.sort((x, y) => {
+    if (x.start !== y.start) return x.start < y.start ? -1 : 1;
+    return x.todoTitle.localeCompare(y.todoTitle);
+  });
+
+  for (const it of g.items) {
+    ganttTasks.push({
+      id: it.todoId,
+      name: `• ${it.todoTitle}`, // indent effect
+      start: it.start,
+      end: it.end,
+      progress: it.progress,
+      custom_class: `gantt-project-task ${colorClass}`,
+    });
+  }
+}
+
 
     setTasks(ganttTasks);
   }

@@ -14,52 +14,43 @@
   background: #ffffff;
 }
 
-/* ===== Lean Planner project colors (calm palette) ===== */
+/* ===== Lean Planner: clearer (still calm) palette ===== */
+
+/* Header row styling */
+.gantt-project-header .bar {
+  opacity: 0.35;
+  stroke-width: 1;
+}
+.gantt-project-header .bar-label {
+  font-weight: 600;
+}
+
+/* Task row styling */
+.gantt-project-task .bar {
+  opacity: 0.95;
+}
 
 /* Blue */
-.gantt-project-blue .bar {
-  fill: #bfdbfe; /* blue-200 */
-}
-.gantt-project-blue .bar-progress {
-  fill: #60a5fa; /* blue-400 */
-}
+.gantt-project-blue .bar { fill: #93c5fd; }        /* blue-300 */
+.gantt-project-blue .bar-progress { fill: #2563eb; } /* blue-600 */
 
 /* Green */
-.gantt-project-green .bar {
-  fill: #bbf7d0; /* green-200 */
-}
-.gantt-project-green .bar-progress {
-  fill: #4ade80; /* green-400 */
-}
+.gantt-project-green .bar { fill: #86efac; }         /* green-300 */
+.gantt-project-green .bar-progress { fill: #16a34a; } /* green-600 */
 
 /* Purple */
-.gantt-project-purple .bar {
-  fill: #ddd6fe; /* violet-200 */
-}
-.gantt-project-purple .bar-progress {
-  fill: #a78bfa; /* violet-400 */
-}
+.gantt-project-purple .bar { fill: #c4b5fd; }         /* violet-300 */
+.gantt-project-purple .bar-progress { fill: #7c3aed; } /* violet-600 */
 
 /* Amber */
-.gantt-project-amber .bar {
-  fill: #fde68a; /* amber-200 */
-}
-.gantt-project-amber .bar-progress {
-  fill: #fbbf24; /* amber-400 */
-}
+.gantt-project-amber .bar { fill: #fcd34d; }          /* amber-300 */
+.gantt-project-amber .bar-progress { fill: #d97706; } /* amber-600 */
 
 /* Teal */
-.gantt-project-teal .bar {
-  fill: #99f6e4; /* teal-200 */
-}
-.gantt-project-teal .bar-progress {
-  fill: #2dd4bf; /* teal-400 */
-}
+.gantt-project-teal .bar { fill: #5eead4; }          /* teal-300 */
+.gantt-project-teal .bar-progress { fill: #0f766e; } /* teal-700 */
 
 /* Indigo */
-.gantt-project-indigo .bar {
-  fill: #c7d2fe; /* indigo-200 */
-}
-.gantt-project-indigo .bar-progress {
-  fill: #818cf8; /* indigo-400 */
-}
+.gantt-project-indigo .bar { fill: #a5b4fc; }         /* indigo-300 */
+.gantt-project-indigo .bar-progress { fill: #4338ca; } /* indigo-700 */
+
