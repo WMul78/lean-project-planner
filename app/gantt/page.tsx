@@ -243,33 +243,35 @@ function projectColorClass(projectId: string) {
       execByTodo.set(r.todo_id, r.executed_minutes ?? 0);
     }
 
-    // 4) Build Gantt tasks
-    const ganttTasks: GanttTask[] = todoIds
-      .map((id) => {
-        const agg = byTodo.get(id)!;
-        const todo = todoById.get(id);
-        if (!todo) return null;
+   // 4) Build Gantt tasks
+const ganttTasks: GanttTask[] = todoIds
+  .map((id) => {
+    const agg = byTodo.get(id)!;
+    const todo = todoById.get(id);
+    if (!todo) return null;
 
-        const projectName = todo.projects?.name ?? "Project";
-        const name = `${projectName} • ${todo.title}`;
+    const projectName = todo.projects?.name ?? "Project";
+    const name = `${projectName} • ${todo.title}`;
 
-        const planned = Math.max(0, agg.plannedMinutes);
-        const executed = Math.max(0, execByTodo.get(id) ?? 0);
-        const progress = planned > 0 ? Math.min(100, Math.round((executed / planned) * 100)) : 0;
+    const planned = Math.max(0, agg.plannedMinutes);
+    const executed = Math.max(0, execByTodo.get(id) ?? 0);
+    const progress =
+      planned > 0 ? Math.min(100, Math.round((executed / planned) * 100)) : 0;
 
-        // Add +1 day to end so that a single-day planned task renders with visible width
-        const endPlus = addOneDayISO(agg.max);
+    // Add +1 day to end so that a single-day planned task renders with visible width
+    const endPlus = addOneDayISO(agg.max);
 
-       return {
-        id,
-        name,
-        start: agg.min,
-        end: endPlus,
-        progress,
-        custom_class: projectColorClass(todo.project_id),
-      };
+    return {
+      id,
+      name,
+      start: agg.min,
+      end: endPlus,
+      progress,
+      custom_class: projectColorClass(todo.project_id),
+    };
+  })
+  .filter(Boolean) as GanttTask[];
 
-      .filter(Boolean) as GanttTask[];
 
     // Sort: earliest first
     ganttTasks.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
