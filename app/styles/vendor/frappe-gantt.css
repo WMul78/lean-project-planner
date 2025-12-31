@@ -54,3 +54,19 @@
 .gantt-project-indigo .bar { fill: #a5b4fc; }         /* indigo-300 */
 .gantt-project-indigo .bar-progress { fill: #4338ca; } /* indigo-700 */
 
+/* Header row styling */
+.gantt-project-header .bar {
+  opacity: 0.35;
+  stroke-width: 1;
+}
+.gantt-project-header .bar-label {
+  font-weight: 600;
+}
+
+/* Task row styling */
+.gantt-project-task .bar {
+  opacity: 0.95;
+}
+.gantt-project-task .bar-label {
+  transform: translateX(8px);
+}
