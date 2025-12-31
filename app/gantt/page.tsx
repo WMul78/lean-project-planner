@@ -30,43 +30,45 @@ type ProjectRow = {
 type GanttTask = {
   id: string;
   name: string;
-  start: string; // YYYY-MM-DD
-  end: string; // YYYY-MM-DD
-  progress: number; // always 0 in this simplified version
-  custom_class?: string; // must be a SINGLE token (no spaces)
+  start: Date;
+  end: Date;
+  progress: number;
+  custom_class?: string; // must be single token
 };
 
-// PostgREST aggregate response shapes (loosely typed)
+// View rows
 type TodoWindowRow = {
   todo_id: string | null;
   project_id: string;
-  start_date: string;
-  end_date: string;
+  start_date: string; // YYYY-MM-DD
+  end_date: string;   // YYYY-MM-DD
 };
 
 type ProjectWindowRow = {
   project_id: string;
-  start_date: string;
-  end_date: string;
+  start_date: string; // YYYY-MM-DD
+  end_date: string;   // YYYY-MM-DD
 };
 
-
+// -------------------- Helpers --------------------
 function labelForMember(m: WsMember) {
   const name = (m.profiles?.full_name ?? "").trim();
   const email = (m.profiles?.email ?? "").trim();
   return name || email || m.user_id;
 }
 
-function addOneDayISO(yyyyMmDd: string) {
-  // Helps single-day bars show as visible width
-  const d = new Date(yyyyMmDd + "T00:00:00Z");
-  d.setUTCDate(d.getUTCDate() + 1);
-  const yyyy = d.getUTCFullYear();
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(d.getUTCDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+function isoToUtcDate(yyyyMmDd: string) {
+  const [y, m, d] = yyyyMmDd.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
 }
 
+function addOneDay(date: Date) {
+  const d = new Date(date.getTime());
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d;
+}
+
+// -------------------- Page --------------------
 export default function GanttPage() {
   const router = useRouter();
 
@@ -97,7 +99,6 @@ export default function GanttPage() {
     return m ? labelForMember(m) : "";
   }, [members, selectedUserId]);
 
-  // Dynamic height (simple): header rows + task rows
   const ganttHeight = useMemo(() => {
     const rowHeight = 36;
     const header = 120;
@@ -155,14 +156,12 @@ export default function GanttPage() {
     setLoadError(null);
 
     try {
-      // 1) Aggregate per TODO in the database:
-      // Returns one row per todo_id with entry_date.min and entry_date.max
+      // 1) Todo windows (view)
       const { data: todoWin, error: todoErr } = await supabase
         .from("time_entries_todo_window")
         .select("todo_id,project_id,start_date,end_date")
         .eq("workspace_id", wsId)
         .eq("user_id", uid);
-
 
       if (todoErr) {
         console.error(todoErr);
@@ -178,13 +177,12 @@ export default function GanttPage() {
         return;
       }
 
-      // 2) Aggregate per PROJECT in the database (same time window concept)
+      // 2) Project windows (view)
       const { data: projWin, error: projErr } = await supabase
         .from("time_entries_project_window")
         .select("project_id,start_date,end_date")
         .eq("workspace_id", wsId)
         .eq("user_id", uid);
-
 
       if (projErr) {
         console.error(projErr);
@@ -195,7 +193,7 @@ export default function GanttPage() {
 
       const projectWindows = ((projWin as any) ?? []) as ProjectWindowRow[];
 
-      // 3) Fetch todo titles (minimal)
+      // 3) Todos
       const { data: td, error: tdErr } = await supabase
         .from("todos")
         .select("id,title,project_id")
@@ -211,10 +209,8 @@ export default function GanttPage() {
       const todos = ((td as any) ?? []) as TodoRow[];
       const todoById = new Map<string, TodoRow>(todos.map((t) => [t.id, t]));
 
-      // 4) Fetch project names (minimal)
-      const projectIds = Array.from(
-        new Set(projectWindows.map((p) => p.project_id).filter(Boolean))
-      ) as string[];
+      // 4) Projects
+      const projectIds = Array.from(new Set(projectWindows.map((p) => p.project_id))) as string[];
 
       let projectById = new Map<string, ProjectRow>();
       if (projectIds.length > 0) {
@@ -223,21 +219,14 @@ export default function GanttPage() {
           .select("id,name")
           .in("id", projectIds);
 
-        if (prErr) {
-          console.error(prErr);
-          // Not fatal: fallback to "Project"
-        } else {
+        if (!prErr) {
           const projects = ((pr as any) ?? []) as ProjectRow[];
           projectById = new Map(projects.map((p) => [p.id, p]));
         }
       }
 
-      // 5) Build grouped gantt tasks (project header + tasks)
-      //    Keep it super simple: no progress, fixed colors
-      const tasksByProject = new Map<
-        string,
-        Array<{ todoId: string; title: string; start: string; end: string }>
-      >();
+      // 5) Build tasksByProject with RAW dates (no +1 here!)
+      const tasksByProject = new Map<string, Array<{ todoId: string; title: string; start: string; end: string }>>();
 
       for (const row of todoWindows) {
         if (!row.todo_id) continue;
@@ -253,7 +242,7 @@ export default function GanttPage() {
           todoId: todo.id,
           title: todo.title,
           start,
-          end: addOneDayISO(end),
+          end,
         });
         tasksByProject.set(todo.project_id, list);
       }
@@ -262,43 +251,50 @@ export default function GanttPage() {
       const projOrder = projectWindows
         .filter((p) => tasksByProject.has(p.project_id))
         .sort((a, b) => {
-           if (a.start_date !== b.start_date) return a.start_date < b.start_date ? -1 : 1;
-            return a.project_id.localeCompare(b.project_id);
-          });
+          if (a.start_date !== b.start_date) return a.start_date < b.start_date ? -1 : 1;
+          return a.project_id.localeCompare(b.project_id);
+        });
 
-
-
+      // 6) Build final gantt tasks
       const ganttTasks: GanttTask[] = [];
 
       for (const pw of projOrder) {
         const pid = pw.project_id;
         const projName = projectById.get(pid)?.name ?? "Project";
 
-        // Project header uses min/max over all tasks (already aggregated at project level)
-        const pStart = pw.start_date;
-        const pEnd = pw.end_date;
-        if (!pStart || !pEnd) continue;
+        if (!pw.start_date || !pw.end_date) continue;
+
+        const pStartDate = isoToUtcDate(pw.start_date);
+        const pEndDate = addOneDay(isoToUtcDate(pw.end_date)); // +1 once here
 
         ganttTasks.push({
           id: `project:${pid}`,
           name: projName,
-          start: pStart,
-          end: addOneDayISO(pEnd),
+          start: pStartDate,
+          end: pEndDate,
           progress: 0,
-          custom_class: "gantt-project", // single token
+          custom_class: "gantt-project",
         });
 
         const list = tasksByProject.get(pid) ?? [];
-        list.sort((x, y) => (x.start < y.start ? -1 : x.start > y.start ? 1 : x.title.localeCompare(y.title)));
+        list.sort((a, b) => {
+          if (a.start !== b.start) return a.start < b.start ? -1 : 1;
+          return a.title.localeCompare(b.title);
+        });
 
         for (const t of list) {
+          if (!t.start || !t.end) continue;
+
+          const tStartDate = isoToUtcDate(t.start);
+          const tEndDate = addOneDay(isoToUtcDate(t.end)); // +1 once here
+
           ganttTasks.push({
             id: t.todoId,
             name: `• ${t.title}`,
-            start: t.start,
-            end: t.end,
+            start: tStartDate,
+            end: tEndDate,
             progress: 0,
-            custom_class: "gantt-task", // single token
+            custom_class: "gantt-task",
           });
         }
       }
@@ -346,14 +342,12 @@ export default function GanttPage() {
           return;
         }
 
-        // Render in next frame to keep UI responsive
         requestAnimationFrame(() => {
           // eslint-disable-next-line no-new
           new Gantt(ganttRef.current, tasks, {
-            view_mode: "Month", // faster than Week for many rows
+            view_mode: "Week",
             bar_height: 20,
             padding: 16,
-            // keep minimal
           });
         });
       } catch (e: any) {
@@ -380,9 +374,6 @@ export default function GanttPage() {
 
   return (
     <main className="p-6 max-w-6xl mx-auto">
-      {/* Simple, local styles for colors (no extra CSS file needed) */}
-      
-
       <header className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold">Gantt</h1>
@@ -436,15 +427,14 @@ export default function GanttPage() {
       </section>
 
       <section className="mt-6 border rounded-lg bg-white">
-  <div className="overflow-x-auto">
-    <div
-      ref={ganttRef}
-      className="gantt-container min-w-[900px] p-2"
-      style={{ height: ganttHeight }}
-    />
-  </div>
-</section>
-
+        <div className="overflow-x-auto">
+          <div
+            ref={ganttRef}
+            className="gantt-container min-w-[900px] p-2"
+            style={{ height: ganttHeight }}
+          />
+        </div>
+      </section>
 
       <div className="mt-3 text-xs text-gray-500">
         Note: Simplified MVP (no progress). Uses database aggregation for speed.
