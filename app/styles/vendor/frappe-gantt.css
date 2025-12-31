@@ -13,3 +13,53 @@
   overflow: visible !important;
   background: #ffffff;
 }
+
+/* ===== Lean Planner project colors (calm palette) ===== */
+
+/* Blue */
+.gantt-project-blue .bar {
+  fill: #bfdbfe; /* blue-200 */
+}
+.gantt-project-blue .bar-progress {
+  fill: #60a5fa; /* blue-400 */
+}
+
+/* Green */
+.gantt-project-green .bar {
+  fill: #bbf7d0; /* green-200 */
+}
+.gantt-project-green .bar-progress {
+  fill: #4ade80; /* green-400 */
+}
+
+/* Purple */
+.gantt-project-purple .bar {
+  fill: #ddd6fe; /* violet-200 */
+}
+.gantt-project-purple .bar-progress {
+  fill: #a78bfa; /* violet-400 */
+}
+
+/* Amber */
+.gantt-project-amber .bar {
+  fill: #fde68a; /* amber-200 */
+}
+.gantt-project-amber .bar-progress {
+  fill: #fbbf24; /* amber-400 */
+}
+
+/* Teal */
+.gantt-project-teal .bar {
+  fill: #99f6e4; /* teal-200 */
+}
+.gantt-project-teal .bar-progress {
+  fill: #2dd4bf; /* teal-400 */
+}
+
+/* Indigo */
+.gantt-project-indigo .bar {
+  fill: #c7d2fe; /* indigo-200 */
+}
+.gantt-project-indigo .bar-progress {
+  fill: #818cf8; /* indigo-400 */
+}

@@ -92,7 +92,24 @@ export default function GanttPage() {
   return Math.max(min, header + padding + tasks.length * rowHeight);
 }, [tasks.length]);
 
-  
+  const PROJECT_COLORS = [
+  "blue",
+  "green",
+  "purple",
+  "amber",
+  "teal",
+  "indigo",
+] as const;
+
+function projectColorClass(projectId: string) {
+  // simple stable hash → always same color per project
+  let hash = 0;
+  for (let i = 0; i < projectId.length; i++) {
+    hash = (hash + projectId.charCodeAt(i)) % PROJECT_COLORS.length;
+  }
+  return `gantt-project-${PROJECT_COLORS[hash]}`;
+}
+
   
   const userOptions = useMemo(() => {
     if (!myUserId) return [];
@@ -243,16 +260,15 @@ export default function GanttPage() {
         // Add +1 day to end so that a single-day planned task renders with visible width
         const endPlus = addOneDayISO(agg.max);
 
-        return {
-          id,
-          name,
-          start: agg.min,
-          end: endPlus,
-          progress,
-          // Optional: custom CSS class (for future styling)
-          custom_class: progress >= 100 ? "gantt-done" : "gantt-open",
-        };
-      })
+       return {
+        id,
+        name,
+        start: agg.min,
+        end: endPlus,
+        progress,
+        custom_class: projectColorClass(todo.project_id),
+      };
+
       .filter(Boolean) as GanttTask[];
 
     // Sort: earliest first
