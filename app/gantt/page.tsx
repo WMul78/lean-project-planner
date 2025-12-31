@@ -426,15 +426,16 @@ export default function GanttPage() {
         {loadError ? <div className="mt-3 text-sm text-red-600">{loadError}</div> : null}
       </section>
 
-      <section className="mt-6 border rounded-lg bg-white">
-        <div className="overflow-x-auto">
-          <div
-            ref={ganttRef}
-            className="gantt-container min-w-[900px] p-2"
-            style={{ height: ganttHeight }}
-          />
-        </div>
-      </section>
+     <section className="mt-6 border rounded-lg bg-white">
+  <div className="overflow-x-auto">
+    <div
+      ref={ganttRef}
+      className="gantt-container min-w-[900px] p-2"
+      style={{ height: ganttHeight }}
+    />
+  </div>
+</section>
+
 
       <div className="mt-3 text-xs text-gray-500">
         Note: Simplified MVP (no progress). Uses database aggregation for speed.
