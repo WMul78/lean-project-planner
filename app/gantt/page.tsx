@@ -6,6 +6,7 @@ import Button from "@/app/components/Button";
 import WorkspaceSwitcher from "@/app/components/WorkspaceSwitcher";
 import { supabase } from "@/lib/supabaseClient";
 import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appContext";
+import "@/app/styles/vendor/frappe-gantt.css";
 
 // --- Minimal types ---
 type WsMember = {
