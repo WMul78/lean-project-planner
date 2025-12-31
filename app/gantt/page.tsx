@@ -1,23 +1,13 @@
 "use client";
 
-import "@/app/styles/vendor/frappe-gantt.css";
-
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "@/app/components/Button";
 import WorkspaceSwitcher from "@/app/components/WorkspaceSwitcher";
 import { supabase } from "@/lib/supabaseClient";
 import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appContext";
 
-/**
- * Notes:
- * - This page is read-only.
- * - Bars represent planned window from first planned day to last planned day (based on time_entries).
- * - Progress is executed_minutes / planned_minutes (within the loaded entries window).
- * - Projects are grouped: a project header row + its tasks below.
- */
-
-// -------------------- Types --------------------
+// --- Minimal types ---
 type WsMember = {
   id: string;
   user_id: string;
@@ -25,33 +15,38 @@ type WsMember = {
   profiles?: { email?: string | null; full_name?: string | null };
 };
 
-type TimeEntryRow = {
-  todo_id: string | null;
-  project_id: string;
-  entry_date: string; // YYYY-MM-DD
-  minutes: number;
-};
-
 type TodoRow = {
   id: string;
   title: string;
   project_id: string;
-  projects?: { name?: string | null } | null;
 };
 
-type ExecRow = { todo_id: string; executed_minutes: number | null };
+type ProjectRow = {
+  id: string;
+  name: string;
+};
 
-// Frappe Gantt task shape
 type GanttTask = {
   id: string;
   name: string;
   start: string; // YYYY-MM-DD
   end: string; // YYYY-MM-DD
-  progress: number; // 0..100
-  custom_class?: string;
+  progress: number; // always 0 in this simplified version
+  custom_class?: string; // must be a SINGLE token (no spaces)
 };
 
-// -------------------- Helpers --------------------
+// PostgREST aggregate response shapes (loosely typed)
+type TodoWindowRow = {
+  todo_id: string | null;
+  project_id: string;
+  entry_date: { min: string; max: string };
+};
+
+type ProjectWindowRow = {
+  project_id: string;
+  entry_date: { min: string; max: string };
+};
+
 function labelForMember(m: WsMember) {
   const name = (m.profiles?.full_name ?? "").trim();
   const email = (m.profiles?.email ?? "").trim();
@@ -59,6 +54,7 @@ function labelForMember(m: WsMember) {
 }
 
 function addOneDayISO(yyyyMmDd: string) {
+  // Helps single-day bars show as visible width
   const d = new Date(yyyyMmDd + "T00:00:00Z");
   d.setUTCDate(d.getUTCDate() + 1);
   const yyyy = d.getUTCFullYear();
@@ -67,23 +63,11 @@ function addOneDayISO(yyyyMmDd: string) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-// stable "calm but distinct" colors per project
-const PROJECT_COLORS = ["blue", "green", "purple", "amber", "teal", "indigo"] as const;
-
-function projectColorKey(projectId: string) {
-  let hash = 0;
-  for (let i = 0; i < projectId.length; i++) {
-    hash = (hash + projectId.charCodeAt(i)) % PROJECT_COLORS.length;
-  }
-  return PROJECT_COLORS[hash]; // "blue" | "green" | ...
-}
-
-
-// -------------------- Page --------------------
 export default function GanttPage() {
   const router = useRouter();
 
-  const [loading, setLoading] = useState(true);
+  const [baseLoading, setBaseLoading] = useState(true);
+  const [ganttLoading, setGanttLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
@@ -98,18 +82,6 @@ export default function GanttPage() {
 
   const isAdmin = workspaceRole === "owner" || workspaceRole === "admin";
 
-  // Dynamic height: project headers + tasks => more rows => more height
-  const ganttHeight = useMemo(() => {
-    const rowHeight = 38;
-    const header = 120;
-    const padding = 40;
-    const min = 260;
-    return Math.max(min, header + padding + tasks.length * rowHeight);
-  }, [tasks.length]);
-
-  // Visible user options:
-  // - owner/admin: can pick anyone in workspace
-  // - others: only self
   const userOptions = useMemo(() => {
     if (!myUserId) return [];
     if (!isAdmin) return members.filter((m) => m.user_id === myUserId);
@@ -121,250 +93,231 @@ export default function GanttPage() {
     return m ? labelForMember(m) : "";
   }, [members, selectedUserId]);
 
-  // -------------------- Load base context (auth + workspace + members) --------------------
-  const loadBase = useCallback(async () => {
-  setLoading(true);
-  setLoadError(null);
+  // Dynamic height (simple): header rows + task rows
+  const ganttHeight = useMemo(() => {
+    const rowHeight = 36;
+    const header = 120;
+    const padding = 40;
+    const min = 260;
+    return Math.max(min, header + padding + tasks.length * rowHeight);
+  }, [tasks.length]);
 
-  try {
-    const user = await requireUser(router);
-    if (!user) {
-      // requireUser may redirect; still stop spinner
-      return;
-    }
-    setMyUserId(user.id);
+  async function loadBase() {
+    setBaseLoading(true);
+    setLoadError(null);
 
-    const ws = await getActiveWorkspace();
-    if (!ws?.workspaceId) {
-      setLoadError("No active workspace found.");
-      return;
-    }
+    try {
+      const user = await requireUser(router);
+      if (!user) return;
+      setMyUserId(user.id);
 
-    setWorkspaceId(ws.workspaceId);
-    setWorkspaceRole(ws.role);
-
-    const { data: mem, error: memErr } = await supabase
-      .from("workspace_members")
-      .select("id,user_id,role,profiles(email,full_name)")
-      .eq("workspace_id", ws.workspaceId)
-      .order("created_at", { ascending: true });
-
-    if (memErr) {
-      console.error("Load members error:", memErr);
-      setMembers([]);
-      setLoadError(memErr.message);
-      return;
-    }
-
-    const list = (((mem as any) ?? []) as WsMember[]).filter((m) => !!m.user_id);
-    setMembers(list);
-
-    const selfInList = list.find((m) => m.user_id === user.id)?.user_id;
-    const initial = selfInList ?? list[0]?.user_id ?? user.id;
-
-    setSelectedUserId((prev) => prev || initial);
-  } catch (e: any) {
-    console.error("loadBase failed:", e);
-    setLoadError(String(e?.message ?? e));
-  } finally {
-    setLoading(false);
-  }
-}, [router]);
-
-
-  // -------------------- Load gantt data --------------------
-  const loadGanttData = useCallback(async (wsId: string, uid: string) => {
-  setLoadError(null);
-
-  try {
-    // ... jouw bestaande code blijft hetzelfde ...
-  } catch (e: any) {
-    console.error("loadGanttData failed:", e);
-    setTasks([]);
-    setLoadError(String(e?.message ?? e));
-  }
-
-
-
-    // 1) time_entries (planning) for workspace+user
-    const { data: entries, error: eErr } = await supabase
-      .from("time_entries")
-      .select("todo_id,project_id,entry_date,minutes")
-      .eq("workspace_id", wsId)
-      .eq("user_id", uid)
-      .order("entry_date", { ascending: true });
-
-    if (eErr) {
-      console.error("Load time_entries error:", eErr);
-      setTasks([]);
-      setLoadError(eErr.message);
-      return;
-    }
-
-    const rows = ((entries as any) ?? []) as TimeEntryRow[];
-
-    // Aggregate by todo -> min/max planned date + planned minutes
-    const byTodo = new Map<
-      string,
-      { min: string; max: string; plannedMinutes: number; projectId: string }
-    >();
-
-    for (const r of rows) {
-      if (!r.todo_id) continue;
-      const id = r.todo_id;
-      const cur = byTodo.get(id);
-      const date = r.entry_date;
-      const minutes = r.minutes ?? 0;
-
-      if (!cur) {
-        byTodo.set(id, { min: date, max: date, plannedMinutes: minutes, projectId: r.project_id });
-      } else {
-        if (date < cur.min) cur.min = date;
-        if (date > cur.max) cur.max = date;
-        cur.plannedMinutes += minutes;
+      const ws = await getActiveWorkspace();
+      if (!ws?.workspaceId) {
+        setLoadError("No active workspace found.");
+        return;
       }
+
+      setWorkspaceId(ws.workspaceId);
+      setWorkspaceRole(ws.role);
+
+      const { data: mem, error: memErr } = await supabase
+        .from("workspace_members")
+        .select("id,user_id,role,profiles(email,full_name)")
+        .eq("workspace_id", ws.workspaceId)
+        .order("created_at", { ascending: true });
+
+      if (memErr) {
+        console.error(memErr);
+        setLoadError(memErr.message);
+        return;
+      }
+
+      const list = (((mem as any) ?? []) as WsMember[]).filter((m) => !!m.user_id);
+      setMembers(list);
+
+      const selfInList = list.find((m) => m.user_id === user.id)?.user_id;
+      const initial = selfInList ?? list[0]?.user_id ?? user.id;
+      setSelectedUserId((prev) => prev || initial);
+    } catch (e: any) {
+      console.error("loadBase failed:", e);
+      setLoadError(String(e?.message ?? e));
+    } finally {
+      setBaseLoading(false);
     }
+  }
 
-    const todoIds = Array.from(byTodo.keys());
-    if (todoIds.length === 0) {
-      setTasks([]);
-      return;
-    }
+  async function loadGanttData(wsId: string, uid: string) {
+    setGanttLoading(true);
+    setLoadError(null);
 
-    // 2) Load todos + project name
-    const { data: td, error: tdErr } = await supabase
-      .from("todos")
-      .select("id,title,project_id,projects(name)")
-      .in("id", todoIds);
+    try {
+      // 1) Aggregate per TODO in the database:
+      // Returns one row per todo_id with entry_date.min and entry_date.max
+      const { data: todoWin, error: todoErr } = await supabase
+        .from("time_entries")
+        .select("todo_id,project_id,entry_date.min(),entry_date.max()")
+        .eq("workspace_id", wsId)
+        .eq("user_id", uid)
+        .not("todo_id", "is", null);
 
-    if (tdErr) {
-      console.error("Load todos error:", tdErr);
-      setTasks([]);
-      setLoadError(tdErr.message);
-      return;
-    }
+      if (todoErr) {
+        console.error(todoErr);
+        setLoadError(todoErr.message);
+        setTasks([]);
+        return;
+      }
 
-    const todos = ((td as any) ?? []) as TodoRow[];
-    const todoById = new Map<string, TodoRow>();
-    for (const t of todos) todoById.set(t.id, t);
+      const todoWindows = ((todoWin as any) ?? []) as TodoWindowRow[];
+      const todoIds = todoWindows.map((r) => r.todo_id).filter(Boolean) as string[];
+      if (todoIds.length === 0) {
+        setTasks([]);
+        return;
+      }
 
-    // 3) Executed totals for progress
-    const { data: ex, error: exErr } = await supabase
-      .from("todo_executed_totals")
-      .select("todo_id,executed_minutes")
-      .in("todo_id", todoIds);
+      // 2) Aggregate per PROJECT in the database (same time window concept)
+      const { data: projWin, error: projErr } = await supabase
+        .from("time_entries")
+        .select("project_id,entry_date.min(),entry_date.max()")
+        .eq("workspace_id", wsId)
+        .eq("user_id", uid);
 
-    if (exErr) {
-      console.warn("Load todo_executed_totals failed:", exErr);
-    }
+      if (projErr) {
+        console.error(projErr);
+        setLoadError(projErr.message);
+        setTasks([]);
+        return;
+      }
 
-    const execByTodo = new Map<string, number>();
-    for (const r of (((ex as any) ?? []) as ExecRow[])) {
-      execByTodo.set(r.todo_id, r.executed_minutes ?? 0);
-    }
+      const projectWindows = ((projWin as any) ?? []) as ProjectWindowRow[];
 
-    // 4) Group tasks by project (project header + tasks)
-    type ProjectGroup = {
-      projectId: string;
-      projectName: string;
-      items: Array<{
-        todoId: string;
-        todoTitle: string;
-        start: string;
-        end: string; // +1 day applied
-        progress: number;
-      }>;
-      minStart: string;
-      maxEnd: string;
-    };
+      // 3) Fetch todo titles (minimal)
+      const { data: td, error: tdErr } = await supabase
+        .from("todos")
+        .select("id,title,project_id")
+        .in("id", todoIds);
 
-    const groupsMap = new Map<string, ProjectGroup>();
+      if (tdErr) {
+        console.error(tdErr);
+        setLoadError(tdErr.message);
+        setTasks([]);
+        return;
+      }
 
-    for (const todoId of todoIds) {
-      const agg = byTodo.get(todoId);
-      const todo = todoById.get(todoId);
-      if (!agg || !todo) continue;
+      const todos = ((td as any) ?? []) as TodoRow[];
+      const todoById = new Map<string, TodoRow>(todos.map((t) => [t.id, t]));
 
-      const projectId = todo.project_id;
-      const projectName = todo.projects?.name ?? "Project";
+      // 4) Fetch project names (minimal)
+      const projectIds = Array.from(
+        new Set(projectWindows.map((p) => p.project_id).filter(Boolean))
+      ) as string[];
 
-      const start = agg.min;
-      const end = addOneDayISO(agg.max);
+      let projectById = new Map<string, ProjectRow>();
+      if (projectIds.length > 0) {
+        const { data: pr, error: prErr } = await supabase
+          .from("projects")
+          .select("id,name")
+          .in("id", projectIds);
 
-      const planned = Math.max(0, agg.plannedMinutes);
-      const executed = Math.max(0, execByTodo.get(todoId) ?? 0);
-      const progress =
-        planned > 0 ? Math.min(100, Math.round((executed / planned) * 100)) : 0;
+        if (prErr) {
+          console.error(prErr);
+          // Not fatal: fallback to "Project"
+        } else {
+          const projects = ((pr as any) ?? []) as ProjectRow[];
+          projectById = new Map(projects.map((p) => [p.id, p]));
+        }
+      }
 
-      if (!groupsMap.has(projectId)) {
-        groupsMap.set(projectId, {
-          projectId,
-          projectName,
-          items: [],
-          minStart: start,
-          maxEnd: end,
+      // 5) Build grouped gantt tasks (project header + tasks)
+      //    Keep it super simple: no progress, fixed colors
+      const tasksByProject = new Map<
+        string,
+        Array<{ todoId: string; title: string; start: string; end: string }>
+      >();
+
+      for (const row of todoWindows) {
+        if (!row.todo_id) continue;
+        const todo = todoById.get(row.todo_id);
+        if (!todo) continue;
+
+        const start = row.entry_date?.min;
+        const end = row.entry_date?.max;
+        if (!start || !end) continue;
+
+        const list = tasksByProject.get(todo.project_id) ?? [];
+        list.push({
+          todoId: todo.id,
+          title: todo.title,
+          start,
+          end: addOneDayISO(end),
         });
+        tasksByProject.set(todo.project_id, list);
       }
 
-      const g = groupsMap.get(projectId)!;
-      g.items.push({ todoId, todoTitle: todo.title, start, end, progress });
+      // Sort projects by earliest start
+      const projOrder = projectWindows
+        .filter((p) => tasksByProject.has(p.project_id))
+        .sort((a, b) => (a.entry_date.min < b.entry_date.min ? -1 : 1));
 
-      if (start < g.minStart) g.minStart = start;
-      if (end > g.maxEnd) g.maxEnd = end;
-    }
+      const ganttTasks: GanttTask[] = [];
 
-    const groups = Array.from(groupsMap.values()).sort((a, b) => {
-      if (a.minStart !== b.minStart) return a.minStart < b.minStart ? -1 : 1;
-      return a.projectName.localeCompare(b.projectName);
-    });
+      for (const pw of projOrder) {
+        const pid = pw.project_id;
+        const projName = projectById.get(pid)?.name ?? "Project";
 
-    const ganttTasks: GanttTask[] = [];
+        // Project header uses min/max over all tasks (already aggregated at project level)
+        const pStart = pw.entry_date?.min;
+        const pEnd = pw.entry_date?.max;
+        if (!pStart || !pEnd) continue;
 
-    for (const g of groups) {
-      const color = projectColorKey(g.projectId);
-
-    ganttTasks.push({
-      id: `project:${g.projectId}`,
-      name: g.projectName,
-      start: g.minStart,
-      end: g.maxEnd,
-      progress: 0,
-      custom_class: `gantt-header-${color}`,
-    });
-
-
-      g.items.sort((x, y) => {
-        if (x.start !== y.start) return x.start < y.start ? -1 : 1;
-        return x.todoTitle.localeCompare(y.todoTitle);
-      });
-
-      for (const it of g.items) {
         ganttTasks.push({
-          id: it.todoId,
-          name: `• ${it.todoTitle}`,
-          start: it.start,
-          end: it.end,
-          progress: it.progress,
-          custom_class: `gantt-task-${color}`,
+          id: `project:${pid}`,
+          name: projName,
+          start: pStart,
+          end: addOneDayISO(pEnd),
+          progress: 0,
+          custom_class: "gantt-project", // single token
         });
+
+        const list = tasksByProject.get(pid) ?? [];
+        list.sort((x, y) => (x.start < y.start ? -1 : x.start > y.start ? 1 : x.title.localeCompare(y.title)));
+
+        for (const t of list) {
+          ganttTasks.push({
+            id: t.todoId,
+            name: `• ${t.title}`,
+            start: t.start,
+            end: t.end,
+            progress: 0,
+            custom_class: "gantt-task", // single token
+          });
+        }
       }
+
+      setTasks(ganttTasks);
+    } catch (e: any) {
+      console.error("loadGanttData failed:", e);
+      setLoadError(String(e?.message ?? e));
+      setTasks([]);
+    } finally {
+      setGanttLoading(false);
     }
+  }
 
-    setTasks(ganttTasks);
-  }, []);
-
-  // -------------------- Effects --------------------
+  // Load base
   useEffect(() => {
     loadBase();
     const handler = () => loadBase();
     window.addEventListener("workspace-changed", handler);
     return () => window.removeEventListener("workspace-changed", handler);
-  }, [loadBase]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
+  // Load gantt data when selection changes
   useEffect(() => {
     if (!workspaceId || !selectedUserId) return;
     loadGanttData(workspaceId, selectedUserId);
-  }, [workspaceId, selectedUserId, loadGanttData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId, selectedUserId]);
 
   // Render chart whenever tasks change
   useEffect(() => {
@@ -373,9 +326,8 @@ export default function GanttPage() {
     async function render() {
       try {
         const mod: any = await import("frappe-gantt");
-        const Gantt = mod?.default ?? mod; // robust for different export styles
+        const Gantt = mod?.default ?? mod;
 
-        // clear
         ganttRef.current!.innerHTML = "";
 
         if (!tasks || tasks.length === 0) {
@@ -384,18 +336,15 @@ export default function GanttPage() {
           return;
         }
 
-        if (!Gantt) {
-          ganttRef.current!.innerHTML =
-            '<div class="text-sm text-red-600 p-4">Gantt library failed to load.</div>';
-          return;
-        }
-
-        // eslint-disable-next-line no-new
-        new Gantt(ganttRef.current, tasks, {
-          view_mode: "Week",
-          bar_height: 22,
-          padding: 18,
-          on_click: (task: any) => console.log("Clicked:", task),
+        // Render in next frame to keep UI responsive
+        requestAnimationFrame(() => {
+          // eslint-disable-next-line no-new
+          new Gantt(ganttRef.current, tasks, {
+            view_mode: "Month", // faster than Week for many rows
+            bar_height: 20,
+            padding: 16,
+            // keep minimal
+          });
         });
       } catch (e: any) {
         console.error("Render Gantt failed:", e);
@@ -410,19 +359,42 @@ export default function GanttPage() {
     render();
   }, [tasks]);
 
-  // -------------------- UI --------------------
-  if (loading) {
-  return (
-    <main className="p-6 max-w-6xl mx-auto">
-      <div className="text-gray-500">Loading…</div>
-      {loadError ? <div className="mt-3 text-sm text-red-600">{loadError}</div> : null}
-    </main>
-  );
-}
-
+  if (baseLoading) {
+    return (
+      <main className="p-6 max-w-6xl mx-auto">
+        <div className="text-gray-500">Loading…</div>
+        {loadError ? <div className="mt-3 text-sm text-red-600">{loadError}</div> : null}
+      </main>
+    );
+  }
 
   return (
     <main className="p-6 max-w-6xl mx-auto">
+      {/* Simple, local styles for colors (no extra CSS file needed) */}
+      <style jsx global>{`
+        .gantt-project .bar {
+          fill: #bfdbfe !important; /* light blue */
+          stroke: #93c5fd !important;
+        }
+        .gantt-task .bar {
+          fill: #fef3c7 !important; /* light yellow */
+          stroke: #fde68a !important;
+        }
+        /* Keep labels readable */
+        .gantt-project .bar-label {
+          fill: #111827 !important;
+          font-weight: 700 !important;
+        }
+        .gantt-task .bar-label {
+          fill: #111827 !important;
+          transform: translateX(8px);
+        }
+        /* Hide progress overlay influence (we don't use progress) */
+        .bar-progress {
+          opacity: 0 !important;
+        }
+      `}</style>
+
       <header className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold">Gantt</h1>
@@ -439,7 +411,6 @@ export default function GanttPage() {
         </div>
       </header>
 
-      {/* Filters */}
       <section className="mt-6 border rounded-lg p-4 bg-white">
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="grid gap-1">
@@ -456,7 +427,6 @@ export default function GanttPage() {
                 </option>
               ))}
             </select>
-
             {!isAdmin ? (
               <div className="text-xs text-gray-500">You can only view your own planning.</div>
             ) : null}
@@ -465,12 +435,11 @@ export default function GanttPage() {
           <div className="grid gap-1">
             <label className="text-sm font-medium">What you see</label>
             <div className="text-sm text-gray-700">
-              Bars run from <span className="font-medium">first planned day</span> to{" "}
-              <span className="font-medium">last planned day</span> for{" "}
-              <span className="font-medium">{selectedLabel || "selected user"}</span>.
+              Bars run from <span className="font-medium">first logged day</span> to{" "}
+              <span className="font-medium">last logged day</span> (based on Hours).
             </div>
             <div className="text-xs text-gray-500">
-              Projects are grouped. Progress is executed vs planned minutes.
+              {ganttLoading ? "Loading gantt…" : `Loaded for ${selectedLabel || "selected user"}.`}
             </div>
           </div>
         </div>
@@ -478,7 +447,6 @@ export default function GanttPage() {
         {loadError ? <div className="mt-3 text-sm text-red-600">{loadError}</div> : null}
       </section>
 
-      {/* Gantt canvas */}
       <section className="mt-6 border rounded-lg bg-white">
         <div className="overflow-x-auto">
           <div
@@ -490,7 +458,7 @@ export default function GanttPage() {
       </section>
 
       <div className="mt-3 text-xs text-gray-500">
-        Note: Read-only MVP. For large workspaces, we’ll add date-range and server-side aggregation.
+        Note: Simplified MVP (no progress). Uses database aggregation for speed.
       </div>
     </main>
   );
