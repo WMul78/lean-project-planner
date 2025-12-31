@@ -14,37 +14,31 @@
   background: #ffffff;
 }
 
-/* ===== Lean Planner: clearer (still calm) palette ===== */
+/* =========================================================
+   Lean Planner – calm, readable Gantt colors
+   - Tasks: light pastel fill + slightly darker progress
+   - Headers: even lighter fill + subtle outline
+   - Labels: dark gray for readability on pastel bars
+   ========================================================= */
 
-/* Header row styling */
-.gantt-header-blue .bar,
-.gantt-header-green .bar,
-.gantt-header-purple .bar,
-.gantt-header-amber .bar,
-.gantt-header-teal .bar,
-.gantt-header-indigo .bar {
-  opacity: 0.35;
-}
-
+/* Ensure labels stay readable */
+.gantt-task-blue .bar-label,
+.gantt-task-green .bar-label,
+.gantt-task-purple .bar-label,
+.gantt-task-amber .bar-label,
+.gantt-task-teal .bar-label,
+.gantt-task-indigo .bar-label,
 .gantt-header-blue .bar-label,
 .gantt-header-green .bar-label,
 .gantt-header-purple .bar-label,
 .gantt-header-amber .bar-label,
 .gantt-header-teal .bar-label,
 .gantt-header-indigo .bar-label {
-  font-weight: 600;
+  fill: #111827 !important; /* gray-900 */
+  font-weight: 500;
 }
 
-/* Task row styling */
-.gantt-task-blue .bar,
-.gantt-task-green .bar,
-.gantt-task-purple .bar,
-.gantt-task-amber .bar,
-.gantt-task-teal .bar,
-.gantt-task-indigo .bar {
-  opacity: 0.95;
-}
-
+/* Slight indent for tasks */
 .gantt-task-blue .bar-label,
 .gantt-task-green .bar-label,
 .gantt-task-purple .bar-label,
@@ -54,21 +48,77 @@
   transform: translateX(8px);
 }
 
-/* Colors (same palette for header + task; header uses opacity) */
-.gantt-task-blue .bar, .gantt-header-blue .bar { fill: #93c5fd; }
-.gantt-task-blue .bar-progress, .gantt-header-blue .bar-progress { fill: #2563eb; }
+/* ----- Header rows (project) ----- */
+.gantt-header-blue .bar,
+.gantt-header-green .bar,
+.gantt-header-purple .bar,
+.gantt-header-amber .bar,
+.gantt-header-teal .bar,
+.gantt-header-indigo .bar {
+  opacity: 1 !important;
+  stroke-width: 1 !important;
+}
 
-.gantt-task-green .bar, .gantt-header-green .bar { fill: #86efac; }
-.gantt-task-green .bar-progress, .gantt-header-green .bar-progress { fill: #16a34a; }
+/* Make header progress subtle (often 0 anyway) */
+.gantt-header-blue .bar-progress,
+.gantt-header-green .bar-progress,
+.gantt-header-purple .bar-progress,
+.gantt-header-amber .bar-progress,
+.gantt-header-teal .bar-progress,
+.gantt-header-indigo .bar-progress {
+  opacity: 0.35 !important;
+}
 
-.gantt-task-purple .bar, .gantt-header-purple .bar { fill: #c4b5fd; }
-.gantt-task-purple .bar-progress, .gantt-header-purple .bar-progress { fill: #7c3aed; }
+/* ----- Task rows ----- */
+.gantt-task-blue .bar,
+.gantt-task-green .bar,
+.gantt-task-purple .bar,
+.gantt-task-amber .bar,
+.gantt-task-teal .bar,
+.gantt-task-indigo .bar {
+  opacity: 1 !important;
+}
 
-.gantt-task-amber .bar, .gantt-header-amber .bar { fill: #fcd34d; }
-.gantt-task-amber .bar-progress, .gantt-header-amber .bar-progress { fill: #d97706; }
+/* ===== Colors (calm, higher contrast between projects) ===== */
+/* Blue */
+.gantt-task-blue .bar,
+.gantt-header-blue .bar { fill: #bfdbfe !important; }          /* blue-200 */
+.gantt-task-blue .bar-progress,
+.gantt-header-blue .bar-progress { fill: #60a5fa !important; } /* blue-400 */
+.gantt-header-blue .bar { stroke: #93c5fd !important; }        /* blue-300 */
 
-.gantt-task-teal .bar, .gantt-header-teal .bar { fill: #5eead4; }
-.gantt-task-teal .bar-progress, .gantt-header-teal .bar-progress { fill: #0f766e; }
+/* Green */
+.gantt-task-green .bar,
+.gantt-header-green .bar { fill: #bbf7d0 !important; }         /* green-200 */
+.gantt-task-green .bar-progress,
+.gantt-header-green .bar-progress { fill: #4ade80 !important; }/* green-400 */
+.gantt-header-green .bar { stroke: #86efac !important; }       /* green-300 */
 
-.gantt-task-indigo .bar, .gantt-header-indigo .bar { fill: #a5b4fc; }
-.gantt-task-indigo .bar-progress, .gantt-header-indigo .bar-progress { fill: #4338ca; }
+/* Purple */
+.gantt-task-purple .bar,
+.gantt-header-purple .bar { fill: #ddd6fe !important; }        /* violet-200 */
+.gantt-task-purple .bar-progress,
+.gantt-header-purple .bar-progress { fill: #a78bfa !important; }/* violet-400 */
+.gantt-header-purple .bar { stroke: #c4b5fd !important; }      /* violet-300 */
+
+/* Amber */
+.gantt-task-amber .bar,
+.gantt-header-amber .bar { fill: #fde68a !important; }         /* amber-200 */
+.gantt-task-amber .bar-progress,
+.gantt-header-amber .bar-progress { fill: #fbbf24 !important; }/* amber-400 */
+.gantt-header-amber .bar { stroke: #fcd34d !important; }       /* amber-300 */
+
+/* Teal */
+.gantt-task-teal .bar,
+.gantt-header-teal .bar { fill: #99f6e4 !important; }          /* teal-200 */
+.gantt-task-teal .bar-progress,
+.gantt-header-teal .bar-progress { fill: #2dd4bf !important; } /* teal-400 */
+.gantt-header-teal .bar { stroke: #5eead4 !important; }        /* teal-300 */
+
+/* Indigo */
+.gantt-task-indigo .bar,
+.gantt-header-indigo .bar { fill: #c7d2fe !important; }        /* indigo-200 */
+.gantt-task-indigo .bar-progress,
+.gantt-header-indigo .bar-progress { fill: #818cf8 !important; }/* indigo-400 */
+.gantt-header-indigo .bar { stroke: #a5b4fc !important; }      /* indigo-300 */
+
