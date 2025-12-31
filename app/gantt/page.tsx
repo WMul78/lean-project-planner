@@ -39,13 +39,16 @@ type GanttTask = {
 type TodoWindowRow = {
   todo_id: string | null;
   project_id: string;
-  entry_date: { min: string; max: string };
+  start_date: string;
+  end_date: string;
 };
 
 type ProjectWindowRow = {
   project_id: string;
-  entry_date: { min: string; max: string };
+  start_date: string;
+  end_date: string;
 };
+
 
 function labelForMember(m: WsMember) {
   const name = (m.profiles?.full_name ?? "").trim();
@@ -154,11 +157,11 @@ export default function GanttPage() {
       // 1) Aggregate per TODO in the database:
       // Returns one row per todo_id with entry_date.min and entry_date.max
       const { data: todoWin, error: todoErr } = await supabase
-        .from("time_entries")
-        .select("todo_id,project_id,entry_date.min(),entry_date.max()")
+        .from("time_entries_todo_window")
+        .select("todo_id,project_id,start_date,end_date")
         .eq("workspace_id", wsId)
-        .eq("user_id", uid)
-        .not("todo_id", "is", null);
+        .eq("user_id", uid);
+
 
       if (todoErr) {
         console.error(todoErr);
@@ -176,10 +179,11 @@ export default function GanttPage() {
 
       // 2) Aggregate per PROJECT in the database (same time window concept)
       const { data: projWin, error: projErr } = await supabase
-        .from("time_entries")
-        .select("project_id,entry_date.min(),entry_date.max()")
+        .from("time_entries_project_window")
+        .select("project_id,start_date,end_date")
         .eq("workspace_id", wsId)
         .eq("user_id", uid);
+
 
       if (projErr) {
         console.error(projErr);
@@ -239,8 +243,8 @@ export default function GanttPage() {
         const todo = todoById.get(row.todo_id);
         if (!todo) continue;
 
-        const start = row.entry_date?.min;
-        const end = row.entry_date?.max;
+        const start = row.start_date;
+        const end = row.end_date;
         if (!start || !end) continue;
 
         const list = tasksByProject.get(todo.project_id) ?? [];
@@ -256,7 +260,8 @@ export default function GanttPage() {
       // Sort projects by earliest start
       const projOrder = projectWindows
         .filter((p) => tasksByProject.has(p.project_id))
-        .sort((a, b) => (a.entry_date.min < b.entry_date.min ? -1 : 1));
+        .sort((a, b) => (a.start_date < b.start_date ? -1 : 1));
+
 
       const ganttTasks: GanttTask[] = [];
 
@@ -265,8 +270,8 @@ export default function GanttPage() {
         const projName = projectById.get(pid)?.name ?? "Project";
 
         // Project header uses min/max over all tasks (already aggregated at project level)
-        const pStart = pw.entry_date?.min;
-        const pEnd = pw.entry_date?.max;
+        const pStart = pw.start_date;
+        const pEnd = pw.end_date;
         if (!pStart || !pEnd) continue;
 
         ganttTasks.push({
