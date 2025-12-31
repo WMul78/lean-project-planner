@@ -260,7 +260,11 @@ export default function GanttPage() {
       // Sort projects by earliest start
       const projOrder = projectWindows
         .filter((p) => tasksByProject.has(p.project_id))
-        .sort((a, b) => (a.start_date < b.start_date ? -1 : 1));
+        .sort((a, b) => {
+           if (a.start_date !== b.start_date) return a.start_date < b.start_date ? -1 : 1;
+            return a.project_id.localeCompare(b.project_id);
+          });
+
 
 
       const ganttTasks: GanttTask[] = [];
