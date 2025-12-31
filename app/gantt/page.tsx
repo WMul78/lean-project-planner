@@ -68,6 +68,23 @@ function addOneDay(date: Date) {
   return d;
 }
 
+function measureSvgHeight(container: HTMLDivElement): number | null {
+  const svg = container.querySelector("svg") as SVGSVGElement | null;
+  if (!svg) return null;
+
+  try {
+    // getBBox gives the true content bounds, even if something is clipped/scrollable.
+    const bbox = svg.getBBox();
+    const h = Math.ceil(bbox.y + bbox.height);
+    // buffer for bottom labels/scrollbar area
+    return Math.max(420, h + 40);
+  } catch {
+    // getBBox can throw if SVG isn't ready yet
+    return null;
+  }
+}
+
+
 // -------------------- Page --------------------
 export default function GanttPage() {
   const router = useRouter();
@@ -88,6 +105,7 @@ export default function GanttPage() {
 
   const isAdmin = workspaceRole === "owner" || workspaceRole === "admin";
   const [measuredHeight, setMeasuredHeight] = useState<number>(520);
+
 
   const userOptions = useMemo(() => {
     if (!myUserId) return [];
@@ -348,19 +366,24 @@ export default function GanttPage() {
     padding: 16,
   });
 
-  // Measure real rendered SVG height and set container height accordingly
-  setTimeout(() => {
-    const el = ganttRef.current;
-    if (!el) return;
+  // Measure after layout. We do it twice to be safe (Frappe updates DOM in steps).
+  const el = ganttRef.current!;
+  const applyMeasure = () => {
+    const h = measureSvgHeight(el);
+    if (h) {
+      setMeasuredHeight((prev) => {
+        // avoid tiny oscillations that can cause rerenders
+        return Math.abs(prev - h) > 8 ? h : prev;
+      });
+    }
+  };
 
-    const svg = el.querySelector("svg");
-    if (!svg) return;
-
-    const h = Math.ceil(svg.getBoundingClientRect().height);
-    // add a little buffer for safety (labels + bottom padding)
-    setMeasuredHeight(Math.max(420, h + 40));
-  }, 0);
+  setTimeout(applyMeasure, 0);
+  setTimeout(applyMeasure, 50);
 });
+
+
+  
 
       } catch (e: any) {
         console.error("Render Gantt failed:", e);
