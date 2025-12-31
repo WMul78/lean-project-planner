@@ -17,56 +17,58 @@
 /* ===== Lean Planner: clearer (still calm) palette ===== */
 
 /* Header row styling */
-.gantt-project-header .bar {
+.gantt-header-blue .bar,
+.gantt-header-green .bar,
+.gantt-header-purple .bar,
+.gantt-header-amber .bar,
+.gantt-header-teal .bar,
+.gantt-header-indigo .bar {
   opacity: 0.35;
-  stroke-width: 1;
 }
-.gantt-project-header .bar-label {
+
+.gantt-header-blue .bar-label,
+.gantt-header-green .bar-label,
+.gantt-header-purple .bar-label,
+.gantt-header-amber .bar-label,
+.gantt-header-teal .bar-label,
+.gantt-header-indigo .bar-label {
   font-weight: 600;
 }
 
 /* Task row styling */
-.gantt-project-task .bar {
+.gantt-task-blue .bar,
+.gantt-task-green .bar,
+.gantt-task-purple .bar,
+.gantt-task-amber .bar,
+.gantt-task-teal .bar,
+.gantt-task-indigo .bar {
   opacity: 0.95;
 }
 
-/* Blue */
-.gantt-project-blue .bar { fill: #93c5fd; }        /* blue-300 */
-.gantt-project-blue .bar-progress { fill: #2563eb; } /* blue-600 */
-
-/* Green */
-.gantt-project-green .bar { fill: #86efac; }         /* green-300 */
-.gantt-project-green .bar-progress { fill: #16a34a; } /* green-600 */
-
-/* Purple */
-.gantt-project-purple .bar { fill: #c4b5fd; }         /* violet-300 */
-.gantt-project-purple .bar-progress { fill: #7c3aed; } /* violet-600 */
-
-/* Amber */
-.gantt-project-amber .bar { fill: #fcd34d; }          /* amber-300 */
-.gantt-project-amber .bar-progress { fill: #d97706; } /* amber-600 */
-
-/* Teal */
-.gantt-project-teal .bar { fill: #5eead4; }          /* teal-300 */
-.gantt-project-teal .bar-progress { fill: #0f766e; } /* teal-700 */
-
-/* Indigo */
-.gantt-project-indigo .bar { fill: #a5b4fc; }         /* indigo-300 */
-.gantt-project-indigo .bar-progress { fill: #4338ca; } /* indigo-700 */
-
-/* Header row styling */
-.gantt-project-header .bar {
-  opacity: 0.35;
-  stroke-width: 1;
-}
-.gantt-project-header .bar-label {
-  font-weight: 600;
-}
-
-/* Task row styling */
-.gantt-project-task .bar {
-  opacity: 0.95;
-}
-.gantt-project-task .bar-label {
+.gantt-task-blue .bar-label,
+.gantt-task-green .bar-label,
+.gantt-task-purple .bar-label,
+.gantt-task-amber .bar-label,
+.gantt-task-teal .bar-label,
+.gantt-task-indigo .bar-label {
   transform: translateX(8px);
 }
+
+/* Colors (same palette for header + task; header uses opacity) */
+.gantt-task-blue .bar, .gantt-header-blue .bar { fill: #93c5fd; }
+.gantt-task-blue .bar-progress, .gantt-header-blue .bar-progress { fill: #2563eb; }
+
+.gantt-task-green .bar, .gantt-header-green .bar { fill: #86efac; }
+.gantt-task-green .bar-progress, .gantt-header-green .bar-progress { fill: #16a34a; }
+
+.gantt-task-purple .bar, .gantt-header-purple .bar { fill: #c4b5fd; }
+.gantt-task-purple .bar-progress, .gantt-header-purple .bar-progress { fill: #7c3aed; }
+
+.gantt-task-amber .bar, .gantt-header-amber .bar { fill: #fcd34d; }
+.gantt-task-amber .bar-progress, .gantt-header-amber .bar-progress { fill: #d97706; }
+
+.gantt-task-teal .bar, .gantt-header-teal .bar { fill: #5eead4; }
+.gantt-task-teal .bar-progress, .gantt-header-teal .bar-progress { fill: #0f766e; }
+
+.gantt-task-indigo .bar, .gantt-header-indigo .bar { fill: #a5b4fc; }
+.gantt-task-indigo .bar-progress, .gantt-header-indigo .bar-progress { fill: #4338ca; }

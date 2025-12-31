@@ -314,7 +314,7 @@ export default function GanttPage() {
         start: g.minStart,
         end: g.maxEnd,
         progress: 0,
-        custom_class: `gantt-project-header ${colorClass}`,
+        custom_class: `gantt-header-${colorClass}`,
       });
 
       g.items.sort((x, y) => {
@@ -329,7 +329,7 @@ export default function GanttPage() {
           start: it.start,
           end: it.end,
           progress: it.progress,
-          custom_class: `gantt-project-task ${colorClass}`,
+          custom_class: `gantt-task-${colorClass}`,
         });
       }
     }
