@@ -380,29 +380,7 @@ export default function GanttPage() {
   return (
     <main className="p-6 max-w-6xl mx-auto">
       {/* Simple, local styles for colors (no extra CSS file needed) */}
-      <style jsx global>{`
-        .gantt-project .bar {
-          fill: #bfdbfe !important; /* light blue */
-          stroke: #93c5fd !important;
-        }
-        .gantt-task .bar {
-          fill: #fef3c7 !important; /* light yellow */
-          stroke: #fde68a !important;
-        }
-        /* Keep labels readable */
-        .gantt-project .bar-label {
-          fill: #111827 !important;
-          font-weight: 700 !important;
-        }
-        .gantt-task .bar-label {
-          fill: #111827 !important;
-          transform: translateX(8px);
-        }
-        /* Hide progress overlay influence (we don't use progress) */
-        .bar-progress {
-          opacity: 0 !important;
-        }
-      `}</style>
+      
 
       <header className="flex items-start justify-between gap-4">
         <div className="min-w-0">
@@ -457,14 +435,15 @@ export default function GanttPage() {
       </section>
 
       <section className="mt-6 border rounded-lg bg-white">
-        <div className="overflow-x-auto">
-          <div
-            ref={ganttRef}
-            className="gantt-container min-w-[900px] p-2"
-            style={{ height: ganttHeight }}
-          />
-        </div>
-      </section>
+  <div className="overflow-x-auto">
+    <div
+      ref={ganttRef}
+      className="gantt-container min-w-[900px] p-2"
+      style={{ height: ganttHeight }}
+    />
+  </div>
+</section>
+
 
       <div className="mt-3 text-xs text-gray-500">
         Note: Simplified MVP (no progress). Uses database aggregation for speed.
