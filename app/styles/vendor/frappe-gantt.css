@@ -328,16 +328,19 @@
   fill: #111827 !important;
 }
 
-/* --- Disable internal vertical scrollbar, keep explicit height from React --- */
-/* Prevent internal vertical scrollbars inside the gantt widget */
+/* --- Disable ALL internal scrolling (scroll should be on the outer wrapper) --- */
 .gantt-container {
+  overflow: visible !important;   /* THIS is key */
+  overflow-x: visible !important;
   overflow-y: visible !important;
 }
 
+/* Safety: some builds wrap elements */
 .gantt-container .gantt,
 .gantt-container .wrapper,
 .gantt-container svg {
-  overflow-y: visible !important;
+  overflow: visible !important;
 }
+
 
 
