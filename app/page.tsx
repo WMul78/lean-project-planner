@@ -158,27 +158,27 @@ export default function HomePage() {
         </div>
 
         <div className="mt-8 grid gap-4 md:grid-cols-2">
-          <ScreenshotCard
-            title="Kanban overview"
-            src="/landing/kanban.png"
-            alt="Kanban screenshot"
-          />
-          <ScreenshotCard
-            title="Plan hours (week)"
-            src="/landing/hours.png"
-            alt="Hours planner screenshot"
-          />
-          <ScreenshotCard
-            title="Workspace management"
-            src="/landing/workspaces.png"
-            alt="Workspaces screenshot"
-          />
-          <ScreenshotCard
-            title="Projects overview"
-            src="/landing/projects.png"
-            alt="Projects screenshot"
-          />
-        </div>
+  <ScreenshotCard
+    title="Kanban overview"
+    src="/landing/kanban.png"
+    alt="Kanban screenshot"
+  />
+  <ScreenshotCard
+    title="Plan hours (week)"
+    src="/landing/hours.png"
+    alt="Hours planner screenshot"
+  />
+  <ScreenshotCard
+    title="Workspace management"
+    src="/landing/workspaces.png"
+    alt="Workspaces screenshot"
+  />
+  <ScreenshotCard
+    title="Projects overview"
+    src="/landing/projects.png"
+    alt="Projects screenshot"
+  />
+</div>
       </section>
 
       {/* FOOTER */}
