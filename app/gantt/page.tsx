@@ -87,6 +87,7 @@ export default function GanttPage() {
   const ganttRef = useRef<HTMLDivElement | null>(null);
 
   const isAdmin = workspaceRole === "owner" || workspaceRole === "admin";
+  const [measuredHeight, setMeasuredHeight] = useState<number>(520);
 
   const userOptions = useMemo(() => {
     if (!myUserId) return [];
@@ -99,17 +100,9 @@ export default function GanttPage() {
     return m ? labelForMember(m) : "";
   }, [members, selectedUserId]);
 
-  const ganttHeight = useMemo(() => {
-  // Frappe uses extra vertical space for header + paddings + scrollbars.
-  // Give it a bit more than our own row calculation to avoid clipping the last rows.
-  const rowHeight = 44;      // was 36
-  const header = 140;        // was 120
-  const paddingTop = 24;
-  const paddingBottom = 90;  // space for labels + horizontal scrollbar
-  const min = 420;
+  const ganttHeight = measuredHeight;
 
-  return Math.max(min, header + paddingTop + paddingBottom + tasks.length * rowHeight);
-}, [tasks.length]);
+  
 
 
   async function loadBase() {
@@ -348,13 +341,27 @@ export default function GanttPage() {
         }
 
         requestAnimationFrame(() => {
-          // eslint-disable-next-line no-new
-          new Gantt(ganttRef.current, tasks, {
-            view_mode: "Week",
-            bar_height: 20,
-            padding: 16,
-          });
-        });
+  // eslint-disable-next-line no-new
+  new Gantt(ganttRef.current, tasks, {
+    view_mode: "Week",
+    bar_height: 20,
+    padding: 16,
+  });
+
+  // Measure real rendered SVG height and set container height accordingly
+  setTimeout(() => {
+    const el = ganttRef.current;
+    if (!el) return;
+
+    const svg = el.querySelector("svg");
+    if (!svg) return;
+
+    const h = Math.ceil(svg.getBoundingClientRect().height);
+    // add a little buffer for safety (labels + bottom padding)
+    setMeasuredHeight(Math.max(420, h + 40));
+  }, 0);
+});
+
       } catch (e: any) {
         console.error("Render Gantt failed:", e);
         if (ganttRef.current) {
@@ -435,7 +442,7 @@ export default function GanttPage() {
   <div className="overflow-x-auto">
     <div
       ref={ganttRef}
-      className="gantt-container min-w-[900px] p-2 pb-10"
+      className="gantt-container min-w-[900px] p-2 pl-4"
       style={{ height: ganttHeight }}
     />
   </div>
