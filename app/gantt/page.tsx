@@ -83,6 +83,17 @@ export default function GanttPage() {
   // Visible user options:
   // - owner/admin: can pick anyone in workspace
   // - others: forced to self (read-only for own plan)
+  
+  const ganttHeight = useMemo(() => {
+  const rowHeight = 38;
+  const header = 120;
+  const padding = 40;
+  const min = 260;
+  return Math.max(min, header + padding + tasks.length * rowHeight);
+}, [tasks.length]);
+
+  
+  
   const userOptions = useMemo(() => {
     if (!myUserId) return [];
     if (!isAdmin) return members.filter((m) => m.user_id === myUserId);
@@ -214,17 +225,6 @@ export default function GanttPage() {
     for (const r of (((ex as any) ?? []) as ExecRow[])) {
       execByTodo.set(r.todo_id, r.executed_minutes ?? 0);
     }
-
-    const ganttHeight = useMemo(() => {
-    // Rough sizing: header + padding + rows * rowHeight
-    const rowHeight = 38; // tune this
-    const header = 110;   // months/weeks header etc
-    const padding = 40;
-    const min = 260;
-
-    return Math.max(min, header + padding + tasks.length * rowHeight);
-  }, [tasks.length]);
-
 
     // 4) Build Gantt tasks
     const ganttTasks: GanttTask[] = todoIds
@@ -384,11 +384,17 @@ export default function GanttPage() {
       </section>
 
       {/* Gantt canvas */}
-      <section className="mt-6 border rounded-lg bg-white">
+    {/* Gantt canvas */}
+<section className="mt-6 border rounded-lg bg-white">
   <div className="overflow-x-auto">
-    <div ref={ganttRef} className="gantt-container min-w-[900px] p-2" />
+    <div
+      ref={ganttRef}
+      className="gantt-container min-w-[900px] p-2"
+      style={{ height: ganttHeight }}
+    />
   </div>
 </section>
+
 
 
       <div className="mt-3 text-xs text-gray-500">
