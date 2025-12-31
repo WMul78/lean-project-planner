@@ -100,12 +100,17 @@ export default function GanttPage() {
   }, [members, selectedUserId]);
 
   const ganttHeight = useMemo(() => {
-    const rowHeight = 36;
-    const header = 120;
-    const padding = 40;
-    const min = 260;
-    return Math.max(min, header + padding + tasks.length * rowHeight);
-  }, [tasks.length]);
+  // Frappe uses extra vertical space for header + paddings + scrollbars.
+  // Give it a bit more than our own row calculation to avoid clipping the last rows.
+  const rowHeight = 44;      // was 36
+  const header = 140;        // was 120
+  const paddingTop = 24;
+  const paddingBottom = 90;  // space for labels + horizontal scrollbar
+  const min = 420;
+
+  return Math.max(min, header + paddingTop + paddingBottom + tasks.length * rowHeight);
+}, [tasks.length]);
+
 
   async function loadBase() {
     setBaseLoading(true);
@@ -430,7 +435,7 @@ export default function GanttPage() {
   <div className="overflow-x-auto">
     <div
       ref={ganttRef}
-      className="gantt-container min-w-[900px] p-2"
+      className="gantt-container min-w-[900px] p-2 pb-10"
       style={{ height: ganttHeight }}
     />
   </div>
