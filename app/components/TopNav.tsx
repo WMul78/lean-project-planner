@@ -66,6 +66,7 @@ export default function TopNav() {
             <Button variant="outline" onClick={() => router.push("/projects")}>Projects</Button>
             <Button variant="outline" onClick={() => router.push("/kanban")}>Kanban</Button>
             <Button variant="outline" onClick={() => router.push("/hours")}>Hours</Button>
+            <Button variant="outline" onClick={() => router.push("/gantt")}>Gantt</Button>
           </div>
         </div>
 
