@@ -25,3 +25,18 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Make the page scroll instead of the gantt internal container */
+.gantt-container .gantt-container {
+  overflow: visible !important;
+}
+
+.gantt-container .gantt {
+  overflow: visible !important;
+}
+
+/* Important: disable inner scrollbars if any */
+.gantt-container .gantt .grid,
+.gantt-container .gantt .grid .grid-background {
+  overflow: visible !important;
+}

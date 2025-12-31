@@ -215,6 +215,17 @@ export default function GanttPage() {
       execByTodo.set(r.todo_id, r.executed_minutes ?? 0);
     }
 
+    const ganttHeight = useMemo(() => {
+    // Rough sizing: header + padding + rows * rowHeight
+    const rowHeight = 38; // tune this
+    const header = 110;   // months/weeks header etc
+    const padding = 40;
+    const min = 260;
+
+    return Math.max(min, header + padding + tasks.length * rowHeight);
+  }, [tasks.length]);
+
+
     // 4) Build Gantt tasks
     const ganttTasks: GanttTask[] = todoIds
       .map((id) => {
@@ -375,10 +386,7 @@ export default function GanttPage() {
       {/* Gantt canvas */}
       <section className="mt-6 border rounded-lg bg-white">
   <div className="overflow-x-auto">
-    <div
-      ref={ganttRef}
-      className="min-w-[900px] p-2"
-    />
+    <div ref={ganttRef} className="gantt-container min-w-[900px] p-2" />
   </div>
 </section>
 
