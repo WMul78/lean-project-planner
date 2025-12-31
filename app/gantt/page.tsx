@@ -123,12 +123,13 @@ export default function GanttPage() {
 
   // -------------------- Load base context (auth + workspace + members) --------------------
   const loadBase = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
+  setLoading(true);
+  setLoadError(null);
 
+  try {
     const user = await requireUser(router);
     if (!user) {
-      setLoading(false);
+      // requireUser may redirect; still stop spinner
       return;
     }
     setMyUserId(user.id);
@@ -136,7 +137,6 @@ export default function GanttPage() {
     const ws = await getActiveWorkspace();
     if (!ws?.workspaceId) {
       setLoadError("No active workspace found.");
-      setLoading(false);
       return;
     }
 
@@ -153,7 +153,6 @@ export default function GanttPage() {
       console.error("Load members error:", memErr);
       setMembers([]);
       setLoadError(memErr.message);
-      setLoading(false);
       return;
     }
 
@@ -164,8 +163,14 @@ export default function GanttPage() {
     const initial = selfInList ?? list[0]?.user_id ?? user.id;
 
     setSelectedUserId((prev) => prev || initial);
+  } catch (e: any) {
+    console.error("loadBase failed:", e);
+    setLoadError(String(e?.message ?? e));
+  } finally {
     setLoading(false);
-  }, [router]);
+  }
+}, [router]);
+
 
   // -------------------- Load gantt data --------------------
   const loadGanttData = useCallback(async (wsId: string, uid: string) => {
