@@ -70,13 +70,14 @@ function addOneDayISO(yyyyMmDd: string) {
 // stable "calm but distinct" colors per project
 const PROJECT_COLORS = ["blue", "green", "purple", "amber", "teal", "indigo"] as const;
 
-function projectColorClass(projectId: string) {
+function projectColorKey(projectId: string) {
   let hash = 0;
   for (let i = 0; i < projectId.length; i++) {
     hash = (hash + projectId.charCodeAt(i)) % PROJECT_COLORS.length;
   }
-  return `gantt-project-${PROJECT_COLORS[hash]}`;
+  return PROJECT_COLORS[hash]; // "blue" | "green" | ...
 }
+
 
 // -------------------- Page --------------------
 export default function GanttPage() {
@@ -305,17 +306,17 @@ export default function GanttPage() {
     const ganttTasks: GanttTask[] = [];
 
     for (const g of groups) {
-      const colorClass = projectColorClass(g.projectId);
+      const color = projectColorKey(g.projectId);
 
-      // project header row
-      ganttTasks.push({
-        id: `project:${g.projectId}`,
-        name: g.projectName,
-        start: g.minStart,
-        end: g.maxEnd,
-        progress: 0,
-        custom_class: `gantt-header-${colorClass}`,
-      });
+    ganttTasks.push({
+      id: `project:${g.projectId}`,
+      name: g.projectName,
+      start: g.minStart,
+      end: g.maxEnd,
+      progress: 0,
+      custom_class: `gantt-header-${color}`,
+    });
+
 
       g.items.sort((x, y) => {
         if (x.start !== y.start) return x.start < y.start ? -1 : 1;
@@ -329,7 +330,7 @@ export default function GanttPage() {
           start: it.start,
           end: it.end,
           progress: it.progress,
-          custom_class: `gantt-task-${colorClass}`,
+          custom_class: `gantt-task-${color}`,
         });
       }
     }
