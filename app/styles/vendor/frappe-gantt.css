@@ -328,17 +328,13 @@
   fill: #111827 !important;
 }
 
-/* --- Make Gantt page-scroll only (disable internal vertical scrolling) --- */
-.gantt-container,
-.gantt-container .gantt,
-.gantt-container .gantt .wrapper,
-.gantt-container .gantt .gantt-container {
-  height: auto !important;
-  max-height: none !important;
+/* --- Disable internal vertical scrollbar, keep explicit height from React --- */
+.gantt-container {
   overflow-y: visible !important;
 }
 
-/* Sometimes the main wrapper gets overflow set */
-.gantt-container .gantt {
-  overflow: visible !important;
+/* Some versions use wrapper with overflow */
+.gantt-container .gantt,
+.gantt-container .wrapper {
+  overflow-y: visible !important;
 }
