@@ -5,8 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Button from "@/app/components/Button";
 import { supabase } from "@/lib/supabaseClient";
 
+type Status = "loading" | "need_login" | "accepted" | "already_accepted" | "error";
+
 function friendlyInviteError(message: string): string {
-  const msg = message.toLowerCase();
+  const msg = (message || "").toLowerCase();
 
   if (msg.includes("revoked")) {
     return "This invitation was withdrawn by the workspace owner. Please ask for a new invitation.";
@@ -32,9 +34,6 @@ function friendlyInviteError(message: string): string {
   return "Something went wrong while accepting the invitation. Please try again or contact the workspace owner.";
 }
 
-
-type Status = "loading" | "need_login" | "accepted" | "error";
-
 export default function InviteAcceptClient() {
   const router = useRouter();
   const sp = useSearchParams();
@@ -43,7 +42,7 @@ export default function InviteAcceptClient() {
   const [status, setStatus] = useState<Status>("loading");
   const [message, setMessage] = useState<string>("");
 
-  // Prevent double-run (React strict mode in dev) + allow safe cleanup
+  // Prevent double execution in dev (React Strict Mode)
   const startedRef = useRef(false);
 
   useEffect(() => {
@@ -63,10 +62,11 @@ export default function InviteAcceptClient() {
 
       // 1) Ensure logged in
       const { data: userRes, error: userErr } = await supabase.auth.getUser();
+
       if (userErr) {
         if (!cancelled) {
           setStatus("error");
-          setMessage(userErr.message);
+          setMessage(friendlyInviteError(userErr.message));
         }
         return;
       }
@@ -79,27 +79,42 @@ export default function InviteAcceptClient() {
         return;
       }
 
-      // 2) Accept invite via RPC
-      // IMPORTANT: function argument is invite_token (your DB function signature)
+      // 2) Accept invite (IMPORTANT: use correct param name for your DB function)
+      // Your function signature is: accept_workspace_invite(invite_token text) returns uuid
       const { data: workspaceId, error } = await supabase.rpc("accept_workspace_invite", {
         invite_token: token,
       });
 
       if (error) {
-  setStatus("error");
-  setMessage(friendlyInviteError(error.message));
-  return;
-}
+        const raw = error.message || "";
+        const msg = raw.toLowerCase();
 
+        // ✅ Already accepted → auto redirect (don't show as error)
+        // Common messages: "Invite is not pending (status=accepted)" or variants
+        if (msg.includes("status=accepted") || (msg.includes("not pending") && msg.includes("accepted"))) {
+          if (!cancelled) {
+            setStatus("already_accepted");
+            setMessage("This invitation was already accepted. Redirecting…");
+          }
+          setTimeout(() => {
+            router.replace("/projects");
+          }, 600);
+          return;
+        }
 
-      // workspaceId is UUID returned by the function
+        if (!cancelled) {
+          setStatus("error");
+          setMessage(friendlyInviteError(raw));
+        }
+        return;
+      }
+
+      // 3) Success
       if (!cancelled) {
         setStatus("accepted");
         setMessage("Invitation accepted. Redirecting…");
       }
 
-      // 3) Optional: refresh session state and redirect
-      // (Server already sets active_workspace_id if empty, but we can just redirect.)
       setTimeout(() => {
         router.replace("/projects");
       }, 800);
@@ -120,6 +135,14 @@ export default function InviteAcceptClient() {
     );
   }
 
+  if (status === "already_accepted") {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-6">
+        <div className="text-gray-600">{message}</div>
+      </main>
+    );
+  }
+
   if (status === "need_login") {
     const next = token ? `/invite/accept?token=${encodeURIComponent(token)}` : "/invite/accept";
 
@@ -130,9 +153,7 @@ export default function InviteAcceptClient() {
           <p className="mt-2 text-sm text-gray-600">{message}</p>
 
           <div className="mt-4 flex gap-2">
-            <Button onClick={() => router.push(`/login?next=${encodeURIComponent(next)}`)}>
-              Go to login
-            </Button>
+            <Button onClick={() => router.push(`/login?next=${encodeURIComponent(next)}`)}>Go to login</Button>
             <Button variant="outline" onClick={() => router.push("/projects")}>
               Cancel
             </Button>
@@ -142,16 +163,16 @@ export default function InviteAcceptClient() {
     );
   }
 
+  // accepted OR error
   return (
     <main className="min-h-screen flex items-center justify-center p-6">
       <div className="max-w-md w-full bg-white border rounded-lg p-6">
         <h1 className="text-xl font-semibold">Accept invitation</h1>
         <p className="mt-2 text-sm text-gray-700">{message}</p>
+
         {status === "error" ? (
           <div className="mt-4 flex gap-2">
-            <Button onClick={() => window.location.reload()}>
-              Try again
-            </Button>
+            <Button onClick={() => window.location.reload()}>Try again</Button>
             <Button variant="outline" onClick={() => router.push("/projects")}>
               Go to projects
             </Button>
