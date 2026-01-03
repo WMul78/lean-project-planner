@@ -86,17 +86,11 @@ export default function InviteAcceptClient() {
       });
 
       if (error) {
-        if (!cancelled) {
-          setStatus("error");
-          // Slightly nicer default mapping for common cases
-          const msg =
-            error.message?.toLowerCase().includes("invite expired")
-              ? "This invitation has expired."
-              : error.message;
-          setMessage(msg);
-        }
-        return;
-      }
+  setStatus("error");
+  setMessage(friendlyInviteError(error.message));
+  return;
+}
+
 
       // workspaceId is UUID returned by the function
       if (!cancelled) {
@@ -153,13 +147,14 @@ export default function InviteAcceptClient() {
       <div className="max-w-md w-full bg-white border rounded-lg p-6">
         <h1 className="text-xl font-semibold">Accept invitation</h1>
         <p className="mt-2 text-sm text-gray-700">{message}</p>
-
         {status === "error" ? (
           <div className="mt-4 flex gap-2">
+            <Button onClick={() => window.location.reload()}>
+              Try again
+            </Button>
             <Button variant="outline" onClick={() => router.push("/projects")}>
               Go to projects
             </Button>
-            <Button onClick={() => router.refresh()}>Try again</Button>
           </div>
         ) : null}
       </div>
