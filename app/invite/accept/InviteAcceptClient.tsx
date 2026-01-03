@@ -5,6 +5,34 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Button from "@/app/components/Button";
 import { supabase } from "@/lib/supabaseClient";
 
+function friendlyInviteError(message: string): string {
+  const msg = message.toLowerCase();
+
+  if (msg.includes("revoked")) {
+    return "This invitation was withdrawn by the workspace owner. Please ask for a new invitation.";
+  }
+
+  if (msg.includes("expired")) {
+    return "This invitation has expired. Please ask for a new invitation.";
+  }
+
+  if (msg.includes("not found")) {
+    return "This invitation link is invalid or has already been used.";
+  }
+
+  if (msg.includes("different email")) {
+    return "This invitation was sent to a different email address. Please log in with the correct account.";
+  }
+
+  if (msg.includes("not authenticated") || msg.includes("jwt")) {
+    return "Your session expired. Please log in again to accept the invitation.";
+  }
+
+  // Fallback
+  return "Something went wrong while accepting the invitation. Please try again or contact the workspace owner.";
+}
+
+
 type Status = "loading" | "need_login" | "accepted" | "error";
 
 export default function InviteAcceptClient() {
