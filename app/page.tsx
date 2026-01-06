@@ -15,7 +15,7 @@ export default function HomePage() {
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border bg-white px-3 py-1 text-xs text-gray-700">
                 <span className="h-2 w-2 rounded-full bg-blue-600" />
-                Lean Project Planner • Kaizen / PDCA / DMAIC
+                Improvica Project Planner • Kaizen / PDCA / DMAIC
               </div>
 
               <h1 className="mt-4 text-4xl md:text-5xl font-semibold tracking-tight text-gray-900">
@@ -186,7 +186,7 @@ export default function HomePage() {
       <footer className="border-t bg-white">
         <div className="max-w-6xl mx-auto px-6 py-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="text-sm text-gray-500">
-            © {new Date().getFullYear()} Lean Project Planner
+            © {new Date().getFullYear()} Improvica Project Planner
             <div className="text-xs text-gray-400 mt-1">
               Built with Next.js + Supabase • Secure by RLS
             </div>

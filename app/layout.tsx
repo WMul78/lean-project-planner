@@ -14,9 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  applicationName: "Lean Project Planner",
-  title: "Lean Project Planner",
-  description: "Lean project planner (Kaizen / PDCA / DMAIC)",
+  applicationName: "Improvica Project Planner",
+  title: "Improvica Project Planner",
+  description: "Improvica project planner (Kaizen / PDCA / DMAIC)",
 };
 
 export const viewport: Viewport = {

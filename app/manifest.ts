@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Lean Project Planner",
-    short_name: "Lean Planner",
-    description: "Lean project planner (Kaizen / PDCA / DMAIC)",
+    name: "Improvica Project Planner",
+    short_name: "Improvica",
+    description: "Improvica project planner (Kaizen / PDCA / DMAIC)",
     start_url: "/login",
     display: "standalone",
     background_color: "#ffffff",
