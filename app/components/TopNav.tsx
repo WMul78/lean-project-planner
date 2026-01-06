@@ -61,7 +61,7 @@ export default function TopNav() {
     <header className="fixed top-0 left-0 right-0 z-40 border-b bg-white/95 backdrop-blur">
       <div className="mx-auto max-w-7xl px-4 py-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <div className="font-semibold text-gray-900 hidden sm:block">Lean Planner</div>
+          <div className="font-semibold text-gray-900 hidden sm:block">Improvica</div>
           <div className="flex items-center gap-2">
             <Button variant="outline" onClick={() => router.push("/projects")}>Projects</Button>
             <Button variant="outline" onClick={() => router.push("/kanban")}>Kanban</Button>
