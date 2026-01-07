@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import supabase from "@/lib/supabaseClient";
-import Button from "@/components/Button";
+import { supabase } from "@/lib/supabaseClient";
+import Button from "@/app/components/Button";
 
 type SubRow = {
   status: string;
