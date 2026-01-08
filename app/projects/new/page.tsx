@@ -146,7 +146,7 @@ export default function ProjectNewPage() {
       created_by: userId,
 
       // The app uses owner_id (for members often equal to created_by)
-      owner_id: isStakeholder ? null : userId,
+      owner_id: nextStatus === "proposed" ? null : userId,
 
       deadline: nextDeadline,
       estimated_minutes: nextEstimatedMinutes,
