@@ -28,6 +28,7 @@ const PHASES: Record<ProjectType, { value: string; label: string }[]> = {
   ],
 };
 
+
 function hoursTextToMinutes(txt: string) {
   const clean = txt.replace(",", ".").trim();
   if (!clean) return null;
@@ -61,6 +62,9 @@ export default function ProjectNewPage() {
 
   const isStakeholder = useMemo(() => role === "stakeholder", [role]);
 
+const [isPaid, setIsPaid] = useState(false);
+const [subStatus, setSubStatus] = useState<string | null>(null);
+
   useEffect(() => {
     async function init() {
       setLoading(true);
@@ -81,14 +85,27 @@ export default function ProjectNewPage() {
 
       setWorkspaceId(ws.workspaceId);
       setRole(ws.role);
+      
+// Load subscription status (paid / trial gating)
+const { data: sub, error: subErr } = await supabase
+  .from("user_subscriptions")
+  .select("status")
+  .maybeSingle();
 
-      // Defaults per role:
-      // stakeholder: proposal
-      if (ws.role === "stakeholder") {
-        setStatus("proposed");
-      } else {
-        setStatus("active");
-      }
+if (subErr) console.warn("Subscription load error:", subErr);
+
+const paid =
+  sub?.status === "active" || sub?.status === "on_trial" || sub?.status === "paused";
+
+setSubStatus(sub?.status ?? null);
+setIsPaid(Boolean(paid));
+
+      // Defaults per role + payment:
+// - Stakeholder OR not paid => proposals only
+// - Paid admin/owner/member => can start as active
+const canCreateActive = ws.role !== "stakeholder" && paid;
+setStatus(canCreateActive ? "active" : "proposed");
+
 
       setLoading(false);
     }
@@ -108,17 +125,18 @@ export default function ProjectNewPage() {
   }, [projectType]);
 
   const statusOptions: { value: ProjectStatus; label: string; disabled?: boolean }[] = useMemo(() => {
-    // MVP: stakeholder can only choose proposed (prevents stakeholder from creating "active")
-    if (isStakeholder) {
-      return [{ value: "proposed", label: "proposed" }];
-    }
-    return [
-      { value: "proposed", label: "proposed" },
-      { value: "active", label: "active" },
-      { value: "done", label: "done" },
-      { value: "archived", label: "archived" },
-    ];
-  }, [isStakeholder]);
+  // Stakeholders and non-paid users can only create proposals
+  if (isStakeholder || !isPaid) {
+    return [{ value: "proposed", label: "proposed" }];
+  }
+  return [
+    { value: "proposed", label: "proposed" },
+    { value: "active", label: "active" },
+    { value: "done", label: "done" },
+    { value: "archived", label: "archived" },
+  ];
+}, [isStakeholder, isPaid]);
+
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -134,7 +152,7 @@ export default function ProjectNewPage() {
     const loc = locationLink.trim();
 
     // Stakeholder stays forced proposed
-    const nextStatus: ProjectStatus = isStakeholder ? "proposed" : status;
+    const nextStatus: ProjectStatus = (isStakeholder || !isPaid) ? "proposed" : status;
 
     setSaving(true);
 
@@ -282,7 +300,7 @@ export default function ProjectNewPage() {
               className="border rounded-md px-3 py-2"
               value={status}
               onChange={(e) => setStatus(e.target.value as ProjectStatus)}
-              disabled={saving || isStakeholder}
+              disabled={saving || isStakeholder || !isPaid}
             >
               {statusOptions.map((o) => (
                 <option key={o.value} value={o.value} disabled={o.disabled}>
@@ -291,8 +309,13 @@ export default function ProjectNewPage() {
               ))}
             </select>
             {isStakeholder ? (
-              <div className="text-xs text-gray-500">Stakeholders can only create proposals.</div>
-            ) : null}
+  <div className="text-xs text-gray-500">Stakeholders can only create proposals.</div>
+) : !isPaid ? (
+  <div className="text-xs text-gray-500">
+    You are on the free plan. Projects will be submitted as proposals.
+  </div>
+) : null}
+
           </div>
 
           {/* Type */}
