@@ -143,7 +143,7 @@ export default function ProjectNewPage() {
       name: cleanName,
       description: description.trim() || null,
       status: nextStatus,
-      created_by: userId,
+      // created_by: userId,
 
       // The app uses owner_id (for members often equal to created_by)
       owner_id: nextStatus === "proposed" ? null : userId,
