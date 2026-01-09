@@ -57,6 +57,12 @@ export async function POST(req: NextRequest) {
   );
 }
 
+console.log("LEMON ENV", {
+  storeId: process.env.LEMONSQUEEZY_STORE_ID,
+  variantId: process.env.LEMONSQUEEZY_VARIANT_ID_MONTHLY,
+  hasKey: Boolean(process.env.LEMONSQUEEZY_API_KEY),
+});
+
   const json = await res.json();
   return NextResponse.json({ url: json?.data?.attributes?.url }, { status: 200 });
 }
