@@ -63,26 +63,26 @@ console.log("VERCEL", {
     variantId: String(variantId),
   });
 
-  const res = await fetch("https://api.lemonsqueezy.com/v1/checkouts", {
-    method: "POST",
-    headers: {
-      Accept: "application/vnd.api+json",
-      "Content-Type": "application/vnd.api+json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(payload),
-  });
+ // const res = await fetch("https://api.lemonsqueezy.com/v1/checkouts", {
+ //   method: "POST",
+ //   headers: {
+ //     Accept: "application/vnd.api+json",
+ //     "Content-Type": "application/vnd.api+json",
+ //     Authorization: `Bearer ${apiKey}`,
+ //   },
+ //   body: JSON.stringify(payload),
+  //});
 
-  if (!res.ok) {
-    const text = await res.text();
-    console.error("Lemon checkout create failed:", res.status, text);
-    return NextResponse.json(
-      { error: "Checkout create failed", lemonStatus: res.status, details: text },
-      { status: 500 }
-    );
-  }
+ // if (!res.ok) {
+ //   const text = await res.text();
+ //   console.error("Lemon checkout create failed:", res.status, text);
+ //   return NextResponse.json(
+ //     { error: "Checkout create failed", lemonStatus: res.status, details: text },
+ //     { status: 500 }
+ //   );
+ // }
 
-  const json = await res.json();
+ // const json = await res.json();
  // return NextResponse.json({ url: json?.data?.attributes?.url }, { status: 200 });
   return NextResponse.json({
   debug: {
