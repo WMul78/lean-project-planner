@@ -14,6 +14,12 @@ export async function POST(req: NextRequest) {
     hasKey: Boolean(apiKey),
     appUrl,
   });
+  
+console.log("VERCEL", {
+  env: process.env.VERCEL_ENV,
+  url: process.env.VERCEL_URL,
+  git: process.env.VERCEL_GIT_COMMIT_SHA,
+});
 
   if (!apiKey || !storeId || !variantId || !appUrl) {
     return NextResponse.json(
