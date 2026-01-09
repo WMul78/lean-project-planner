@@ -49,8 +49,13 @@ export async function POST(req: NextRequest) {
   });
 
   if (!res.ok) {
-    return NextResponse.json({ error: "Checkout create failed", details: await res.text() }, { status: 500 });
-  }
+  const text = await res.text();
+  console.error("Lemon checkout create failed:", res.status, text);
+  return NextResponse.json(
+    { error: "Checkout create failed", details: text },
+    { status: 500 }
+  );
+}
 
   const json = await res.json();
   return NextResponse.json({ url: json?.data?.attributes?.url }, { status: 200 });
