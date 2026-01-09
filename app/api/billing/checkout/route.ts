@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     hasKey: Boolean(apiKey),
     appUrl,
   });
-  
+
 console.log("VERCEL", {
   env: process.env.VERCEL_ENV,
   url: process.env.VERCEL_URL,
@@ -52,7 +52,7 @@ console.log("VERCEL", {
         },
       },
       relationships: {
-        store: { data: { type: "stores", id: String(storeId) } },
+       // store: { data: { type: "stores", id: String(storeId) } },
         variant: { data: { type: "variants", id: String(variantId) } },
       },
     },
