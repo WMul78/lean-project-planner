@@ -83,5 +83,15 @@ console.log("VERCEL", {
   }
 
   const json = await res.json();
-  return NextResponse.json({ url: json?.data?.attributes?.url }, { status: 200 });
+ // return NextResponse.json({ url: json?.data?.attributes?.url }, { status: 200 });
+  return NextResponse.json({
+  debug: {
+    vercelEnv: process.env.VERCEL_ENV,
+    vercelUrl: process.env.VERCEL_URL,
+    git: process.env.VERCEL_GIT_COMMIT_SHA,
+    storeId: process.env.LEMONSQUEEZY_STORE_ID,
+    variantId: process.env.LEMONSQUEEZY_VARIANT_ID_MONTHLY,
+  }
+}, { status: 200 });
+
 }
