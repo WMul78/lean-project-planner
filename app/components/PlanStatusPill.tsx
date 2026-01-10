@@ -99,38 +99,30 @@ export default function PlanStatusPill() {
       : "Plan: Free";
 
   return (
-    <div className="flex items-center gap-2">
-      <div
-        className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${pillStyle(
-          planKind
-        )}`}
-      >
-        {label}
-        {planKind === "trial" && sub?.trial_ends_at ? (
-          <span className="ml-1 opacity-70">
-            • ends {new Date(sub.trial_ends_at).toLocaleDateString()}
-          </span>
-        ) : null}
-      </div>
-
-      {planKind === "free" ? (
-        <Button
-          variant="cta"
-          disabled={busy}
-          onClick={startTrial}
-          className="px-3 py-1.5 text-xs"
-        >
-        Start trial
-        </Button>
-      ) : (
-        <Button
-           variant="outline"
-           onClick={() => router.push("/settings/billing")}
-           className="px-3 py-1.5 text-xs"
-        >
-          Manage
-            </Button>
-      )}
+  <div className="flex items-center gap-2">
+    <div
+      className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${pillStyle(
+        planKind
+      )}`}
+    >
+      {label}
+      {planKind === "trial" && sub?.trial_ends_at ? (
+        <span className="ml-1 opacity-70">
+          • ends {new Date(sub.trial_ends_at).toLocaleDateString()}
+        </span>
+      ) : null}
     </div>
-  );
+
+    {planKind === "free" ? (
+      <Button
+        variant="cta"
+        disabled={busy}
+        onClick={startTrial}
+        className="px-3 py-1.5 text-xs"
+      >
+        Start trial
+      </Button>
+    ) : null}
+  </div>
+);
 }
