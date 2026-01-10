@@ -512,10 +512,10 @@ export default function PricingClient() {
                   <tr className="text-left">
                     <th className="p-4 border-b border-gray-200 bg-white">Capability</th>
                     <th className="p-4 border-b border-gray-200 bg-blue-50/70" colSpan={4}>
-                      Trial / Paid
+                      Improvica Pro
                     </th>
                     <th className="p-4 border-b border-gray-200 bg-gray-50" colSpan={4}>
-                      Not paying
+                      Improvica Free
                     </th>
                   </tr>
                   <tr className="text-left">
