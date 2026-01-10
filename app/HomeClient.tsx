@@ -155,7 +155,7 @@ export default function HomeClient() {
                 </div>
 
                 <div className="mt-4 text-sm text-gray-500">
-                  Trial starts after signup • Works great as a PWA
+                  
                 </div>
               </div>
 
