@@ -1,10 +1,5 @@
-import { Suspense } from "react";
-import BillingClient from "./BillingClient";
+import { redirect } from "next/navigation";
 
 export default function BillingPage() {
-  return (
-    <Suspense fallback={<div className="max-w-xl mx-auto p-6">Loading…</div>}>
-      <BillingClient />
-    </Suspense>
-  );
+  redirect("/pricing");
 }

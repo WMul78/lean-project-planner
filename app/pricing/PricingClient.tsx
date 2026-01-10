@@ -16,6 +16,14 @@ type Capability = {
   access: Record<Plan, Record<Role, boolean>>;
 };
 
+type SubRow = {
+  status: string;
+  trial_ends_at: string | null;
+  current_period_ends_at: string | null;
+  ends_at: string | null;
+  cancelled: boolean | null;
+};
+
 function BadgeYes() {
   return (
     <span className="inline-flex items-center justify-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 border border-emerald-100">
@@ -48,18 +56,45 @@ function RoleChip({ role }: { role: Role }) {
   );
 }
 
+function formatDateTime(value: string | null) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString();
+}
+
+function statusBadge(status: string) {
+  switch (status) {
+    case "active":
+      return { text: "Pro (active)", cls: "bg-emerald-50 text-emerald-800 border-emerald-200" };
+    case "on_trial":
+      return { text: "Pro (trial)", cls: "bg-blue-50 text-blue-800 border-blue-200" };
+    case "paused":
+      return { text: "Paused", cls: "bg-violet-50 text-violet-800 border-violet-200" };
+    case "cancelled":
+      return { text: "Cancelled", cls: "bg-rose-50 text-rose-800 border-rose-200" };
+    case "expired":
+      return { text: "Expired", cls: "bg-gray-50 text-gray-700 border-gray-200" };
+    case "inactive":
+    default:
+      return { text: "Free", cls: "bg-amber-50 text-amber-900 border-amber-200" };
+  }
+}
+
 export default function PricingClient() {
   const router = useRouter();
 
   const [checkingSession, setCheckingSession] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  // ---- Auth gate (client-side) ----
+  const [sub, setSub] = useState<SubRow | null>(null);
+  const [subLoading, setSubLoading] = useState(true);
+
+  // ---- Auth gate (members-only) ----
   useEffect(() => {
     let cancelled = false;
 
     async function run() {
-      // 1) Check current session
       const { data } = await supabase.auth.getSession();
       if (cancelled) return;
 
@@ -67,14 +102,12 @@ export default function PricingClient() {
         router.replace("/login?next=/pricing");
         return;
       }
-
       setCheckingSession(false);
     }
 
     run();
 
-    // 2) Also listen for auth changes (helps in edge cases / slow init)
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: subAuth } = supabase.auth.onAuthStateChange((_event, session) => {
       if (cancelled) return;
 
       if (!session) {
@@ -86,13 +119,35 @@ export default function PricingClient() {
 
     return () => {
       cancelled = true;
-      sub.subscription.unsubscribe();
+      subAuth.subscription.unsubscribe();
     };
   }, [router]);
 
+  async function loadSub() {
+    setSubLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("user_subscriptions")
+        .select("status,trial_ends_at,current_period_ends_at,ends_at,cancelled")
+        .maybeSingle();
+
+      if (error) console.warn("Load subscription failed:", error);
+      setSub((data as any) ?? null);
+    } finally {
+      setSubLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    // Only load subscription after session gate resolves (prevents unnecessary requests).
+    if (checkingSession) return;
+    loadSub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkingSession]);
+
   const roles: Role[] = ["admin", "owner", "member", "stakeholder"];
 
-  // Permissions matrix: EXACTLY as your screenshot
+  // Permissions matrix: EXACTLY your setup
   const capabilities: Capability[] = useMemo(
     () => [
       {
@@ -173,6 +228,10 @@ export default function PricingClient() {
     []
   );
 
+  const status = sub?.status ?? "inactive";
+  const isPaid = status === "active" || status === "on_trial" || status === "paused";
+  const s = statusBadge(status);
+
   async function startCheckout() {
     setBusy(true);
     try {
@@ -219,24 +278,39 @@ export default function PricingClient() {
       </div>
 
       <div className="relative">
+        {/* Header */}
         <header className="border-b border-gray-200 bg-white/80 backdrop-blur">
           <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-3">
             <Link href="/projects" className="font-semibold text-gray-900">
-              Improvica Project Planner
+              Improvica
             </Link>
 
-            <nav className="flex items-center gap-3">
-              <Link className="text-sm text-gray-600 hover:text-gray-900" href="/settings/billing">
-                Billing
-              </Link>
-              <Button variant="cta" disabled={busy} onClick={startCheckout}>
-                {busy ? "Redirecting…" : "Start 14-day trial"}
+            <nav className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={() => router.push("/projects")}
+                className="px-3 py-1.5 text-xs"
+              >
+                Back to app
               </Button>
+
+              {!isPaid ? (
+                <Button
+                  variant="cta"
+                  disabled={busy}
+                  onClick={startCheckout}
+                  className="px-3 py-1.5 text-xs"
+                >
+                  {busy ? "Redirecting…" : "Start trial"}
+                </Button>
+              ) : null}
             </nav>
           </div>
         </header>
 
+        {/* Content */}
         <section className="max-w-6xl mx-auto px-6 py-12">
+          {/* Hero */}
           <div className="max-w-2xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50/70 px-3 py-1 text-xs text-blue-700 shadow-sm">
               <span className="font-semibold">Pro</span>
@@ -245,15 +319,117 @@ export default function PricingClient() {
             </div>
 
             <h1 className="mt-4 text-4xl font-semibold tracking-tight text-gray-900">
-              Pricing & permissions
+              Pricing, permissions & your plan
             </h1>
             <p className="mt-3 text-gray-600 leading-relaxed">
               Free is ideal for viewing and proposing. Pro unlocks execution features (editing, tasks, hours, Kanban edits)
-              based on role.
+              based on role — exactly as configured in your app.
             </p>
           </div>
 
+          {/* Current plan + helper */}
+          <div className="mt-8 grid gap-4 md:grid-cols-3">
+            {/* Current plan card */}
+            <div className="md:col-span-2 border border-gray-200 rounded-2xl bg-white shadow-sm overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
+                <div className="flex items-start sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="font-medium text-gray-900">Current plan</div>
+                    <div className="text-sm text-gray-600">Your subscription status for this account.</div>
+                  </div>
+
+                  <div className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${s.cls}`}>
+                    {s.text}
+                  </div>
+                </div>
+              </div>
+
+              <div className="px-6 py-4">
+                {subLoading ? (
+                  <div className="text-sm text-gray-600">Loading…</div>
+                ) : (
+                  <div className="grid gap-2 text-sm text-gray-700">
+                    {sub?.trial_ends_at ? (
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-gray-600">Trial ends</span>
+                        <span className="font-medium">{formatDateTime(sub.trial_ends_at)}</span>
+                      </div>
+                    ) : null}
+
+                    {sub?.current_period_ends_at ? (
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-gray-600">Current period ends</span>
+                        <span className="font-medium">{formatDateTime(sub.current_period_ends_at)}</span>
+                      </div>
+                    ) : null}
+
+                    {sub?.ends_at ? (
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-gray-600">Access ends</span>
+                        <span className="font-medium">{formatDateTime(sub.ends_at)}</span>
+                      </div>
+                    ) : null}
+
+                    <div className="flex items-center justify-between gap-3 pt-2">
+                      <span className="text-gray-600">Access</span>
+                      {isPaid ? (
+                        <span className="font-medium text-emerald-700">Paid features enabled</span>
+                      ) : (
+                        <span className="font-medium text-amber-700">Free plan (paid features locked)</span>
+                      )}
+                    </div>
+
+                    {sub?.cancelled ? (
+                      <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 text-xs">
+                        This subscription is marked as cancelled.
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {!isPaid ? (
+                    <Button variant="cta" disabled={busy} onClick={startCheckout}>
+                      {busy ? "Redirecting…" : "Start 14-day free trial"}
+                    </Button>
+                  ) : null}
+
+                  <Button variant="outline" onClick={loadSub} disabled={busy}>
+                    Refresh status
+                  </Button>
+
+                  <Button variant="outline" onClick={() => router.push("/settings/billing")}>
+                    Billing settings
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Tip card */}
+            <div className="border border-blue-100 rounded-2xl bg-blue-50/60 p-5">
+              <div className="font-semibold text-gray-900">What changes with Pro?</div>
+              <div className="mt-2 text-sm text-gray-700 leading-relaxed">
+                Free users can view projects, Kanban and Gantt and propose projects.
+                Pro unlocks editing, tasks, hours and Kanban updates — role-based.
+              </div>
+
+              {!isPaid ? (
+                <div className="mt-4">
+                  <Button variant="cta" disabled={busy} onClick={startCheckout}>
+                    {busy ? "Redirecting…" : "Start trial"}
+                  </Button>
+                </div>
+              ) : (
+                <div className="mt-4 text-sm text-gray-700">
+                  You’re on Pro — enjoy the unlocked features.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Pricing cards */}
           <div className="mt-10 grid gap-4 md:grid-cols-2">
+            {/* Free */}
             <div className="border border-gray-200 rounded-2xl p-6 bg-white shadow-sm">
               <div className="text-sm text-gray-500">Free</div>
               <div className="mt-1 text-3xl font-semibold text-gray-900">€0</div>
@@ -273,16 +449,9 @@ export default function PricingClient() {
                   <span>Edit Kanban</span> <BadgeNo />
                 </li>
               </ul>
-
-              <div className="mt-6">
-                <Link href="/projects">
-                  <Button variant="outline" className="w-full">
-                    Back to app
-                  </Button>
-                </Link>
-              </div>
             </div>
 
+            {/* Pro */}
             <div className="border border-blue-200 rounded-2xl p-6 bg-white shadow-sm ring-1 ring-blue-200">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-sm text-blue-700 font-semibold">Pro</div>
@@ -292,7 +461,9 @@ export default function PricingClient() {
               </div>
 
               <div className="mt-1 text-3xl font-semibold text-gray-900">€24 / month</div>
-              <div className="mt-1 text-sm text-gray-600">Unlock execution features with role-based control.</div>
+              <div className="mt-1 text-sm text-gray-600">
+                Unlock execution features with role-based control.
+              </div>
 
               <ul className="mt-6 grid gap-2 text-sm text-gray-700">
                 <li className="flex items-center justify-between">
@@ -302,26 +473,33 @@ export default function PricingClient() {
                   <span>Tasks & hours tracking</span> <BadgeYes />
                 </li>
                 <li className="flex items-center justify-between">
-                  <span>Stakeholders stay view-only</span>
+                  <span>Stakeholders stay view-only</span>{" "}
                   <span className="text-xs text-gray-500">by design</span>
                 </li>
               </ul>
 
-              <div className="mt-6 grid gap-2">
-                <Button variant="cta" disabled={busy} onClick={startCheckout} className="w-full">
-                  {busy ? "Redirecting…" : "Start 14-day free trial"}
-                </Button>
-                <div className="text-xs text-gray-500 text-center">
-                  You can manage your plan in{" "}
-                  <Link className="underline" href="/settings/billing">
-                    Billing
-                  </Link>
-                  .
+              {!isPaid ? (
+                <div className="mt-6 grid gap-2">
+                  <Button variant="cta" disabled={busy} onClick={startCheckout} className="w-full">
+                    {busy ? "Redirecting…" : "Start 14-day free trial"}
+                  </Button>
+                  <div className="text-xs text-gray-500 text-center">
+                    You can manage your plan in{" "}
+                    <Link className="underline" href="/settings/billing">
+                      Billing settings
+                    </Link>
+                    .
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+                  You already have Pro access.
+                </div>
+              )}
             </div>
           </div>
 
+          {/* Permissions matrix */}
           <div className="mt-12 border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm">
             <div className="px-6 py-4 bg-gradient-to-r from-blue-50/80 to-white border-b border-gray-200">
               <div className="font-medium text-gray-900">Permissions overview</div>
@@ -380,26 +558,30 @@ export default function PricingClient() {
             </div>
           </div>
 
-          <div className="mt-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border border-blue-100 rounded-2xl p-6 bg-blue-50/60 shadow-sm">
-            <div>
-              <div className="font-semibold text-gray-900">Ready to unlock execution?</div>
-              <div className="text-sm text-gray-600">Start Pro with a 14-day free trial. €24/month after.</div>
+          {/* Bottom CTA */}
+          {!isPaid ? (
+            <div className="mt-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border border-blue-100 rounded-2xl p-6 bg-blue-50/60 shadow-sm">
+              <div>
+                <div className="font-semibold text-gray-900">Ready to unlock execution?</div>
+                <div className="text-sm text-gray-600">Start Pro with a 14-day free trial. €24/month after.</div>
+              </div>
+              <Button variant="cta" disabled={busy} onClick={startCheckout}>
+                {busy ? "Redirecting…" : "Start free trial"}
+              </Button>
             </div>
-            <Button variant="cta" disabled={busy} onClick={startCheckout}>
-              {busy ? "Redirecting…" : "Start free trial"}
-            </Button>
-          </div>
+          ) : null}
         </section>
 
+        {/* Footer */}
         <footer className="bg-white/80 border-t border-gray-200">
           <div className="max-w-6xl mx-auto px-6 py-8 text-xs text-gray-500 flex flex-wrap gap-3 justify-between">
-            <div>© {new Date().getFullYear()} Improvica Project Planner</div>
+            <div>© {new Date().getFullYear()} Improvica</div>
             <div className="flex gap-3">
               <Link className="hover:text-gray-800" href="/projects">
                 App
               </Link>
               <Link className="hover:text-gray-800" href="/settings/billing">
-                Billing
+                Billing settings
               </Link>
             </div>
           </div>
