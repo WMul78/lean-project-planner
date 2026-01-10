@@ -3,11 +3,6 @@ import LoginClient from "./LoginClient";
 
 export const dynamic = "force-dynamic";
 
-type SearchParams = {
-  next?: string | string[];
-  mode?: string | string[];
-};
-
 function pickFirst(v?: string | string[]) {
   return Array.isArray(v) ? v[0] : v;
 }
@@ -15,14 +10,16 @@ function pickFirst(v?: string | string[]) {
 function safeInternalPath(p?: string) {
   if (!p) return "/projects";
   if (!p.startsWith("/")) return "/projects";
-  // optional: prevent redirecting to auth endpoints etc.
   return p;
 }
 
 export default function LoginPage({
   searchParams,
 }: {
-  searchParams?: SearchParams;
+  searchParams?: {
+    next?: string | string[];
+    mode?: string | string[];
+  };
 }) {
   const nextRaw = pickFirst(searchParams?.next);
   const modeRaw = pickFirst(searchParams?.mode);
