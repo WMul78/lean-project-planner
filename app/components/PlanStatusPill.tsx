@@ -114,17 +114,22 @@ export default function PlanStatusPill() {
       </div>
 
       {planKind === "free" ? (
-        <Button variant="cta" size="sm" disabled={busy} onClick={startTrial}>
-          Start trial
+        <Button
+          variant="cta"
+          disabled={busy}
+          onClick={startTrial}
+          className="px-3 py-1.5 text-xs"
+        >
+        Start trial
         </Button>
       ) : (
         <Button
-          variant="outline"
-          size="sm"
-          onClick={() => router.push("/settings/billing")}
+           variant="outline"
+           onClick={() => router.push("/settings/billing")}
+           className="px-3 py-1.5 text-xs"
         >
           Manage
-        </Button>
+            </Button>
       )}
     </div>
   );
