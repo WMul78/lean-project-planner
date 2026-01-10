@@ -78,7 +78,7 @@ export default function LoginPage() {
       <form onSubmit={signIn} className="grid gap-3">
         <input
           className="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder="email"
+          placeholder="E-mail"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           autoComplete="email"
@@ -86,7 +86,7 @@ export default function LoginPage() {
 
         <input
           className="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder="wachtwoord"
+          placeholder="Password"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -100,7 +100,7 @@ export default function LoginPage() {
             disabled={isLoading}
             className="flex-1"
           >
-            Inloggen
+            Log in
           </Button>
 
           <Button
@@ -109,7 +109,7 @@ export default function LoginPage() {
             disabled={isLoading}
             className="flex-1"
           >
-            Registreren
+            Create free account
           </Button>
         </div>
       </form>
