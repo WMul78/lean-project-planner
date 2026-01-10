@@ -111,6 +111,14 @@ export default function LoginPage() {
           >
             Create free account
           </Button>
+          // In app/login/page.tsx (bijv. onder je form buttons)
+<div className="mt-4 text-sm text-gray-600">
+  Want to see the difference between Free and Pro?{" "}
+  <a className="underline" href="/pricing">
+    View pricing
+  </a>
+</div>
+
         </div>
       </form>
     </div>
