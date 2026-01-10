@@ -1,35 +1,57 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "@/app/components/Button";
 import { supabase } from "@/lib/supabaseClient";
 
-function CheckIcon() {
-  return (
-    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-50 text-blue-700 border border-blue-100">
-      ✓
-    </span>
-  );
-}
-
-function FeatureItem({ text }: { text: string }) {
-  return (
-    <li className="flex items-start gap-2">
-      <span className="mt-0.5">
-        <CheckIcon />
-      </span>
-      <span className="text-sm text-gray-700">{text}</span>
-    </li>
-  );
-}
-
-function Pill({ children }: { children: React.ReactNode }) {
+function Badge({ children }: { children: React.ReactNode }) {
   return (
     <span className="inline-flex items-center rounded-full border border-gray-200 bg-white/80 backdrop-blur px-3 py-1 text-xs text-gray-700 shadow-sm">
       {children}
     </span>
+  );
+}
+
+function FeatureCard({ title, desc, icon }: { title: string; desc: string; icon: string }) {
+  return (
+    <div className="border border-gray-200 rounded-2xl p-5 bg-white shadow-sm">
+      <div className="text-2xl">{icon}</div>
+      <div className="mt-2 font-semibold text-gray-900">{title}</div>
+      <div className="mt-2 text-sm text-gray-600 leading-relaxed">{desc}</div>
+    </div>
+  );
+}
+
+function LeanCard({ title, bullets }: { title: string; bullets: string[] }) {
+  return (
+    <div className="border border-gray-200 rounded-2xl p-5 bg-white shadow-sm">
+      <div className="font-semibold text-gray-900">{title}</div>
+      <ul className="mt-3 grid gap-2 text-sm text-gray-600">
+        {bullets.map((b) => (
+          <li key={b} className="flex gap-2">
+            <span className="text-blue-600">•</span>
+            <span>{b}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ScreenshotCard({ title, src, alt }: { title: string; src: string; alt: string }) {
+  return (
+    <div className="border border-gray-200 rounded-2xl bg-white overflow-hidden shadow-sm">
+      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+        <div className="font-medium text-gray-900">{title}</div>
+        <div className="text-xs text-gray-500">preview</div>
+      </div>
+      <div className="p-3">
+        <Image src={src} alt={alt} width={1200} height={750} className="w-full h-auto rounded-xl" priority />
+      </div>
+    </div>
   );
 }
 
@@ -51,6 +73,7 @@ export default function HomeClient() {
         router.replace("/projects");
         return;
       }
+
       setChecking(false);
     }
 
@@ -81,98 +104,154 @@ export default function HomeClient() {
         {/* Header */}
         <header className="border-b border-gray-200 bg-white/80 backdrop-blur">
           <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-3">
-            <Link href="/" className="font-semibold text-gray-900">
-              Lean Project Planner
-            </Link>
+            <div className="font-semibold text-gray-900">Lean Project Planner</div>
 
             <nav className="flex items-center gap-3">
-              {/* Pricing is "members-only" → route through login */}
+              {/* pricing is gated → go via login */}
               <Link className="text-sm text-gray-600 hover:text-gray-900" href="/login?next=/pricing">
                 Pricing
               </Link>
               <Link className="text-sm text-gray-600 hover:text-gray-900" href="/login">
                 Login
               </Link>
-
-              {/* Primary CTA: register */}
-              <Link href="/login?mode=signup">
+              <Link href="/login">
                 <Button variant="cta">Create free account</Button>
               </Link>
             </nav>
           </div>
         </header>
 
-        {/* Hero */}
-        <section className="max-w-6xl mx-auto px-6 py-14 grid gap-10 md:grid-cols-2 md:items-center">
-          <div>
-            <div className="flex flex-wrap gap-2">
-              <Pill>Free plan available</Pill>
-              <Pill>Pro • €24 / month</Pill>
-              <Pill>14-day free trial (after signup)</Pill>
-            </div>
+        {/* HERO */}
+        <section className="bg-gradient-to-b from-blue-50/70 to-transparent">
+          <div className="max-w-6xl mx-auto px-6 pt-16 pb-10">
+            <div className="grid gap-10 md:grid-cols-2 md:items-center">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white/80 backdrop-blur px-3 py-1 text-xs text-gray-700 shadow-sm">
+                  <span className="h-2 w-2 rounded-full bg-blue-600" />
+                  Improvica Project Planner • Kaizen / PDCA / DMAIC
+                </div>
 
-            <h1 className="mt-5 text-4xl md:text-5xl font-semibold tracking-tight text-gray-900">
-              A calm Lean planner for real execution.
-            </h1>
+                <h1 className="mt-4 text-4xl md:text-5xl font-semibold tracking-tight text-gray-900">
+                  Plan, track and improve your Lean projects — in one place.
+                </h1>
 
-            <p className="mt-4 text-gray-600 leading-relaxed text-base">
-              Start by creating a free account. You can view projects, Kanban and Gantt and propose projects.
-              When you’re ready to execute (edit tasks, update Kanban, track hours), upgrade to Pro.
-            </p>
+                <p className="mt-4 text-lg text-gray-600 leading-7">
+                  Organize projects and tasks, plan hours, and measure progress with simple Lean structure.
+                  Built for individuals today, scalable to teams and workspaces tomorrow.
+                </p>
 
-            <div className="mt-7 flex flex-wrap gap-3">
-              <Link href="/login?mode=signup">
-                <Button variant="cta">Create free account</Button>
-              </Link>
+                <div className="mt-6 flex flex-col sm:flex-row gap-3">
+                  <Link href="/login">
+                    <Button variant="cta" className="w-full sm:w-auto">
+                      Create free account
+                    </Button>
+                  </Link>
 
-              <Link href="/login">
-                <Button variant="outline">Login</Button>
-              </Link>
-            </div>
+                  <Link href="/invites">
+                    <Button variant="outline" className="w-full sm:w-auto">
+                      Accept invite
+                    </Button>
+                  </Link>
+                </div>
 
-            <ul className="mt-8 grid gap-3">
-              <FeatureItem text="Create a free account in 1 minute" />
-              <FeatureItem text="Free: view projects, Kanban and Gantt + propose projects" />
-              <FeatureItem text="Pro (after signup): unlock editing, tasks, hours and Kanban updates (role-based)" />
-            </ul>
+                <div className="mt-4 text-sm text-gray-500">
+                  Trial starts after signup • Works great as a PWA
+                </div>
+              </div>
 
-            <div className="mt-5 text-xs text-gray-500">
-              Trial requires an account, so we can connect your subscription to your workspace.
+              {/* Hero image / screenshots */}
+              <div className="relative">
+                <ScreenshotCard
+                  title="Projects overview"
+                  src="/landing/projects.png"
+                  alt="Lean Planner projects overview screenshot"
+                />
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Badge>Workspaces</Badge>
+                  <Badge>Kanban</Badge>
+                  <Badge>Hours planning</Badge>
+                  <Badge>Progress by time</Badge>
+                </div>
+              </div>
             </div>
           </div>
+        </section>
 
-          {/* Value card */}
-          <div className="border border-gray-200 rounded-2xl bg-white shadow-sm p-6">
-            <div className="text-sm text-gray-500">Upgrade when you need it</div>
-            <div className="mt-2 text-2xl font-semibold text-gray-900">Less friction, more flow</div>
+        {/* FEATURES */}
+        <section className="max-w-6xl mx-auto px-6 py-12">
+          <h2 className="text-2xl font-semibold text-gray-900">What you can do</h2>
+          <p className="mt-2 text-gray-600 max-w-2xl">
+            Keep it lightweight: just enough structure to run Lean projects without overcomplicating.
+          </p>
 
-            <div className="mt-5 grid gap-3">
-              <div className="rounded-xl border border-gray-200 p-4">
-                <div className="font-medium text-gray-900">Free (view + propose)</div>
-                <div className="mt-1 text-sm text-gray-600">
-                  Great for stakeholders and early alignment.
-                </div>
-              </div>
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <FeatureCard title="Projects" desc="Create projects with status, priority, deadlines and owners." icon="📌" />
+            <FeatureCard title="Tasks" desc="Break down work into actionable tasks and assign them." icon="✅" />
+            <FeatureCard title="Kanban" desc="Visualize project + task flow and focus on what matters now." icon="🧩" />
+            <FeatureCard
+              title="Hours"
+              desc="Plan and log time. Track progress based on executed vs planned minutes."
+              icon="⏱️"
+            />
+          </div>
 
-              <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4">
-                <div className="font-medium text-gray-900">Pro (execute)</div>
-                <div className="mt-1 text-sm text-gray-600">
-                  Owners/Members can edit projects, update Kanban and track hours.
-                </div>
-              </div>
+          <div className="mt-10 grid gap-4 md:grid-cols-2">
+            <ScreenshotCard title="Kanban" src="/landing/kanban.png" alt="Kanban screenshot" />
+            <ScreenshotCard title="Gantt" src="/landing/gantt.png" alt="Gantt screenshot" />
+          </div>
+        </section>
+
+        {/* LEAN METHODS */}
+        <section className="bg-white/60 border-y border-gray-200">
+          <div className="max-w-6xl mx-auto px-6 py-12">
+            <h2 className="text-2xl font-semibold text-gray-900">Lean-friendly structure</h2>
+            <p className="mt-2 text-gray-600 max-w-2xl">
+              Use standard projects today, and expand into PDCA or DMAIC when you need more structure.
+            </p>
+
+            <div className="mt-8 grid gap-4 md:grid-cols-3">
+              <LeanCard
+                title="Kaizen (standard)"
+                bullets={[
+                  "Quick improvements with minimal overhead",
+                  "Clear status and priority",
+                  "Perfect for personal or small teams",
+                ]}
+              />
+              <LeanCard
+                title="PDCA (mid-size)"
+                bullets={[
+                  "Plan → Do → Check → Act structure",
+                  "Better follow-up and learning cycle",
+                  "Great for recurring improvements",
+                ]}
+              />
+              <LeanCard
+                title="DMAIC (large)"
+                bullets={[
+                  "Define → Measure → Analyze → Improve → Control",
+                  "Best for complex process problems",
+                  "Strong structure for deeper analysis",
+                ]}
+              />
             </div>
 
-            <div className="mt-6 flex gap-2">
-              <Link href="/login?mode=signup" className="flex-1">
-                <Button variant="cta" className="w-full">
-                  Create account
-                </Button>
-              </Link>
-              <Link href="/login?next=/pricing" className="flex-1">
-                <Button variant="outline" className="w-full">
-                  See pricing
-                </Button>
-              </Link>
+            <div className="mt-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border border-blue-100 rounded-2xl p-6 bg-blue-50/60 shadow-sm">
+              <div>
+                <div className="font-semibold text-gray-900">Start free. Upgrade when you execute.</div>
+                <div className="text-sm text-gray-600">
+                  Create an account first — then start your Pro trial when you’re ready.
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Link href="/login">
+                  <Button variant="cta">Create free account</Button>
+                </Link>
+                <Link href="/login?next=/pricing">
+                  <Button variant="outline">See Pro pricing</Button>
+                </Link>
+              </div>
             </div>
           </div>
         </section>
@@ -182,11 +261,14 @@ export default function HomeClient() {
           <div className="max-w-6xl mx-auto px-6 py-8 text-xs text-gray-500 flex flex-wrap gap-3 justify-between">
             <div>© {new Date().getFullYear()} Lean Project Planner</div>
             <div className="flex gap-3">
-              <Link className="hover:text-gray-800" href="/login?next=/pricing">
-                Pricing
-              </Link>
               <Link className="hover:text-gray-800" href="/login">
                 Login
+              </Link>
+              <Link className="hover:text-gray-800" href="/invites">
+                Accept invite
+              </Link>
+              <Link className="hover:text-gray-800" href="/login?next=/pricing">
+                Pricing
               </Link>
             </div>
           </div>

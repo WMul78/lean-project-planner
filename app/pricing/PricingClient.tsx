@@ -1,9 +1,8 @@
-
 "use client";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Button from "@/app/components/Button";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -51,7 +50,45 @@ function RoleChip({ role }: { role: Role }) {
 
 export default function PricingClient() {
   const router = useRouter();
+
+  const [checkingSession, setCheckingSession] = useState(true);
   const [busy, setBusy] = useState(false);
+
+  // ---- Auth gate (client-side) ----
+  useEffect(() => {
+    let cancelled = false;
+
+    async function run() {
+      // 1) Check current session
+      const { data } = await supabase.auth.getSession();
+      if (cancelled) return;
+
+      if (!data.session) {
+        router.replace("/login?next=/pricing");
+        return;
+      }
+
+      setCheckingSession(false);
+    }
+
+    run();
+
+    // 2) Also listen for auth changes (helps in edge cases / slow init)
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (cancelled) return;
+
+      if (!session) {
+        router.replace("/login?next=/pricing");
+        return;
+      }
+      setCheckingSession(false);
+    });
+
+    return () => {
+      cancelled = true;
+      sub.subscription.unsubscribe();
+    };
+  }, [router]);
 
   const roles: Role[] = ["admin", "owner", "member", "stakeholder"];
 
@@ -143,7 +180,7 @@ export default function PricingClient() {
       const token = sess.session?.access_token;
 
       if (!token) {
-        router.push("/login?next=/pricing");
+        router.replace("/login?next=/pricing");
         return;
       }
 
@@ -164,6 +201,14 @@ export default function PricingClient() {
     }
   }
 
+  if (checkingSession) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+        <div className="text-gray-600">Loading…</div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 relative overflow-hidden">
       {/* Decorative background */}
@@ -174,16 +219,15 @@ export default function PricingClient() {
       </div>
 
       <div className="relative">
-        {/* Header */}
         <header className="border-b border-gray-200 bg-white/80 backdrop-blur">
           <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-3">
-            <Link href="/" className="font-semibold text-gray-900">
+            <Link href="/projects" className="font-semibold text-gray-900">
               Lean Project Planner
             </Link>
 
             <nav className="flex items-center gap-3">
-              <Link className="text-sm text-gray-600 hover:text-gray-900" href="/login">
-                Login
+              <Link className="text-sm text-gray-600 hover:text-gray-900" href="/settings/billing">
+                Billing
               </Link>
               <Button variant="cta" disabled={busy} onClick={startCheckout}>
                 {busy ? "Redirecting…" : "Start 14-day trial"}
@@ -192,12 +236,11 @@ export default function PricingClient() {
           </div>
         </header>
 
-        {/* Hero */}
         <section className="max-w-6xl mx-auto px-6 py-12">
           <div className="max-w-2xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50/70 px-3 py-1 text-xs text-blue-700 shadow-sm">
               <span className="font-semibold">Pro</span>
-              <span className="text-blue-700">€24 / month</span>
+              <span>€24 / month</span>
               <span className="text-blue-700/80">• 14-day free trial</span>
             </div>
 
@@ -206,19 +249,15 @@ export default function PricingClient() {
             </h1>
             <p className="mt-3 text-gray-600 leading-relaxed">
               Free is ideal for viewing and proposing. Pro unlocks execution features (editing, tasks, hours, Kanban edits)
-              based on role — exactly as defined in your current setup.
+              based on role.
             </p>
           </div>
 
-          {/* Pricing cards */}
           <div className="mt-10 grid gap-4 md:grid-cols-2">
-            {/* Free */}
             <div className="border border-gray-200 rounded-2xl p-6 bg-white shadow-sm">
               <div className="text-sm text-gray-500">Free</div>
               <div className="mt-1 text-3xl font-semibold text-gray-900">€0</div>
-              <div className="mt-1 text-sm text-gray-600">
-                View & propose. No editing.
-              </div>
+              <div className="mt-1 text-sm text-gray-600">View & propose. No editing.</div>
 
               <ul className="mt-6 grid gap-2 text-sm text-gray-700">
                 <li className="flex items-center justify-between">
@@ -233,21 +272,17 @@ export default function PricingClient() {
                 <li className="flex items-center justify-between">
                   <span>Edit Kanban</span> <BadgeNo />
                 </li>
-                <li className="flex items-center justify-between">
-                  <span>Edit workspace</span> <BadgeNo />
-                </li>
               </ul>
 
               <div className="mt-6">
-                <Link href="/login">
+                <Link href="/projects">
                   <Button variant="outline" className="w-full">
-                    Create free account
+                    Back to app
                   </Button>
                 </Link>
               </div>
             </div>
 
-            {/* Pro */}
             <div className="border border-blue-200 rounded-2xl p-6 bg-white shadow-sm ring-1 ring-blue-200">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-sm text-blue-700 font-semibold">Pro</div>
@@ -257,9 +292,7 @@ export default function PricingClient() {
               </div>
 
               <div className="mt-1 text-3xl font-semibold text-gray-900">€24 / month</div>
-              <div className="mt-1 text-sm text-gray-600">
-                Unlock execution features with role-based control.
-              </div>
+              <div className="mt-1 text-sm text-gray-600">Unlock execution features with role-based control.</div>
 
               <ul className="mt-6 grid gap-2 text-sm text-gray-700">
                 <li className="flex items-center justify-between">
@@ -269,11 +302,8 @@ export default function PricingClient() {
                   <span>Tasks & hours tracking</span> <BadgeYes />
                 </li>
                 <li className="flex items-center justify-between">
-                  <span>Stakeholders stay view-only</span>{" "}
+                  <span>Stakeholders stay view-only</span>
                   <span className="text-xs text-gray-500">by design</span>
-                </li>
-                <li className="flex items-center justify-between">
-                  <span>Workspace edit (Admin only)</span> <BadgeYes />
                 </li>
               </ul>
 
@@ -282,7 +312,7 @@ export default function PricingClient() {
                   {busy ? "Redirecting…" : "Start 14-day free trial"}
                 </Button>
                 <div className="text-xs text-gray-500 text-center">
-                  Manage your plan in{" "}
+                  You can manage your plan in{" "}
                   <Link className="underline" href="/settings/billing">
                     Billing
                   </Link>
@@ -292,13 +322,10 @@ export default function PricingClient() {
             </div>
           </div>
 
-          {/* Permissions matrix */}
           <div className="mt-12 border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm">
             <div className="px-6 py-4 bg-gradient-to-r from-blue-50/80 to-white border-b border-gray-200">
               <div className="font-medium text-gray-900">Permissions overview</div>
-              <div className="text-sm text-gray-600">
-                Exact access by plan and role.
-              </div>
+              <div className="text-sm text-gray-600">Exact access by plan and role.</div>
             </div>
 
             <div className="overflow-x-auto">
@@ -333,9 +360,7 @@ export default function PricingClient() {
                     <tr key={c.key} className="align-top">
                       <td className="p-4 border-b border-gray-200 bg-white">
                         <div className="font-medium text-gray-900">{c.label}</div>
-                        {c.description ? (
-                          <div className="mt-1 text-xs text-gray-500">{c.description}</div>
-                        ) : null}
+                        {c.description ? <div className="mt-1 text-xs text-gray-500">{c.description}</div> : null}
                       </td>
 
                       {roles.map((r) => (
@@ -355,10 +380,9 @@ export default function PricingClient() {
             </div>
           </div>
 
-          {/* Bottom CTA */}
           <div className="mt-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border border-blue-100 rounded-2xl p-6 bg-blue-50/60 shadow-sm">
             <div>
-              <div className="font-semibold text-gray-900">Unlock execution for Owners & Members</div>
+              <div className="font-semibold text-gray-900">Ready to unlock execution?</div>
               <div className="text-sm text-gray-600">Start Pro with a 14-day free trial. €24/month after.</div>
             </div>
             <Button variant="cta" disabled={busy} onClick={startCheckout}>
@@ -367,16 +391,15 @@ export default function PricingClient() {
           </div>
         </section>
 
-        {/* Footer */}
         <footer className="bg-white/80 border-t border-gray-200">
           <div className="max-w-6xl mx-auto px-6 py-8 text-xs text-gray-500 flex flex-wrap gap-3 justify-between">
             <div>© {new Date().getFullYear()} Lean Project Planner</div>
             <div className="flex gap-3">
-              <Link className="hover:text-gray-800" href="/">
-                Home
+              <Link className="hover:text-gray-800" href="/projects">
+                App
               </Link>
-              <Link className="hover:text-gray-800" href="/login">
-                Login
+              <Link className="hover:text-gray-800" href="/settings/billing">
+                Billing
               </Link>
             </div>
           </div>
