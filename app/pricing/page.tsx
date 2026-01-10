@@ -2,16 +2,19 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import PricingClient from "./PricingClient";
 
-// This is a minimal auth gate. If no Supabase session cookie exists, redirect to login.
-// Works for Supabase Auth helpers that set auth cookies (common setup).
-export default function PricingPage() {
-  const cookieStore = cookies();
+export default async function PricingPage() {
+  const cookieStore = await cookies();
 
-  // Supabase typically stores auth in cookies like: sb-<project-ref>-auth-token
-  // We'll do a best-effort check: if no "sb-" cookie exists → not logged in.
-  const hasSupabaseAuthCookie = cookieStore
-    .getAll()
-    .some((c) => c.name.startsWith("sb-") && c.name.includes("auth-token"));
+  // Some Next.js versions expose getAll(); others may not.
+  const allCookies =
+    typeof (cookieStore as any).getAll === "function"
+      ? (cookieStore as any).getAll()
+      : [];
+
+  // Supabase auth cookies often start with "sb-" and include "auth-token"
+  const hasSupabaseAuthCookie = allCookies.some(
+    (c: { name: string }) => c.name.startsWith("sb-") && c.name.includes("auth-token")
+  );
 
   if (!hasSupabaseAuthCookie) {
     redirect("/login?next=/pricing");
