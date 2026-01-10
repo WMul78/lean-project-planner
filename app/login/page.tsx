@@ -3,7 +3,10 @@ import LoginClient from "./LoginClient";
 
 export const dynamic = "force-dynamic";
 
-function pickFirst(v?: string | string[]) {
+type SearchParamsValue = string | string[] | undefined;
+type SearchParamsPromise = Promise<Record<string, SearchParamsValue>>;
+
+function pickFirst(v: SearchParamsValue) {
   return Array.isArray(v) ? v[0] : v;
 }
 
@@ -13,16 +16,16 @@ function safeInternalPath(p?: string) {
   return p;
 }
 
-export default function LoginPage({
+export default async function LoginPage({
   searchParams,
 }: {
-  searchParams?: {
-    next?: string | string[];
-    mode?: string | string[];
-  };
+  // NOTE: In your Next.js version, searchParams is typed as a Promise.
+  searchParams?: SearchParamsPromise;
 }) {
-  const nextRaw = pickFirst(searchParams?.next);
-  const modeRaw = pickFirst(searchParams?.mode);
+  const sp = searchParams ? await searchParams : {};
+
+  const nextRaw = pickFirst(sp.next);
+  const modeRaw = pickFirst(sp.mode);
 
   const nextPath = safeInternalPath(nextRaw);
   const initialMode = modeRaw === "signup" ? "signup" : "signin";
