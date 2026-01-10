@@ -222,7 +222,7 @@ export default function PricingClient() {
         <header className="border-b border-gray-200 bg-white/80 backdrop-blur">
           <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-3">
             <Link href="/projects" className="font-semibold text-gray-900">
-              Lean Project Planner
+              Improvica Project Planner
             </Link>
 
             <nav className="flex items-center gap-3">
@@ -393,7 +393,7 @@ export default function PricingClient() {
 
         <footer className="bg-white/80 border-t border-gray-200">
           <div className="max-w-6xl mx-auto px-6 py-8 text-xs text-gray-500 flex flex-wrap gap-3 justify-between">
-            <div>© {new Date().getFullYear()} Lean Project Planner</div>
+            <div>© {new Date().getFullYear()} Improvica Project Planner</div>
             <div className="flex gap-3">
               <Link className="hover:text-gray-800" href="/projects">
                 App
