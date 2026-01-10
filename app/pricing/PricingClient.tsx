@@ -54,12 +54,13 @@ export default function PricingClient() {
 
   const roles: Role[] = ["admin", "owner", "member", "stakeholder"];
 
+  // Permissions matrix: EXACTLY as your screenshot
   const capabilities: Capability[] = useMemo(
     () => [
       {
         key: "workspace_edit",
         label: "Edit workspace",
-        description: "Manage workspace settings (admin-only on paid).",
+        description: "Admin-only on Pro. Disabled for all roles on Free.",
         access: {
           paid: { admin: true, owner: false, member: false, stakeholder: false },
           free: { admin: false, owner: false, member: false, stakeholder: false },
@@ -76,7 +77,7 @@ export default function PricingClient() {
       {
         key: "projects_propose",
         label: "Propose projects",
-        description: "Create proposals (no editing without Pro).",
+        description: "Create proposals. Editing is Pro-only.",
         access: {
           paid: { admin: true, owner: true, member: true, stakeholder: true },
           free: { admin: true, owner: true, member: true, stakeholder: true },
@@ -163,223 +164,223 @@ export default function PricingClient() {
   }
 
   return (
-    <main className="min-h-screen bg-white">
-      {/* Header */}
-      <header className="border-b bg-white">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-3">
-          <Link href="/" className="font-semibold text-gray-900">
-            Lean Project Planner
-          </Link>
+    <main className="min-h-screen bg-slate-50 relative overflow-hidden">
+      {/* Decorative background */}
+      <div aria-hidden className="pointer-events-none absolute inset-0">
+        <div className="absolute -top-48 -left-48 h-[620px] w-[620px] rounded-full bg-[radial-gradient(circle_at_center,rgba(37,99,235,0.18),transparent_65%)]" />
+        <div className="absolute -bottom-56 -right-56 h-[660px] w-[660px] rounded-full bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.14),transparent_65%)]" />
+        <div className="absolute inset-0 opacity-[0.06] bg-[linear-gradient(to_right,#111827_1px,transparent_1px),linear-gradient(to_bottom,#111827_1px,transparent_1px)] bg-[size:48px_48px]" />
+      </div>
 
-          <nav className="flex items-center gap-2">
-            <Link className="text-sm text-gray-600 hover:text-gray-900" href="/login">
-              Login
+      <div className="relative">
+        {/* Header */}
+        <header className="border-b border-gray-200 bg-white/80 backdrop-blur">
+          <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-3">
+            <Link href="/" className="font-semibold text-gray-900">
+              Lean Project Planner
             </Link>
 
-            {/* Strong CTA color override */}
-            <Button
-              variant="primary"
-              disabled={busy}
-              onClick={startCheckout}
-              className="bg-blue-600 text-white border-blue-600 hover:bg-blue-700 hover:border-blue-700"
-            >
-              {busy ? "Redirecting…" : "Start 14-day trial"}
-            </Button>
-          </nav>
-        </div>
-      </header>
+            <nav className="flex items-center gap-3">
+              <Link className="text-sm text-gray-600 hover:text-gray-900" href="/login">
+                Login
+              </Link>
+              <Button variant="cta" disabled={busy} onClick={startCheckout}>
+                {busy ? "Redirecting…" : "Start 14-day trial"}
+              </Button>
+            </nav>
+          </div>
+        </header>
 
-      {/* Hero */}
-      <section className="max-w-6xl mx-auto px-6 py-12">
-        <div className="max-w-2xl">
-          <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs text-blue-700">
-            <span className="font-medium">Pro</span>
-            <span className="text-blue-600">€24 / month</span>
-            <span className="text-blue-700/80">• 14-day free trial</span>
+        {/* Hero */}
+        <section className="max-w-6xl mx-auto px-6 py-12">
+          <div className="max-w-2xl">
+            <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50/70 px-3 py-1 text-xs text-blue-700 shadow-sm">
+              <span className="font-semibold">Pro</span>
+              <span className="text-blue-700">€24 / month</span>
+              <span className="text-blue-700/80">• 14-day free trial</span>
+            </div>
+
+            <h1 className="mt-4 text-4xl font-semibold tracking-tight text-gray-900">
+              Pricing & permissions
+            </h1>
+            <p className="mt-3 text-gray-600 leading-relaxed">
+              Free is ideal for viewing and proposing. Pro unlocks execution features (editing, tasks, hours, Kanban edits)
+              based on role — exactly as defined in your current setup.
+            </p>
           </div>
 
-          <h1 className="mt-4 text-4xl font-semibold tracking-tight text-gray-900">
-            Clear pricing. Clear permissions.
-          </h1>
-          <p className="mt-3 text-gray-600 leading-relaxed">
-            Free is great for viewing and proposing. Pro unlocks editing, tasks, hours and Kanban work — based on role.
-          </p>
-        </div>
+          {/* Pricing cards */}
+          <div className="mt-10 grid gap-4 md:grid-cols-2">
+            {/* Free */}
+            <div className="border border-gray-200 rounded-2xl p-6 bg-white shadow-sm">
+              <div className="text-sm text-gray-500">Free</div>
+              <div className="mt-1 text-3xl font-semibold text-gray-900">€0</div>
+              <div className="mt-1 text-sm text-gray-600">
+                View & propose. No editing.
+              </div>
 
-        {/* Pricing cards */}
-        <div className="mt-10 grid gap-4 md:grid-cols-2">
-          {/* Free */}
-          <div className="border rounded-2xl p-6 bg-white">
-            <div className="text-sm text-gray-500">Free</div>
-            <div className="mt-1 text-3xl font-semibold text-gray-900">€0</div>
-            <div className="mt-1 text-sm text-gray-600">View & propose. No editing.</div>
+              <ul className="mt-6 grid gap-2 text-sm text-gray-700">
+                <li className="flex items-center justify-between">
+                  <span>View projects / Kanban / Gantt</span> <BadgeYes />
+                </li>
+                <li className="flex items-center justify-between">
+                  <span>Propose projects</span> <BadgeYes />
+                </li>
+                <li className="flex items-center justify-between">
+                  <span>Edit projects / tasks / hours</span> <BadgeNo />
+                </li>
+                <li className="flex items-center justify-between">
+                  <span>Edit Kanban</span> <BadgeNo />
+                </li>
+                <li className="flex items-center justify-between">
+                  <span>Edit workspace</span> <BadgeNo />
+                </li>
+              </ul>
 
-            <ul className="mt-6 grid gap-2 text-sm text-gray-700">
-              <li className="flex items-center justify-between">
-                <span>View projects / Kanban / Gantt</span> <BadgeYes />
-              </li>
-              <li className="flex items-center justify-between">
-                <span>Propose projects</span> <BadgeYes />
-              </li>
-              <li className="flex items-center justify-between">
-                <span>Edit projects / tasks / hours</span> <BadgeNo />
-              </li>
-              <li className="flex items-center justify-between">
-                <span>Edit Kanban</span> <BadgeNo />
-              </li>
-            </ul>
+              <div className="mt-6">
+                <Link href="/login">
+                  <Button variant="outline" className="w-full">
+                    Create free account
+                  </Button>
+                </Link>
+              </div>
+            </div>
 
-            <div className="mt-6">
-              <Link href="/login">
-                <Button variant="outline" className="w-full">
-                  Create free account
+            {/* Pro */}
+            <div className="border border-blue-200 rounded-2xl p-6 bg-white shadow-sm ring-1 ring-blue-200">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm text-blue-700 font-semibold">Pro</div>
+                <div className="text-xs text-blue-700 bg-blue-50 border border-blue-100 px-2 py-1 rounded-full">
+                  Best value
+                </div>
+              </div>
+
+              <div className="mt-1 text-3xl font-semibold text-gray-900">€24 / month</div>
+              <div className="mt-1 text-sm text-gray-600">
+                Unlock execution features with role-based control.
+              </div>
+
+              <ul className="mt-6 grid gap-2 text-sm text-gray-700">
+                <li className="flex items-center justify-between">
+                  <span>Editing (Admin/Owner/Member)</span> <BadgeYes />
+                </li>
+                <li className="flex items-center justify-between">
+                  <span>Tasks & hours tracking</span> <BadgeYes />
+                </li>
+                <li className="flex items-center justify-between">
+                  <span>Stakeholders stay view-only</span>{" "}
+                  <span className="text-xs text-gray-500">by design</span>
+                </li>
+                <li className="flex items-center justify-between">
+                  <span>Workspace edit (Admin only)</span> <BadgeYes />
+                </li>
+              </ul>
+
+              <div className="mt-6 grid gap-2">
+                <Button variant="cta" disabled={busy} onClick={startCheckout} className="w-full">
+                  {busy ? "Redirecting…" : "Start 14-day free trial"}
                 </Button>
+                <div className="text-xs text-gray-500 text-center">
+                  Manage your plan in{" "}
+                  <Link className="underline" href="/settings/billing">
+                    Billing
+                  </Link>
+                  .
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Permissions matrix */}
+          <div className="mt-12 border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm">
+            <div className="px-6 py-4 bg-gradient-to-r from-blue-50/80 to-white border-b border-gray-200">
+              <div className="font-medium text-gray-900">Permissions overview</div>
+              <div className="text-sm text-gray-600">
+                Exact access by plan and role.
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="min-w-[980px] w-full text-sm">
+                <thead>
+                  <tr className="text-left">
+                    <th className="p-4 border-b border-gray-200 bg-white">Capability</th>
+                    <th className="p-4 border-b border-gray-200 bg-blue-50/70" colSpan={4}>
+                      Trial / Paid
+                    </th>
+                    <th className="p-4 border-b border-gray-200 bg-gray-50" colSpan={4}>
+                      Not paying
+                    </th>
+                  </tr>
+                  <tr className="text-left">
+                    <th className="p-4 border-b border-gray-200 bg-white"></th>
+                    {roles.map((r) => (
+                      <th key={`paid-${r}`} className="p-4 border-b border-gray-200 bg-blue-50/50">
+                        <RoleChip role={r} />
+                      </th>
+                    ))}
+                    {roles.map((r) => (
+                      <th key={`free-${r}`} className="p-4 border-b border-gray-200 bg-gray-50/70">
+                        <RoleChip role={r} />
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {capabilities.map((c) => (
+                    <tr key={c.key} className="align-top">
+                      <td className="p-4 border-b border-gray-200 bg-white">
+                        <div className="font-medium text-gray-900">{c.label}</div>
+                        {c.description ? (
+                          <div className="mt-1 text-xs text-gray-500">{c.description}</div>
+                        ) : null}
+                      </td>
+
+                      {roles.map((r) => (
+                        <td key={`paid-${c.key}-${r}`} className="p-4 border-b border-gray-200 bg-blue-50/30">
+                          {c.access.paid[r] ? <BadgeYes /> : <BadgeNo />}
+                        </td>
+                      ))}
+                      {roles.map((r) => (
+                        <td key={`free-${c.key}-${r}`} className="p-4 border-b border-gray-200 bg-gray-50/40">
+                          {c.access.free[r] ? <BadgeYes /> : <BadgeNo />}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Bottom CTA */}
+          <div className="mt-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border border-blue-100 rounded-2xl p-6 bg-blue-50/60 shadow-sm">
+            <div>
+              <div className="font-semibold text-gray-900">Unlock execution for Owners & Members</div>
+              <div className="text-sm text-gray-600">Start Pro with a 14-day free trial. €24/month after.</div>
+            </div>
+            <Button variant="cta" disabled={busy} onClick={startCheckout}>
+              {busy ? "Redirecting…" : "Start free trial"}
+            </Button>
+          </div>
+        </section>
+
+        {/* Footer */}
+        <footer className="bg-white/80 border-t border-gray-200">
+          <div className="max-w-6xl mx-auto px-6 py-8 text-xs text-gray-500 flex flex-wrap gap-3 justify-between">
+            <div>© {new Date().getFullYear()} Lean Project Planner</div>
+            <div className="flex gap-3">
+              <Link className="hover:text-gray-800" href="/">
+                Home
+              </Link>
+              <Link className="hover:text-gray-800" href="/login">
+                Login
               </Link>
             </div>
           </div>
-
-          {/* Pro */}
-          <div className="border rounded-2xl p-6 bg-white shadow-sm ring-1 ring-blue-200">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-sm text-blue-700 font-medium">Pro</div>
-              <div className="text-xs text-blue-700 bg-blue-50 border border-blue-100 px-2 py-1 rounded-full">
-                Best value
-              </div>
-            </div>
-
-            <div className="mt-1 text-3xl font-semibold text-gray-900">€24 / month</div>
-            <div className="mt-1 text-sm text-gray-600">
-              Unlock editing & execution flow. Trial first.
-            </div>
-
-            <ul className="mt-6 grid gap-2 text-sm text-gray-700">
-              <li className="flex items-center justify-between">
-                <span>Editing (Owner/Member/Admin)</span> <BadgeYes />
-              </li>
-              <li className="flex items-center justify-between">
-                <span>Tasks & hours tracking</span> <BadgeYes />
-              </li>
-              <li className="flex items-center justify-between">
-                <span>Stakeholders stay view-only</span>{" "}
-                <span className="text-xs text-gray-500">by design</span>
-              </li>
-            </ul>
-
-            <div className="mt-6 grid gap-2">
-              <Button
-                variant="primary"
-                disabled={busy}
-                onClick={startCheckout}
-                className="w-full bg-blue-600 text-white border-blue-600 hover:bg-blue-700 hover:border-blue-700"
-              >
-                {busy ? "Redirecting…" : "Start 14-day free trial"}
-              </Button>
-              <div className="text-xs text-gray-500 text-center">
-                Manage your plan in{" "}
-                <Link className="underline" href="/settings/billing">
-                  Billing
-                </Link>
-                .
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Permissions matrix */}
-        <div className="mt-12 border rounded-2xl overflow-hidden">
-          <div className="px-6 py-4 bg-gradient-to-r from-blue-50 to-white border-b">
-            <div className="font-medium text-gray-900">Permissions overview</div>
-            <div className="text-sm text-gray-600">
-              Exact access by plan and role (matches your current setup).
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="min-w-[980px] w-full text-sm">
-              <thead>
-                <tr className="text-left">
-                  <th className="p-4 border-b bg-white">Capability</th>
-
-                  <th className="p-4 border-b bg-blue-50" colSpan={4}>
-                    Trial / Paid
-                  </th>
-                  <th className="p-4 border-b bg-gray-50" colSpan={4}>
-                    Not paying
-                  </th>
-                </tr>
-                <tr className="text-left">
-                  <th className="p-4 border-b bg-white"></th>
-
-                  {roles.map((r) => (
-                    <th key={`paid-${r}`} className="p-4 border-b bg-blue-50">
-                      <RoleChip role={r} />
-                    </th>
-                  ))}
-                  {roles.map((r) => (
-                    <th key={`free-${r}`} className="p-4 border-b bg-gray-50">
-                      <RoleChip role={r} />
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-
-              <tbody>
-                {capabilities.map((c) => (
-                  <tr key={c.key} className="align-top">
-                    <td className="p-4 border-b bg-white">
-                      <div className="font-medium text-gray-900">{c.label}</div>
-                      {c.description ? (
-                        <div className="mt-1 text-xs text-gray-500">{c.description}</div>
-                      ) : null}
-                    </td>
-
-                    {roles.map((r) => (
-                      <td key={`paid-${c.key}-${r}`} className="p-4 border-b bg-blue-50/50">
-                        {c.access.paid[r] ? <BadgeYes /> : <BadgeNo />}
-                      </td>
-                    ))}
-                    {roles.map((r) => (
-                      <td key={`free-${c.key}-${r}`} className="p-4 border-b bg-gray-50/60">
-                        {c.access.free[r] ? <BadgeYes /> : <BadgeNo />}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Bottom CTA */}
-        <div className="mt-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border rounded-2xl p-6 bg-blue-50/60">
-          <div>
-            <div className="font-semibold text-gray-900">Unlock editing for your team roles</div>
-            <div className="text-sm text-gray-600">Start Pro with a 14-day trial. €24/month after.</div>
-          </div>
-          <Button
-            variant="primary"
-            disabled={busy}
-            onClick={startCheckout}
-            className="bg-blue-600 text-white border-blue-600 hover:bg-blue-700 hover:border-blue-700"
-          >
-            {busy ? "Redirecting…" : "Start free trial"}
-          </Button>
-        </div>
-      </section>
-
-      <footer className="border-t">
-        <div className="max-w-6xl mx-auto px-6 py-8 text-xs text-gray-500 flex flex-wrap gap-3 justify-between">
-          <div>© {new Date().getFullYear()} Lean Project Planner</div>
-          <div className="flex gap-3">
-            <Link className="hover:text-gray-800" href="/">
-              Home
-            </Link>
-            <Link className="hover:text-gray-800" href="/login">
-              Login
-            </Link>
-          </div>
-        </div>
-      </footer>
+        </footer>
+      </div>
     </main>
   );
 }
