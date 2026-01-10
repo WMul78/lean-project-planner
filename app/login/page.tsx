@@ -113,9 +113,9 @@ export default function LoginPage() {
           </Button>
         </div>
       <div className="mt-4 text-sm text-gray-600">
-  Want to see the difference between Free and Pro?{" "}
+  Want full editing (tasks, Kanban, hours)?{" "}
   <a className="underline" href="/pricing">
-    View pricing
+    Start a 14-day trial
   </a>
 </div>
       </form>

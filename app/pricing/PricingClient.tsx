@@ -6,32 +6,130 @@ import { useMemo, useState } from "react";
 import Button from "@/app/components/Button";
 import { supabase } from "@/lib/supabaseClient";
 
-type Row = {
-  feature: string;
-  free: string;
-  pro: string;
+type Role = "admin" | "owner" | "member" | "stakeholder";
+type Plan = "paid" | "free";
+
+type Capability = {
+  key: string;
+  label: string;
+  description?: string;
+  access: Record<Plan, Record<Role, boolean>>;
 };
 
-function Check() {
-  return <span className="text-green-700">✓</span>;
+function BadgeYes() {
+  return (
+    <span className="inline-flex items-center justify-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 border border-emerald-100">
+      Yes
+    </span>
+  );
 }
-function Dash() {
-  return <span className="text-gray-400">—</span>;
+
+function BadgeNo() {
+  return (
+    <span className="inline-flex items-center justify-center rounded-full bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-500 border border-gray-100">
+      No
+    </span>
+  );
+}
+
+function RoleChip({ role }: { role: Role }) {
+  const map: Record<Role, { label: string; cls: string }> = {
+    admin: { label: "Admin", cls: "bg-blue-50 text-blue-700 border-blue-100" },
+    owner: { label: "Owner", cls: "bg-violet-50 text-violet-700 border-violet-100" },
+    member: { label: "Member", cls: "bg-sky-50 text-sky-700 border-sky-100" },
+    stakeholder: { label: "Stakeholder", cls: "bg-amber-50 text-amber-700 border-amber-100" },
+  };
+
+  const m = map[role];
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${m.cls}`}>
+      {m.label}
+    </span>
+  );
 }
 
 export default function PricingClient() {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
-  const rows: Row[] = useMemo(
+  const roles: Role[] = ["admin", "owner", "member", "stakeholder"];
+
+  const capabilities: Capability[] = useMemo(
     () => [
-      { feature: "Projects & tasks", free: "Included", pro: "Included" },
-      { feature: "Basic progress overview", free: "Included", pro: "Included" },
-      { feature: "Hours planning (week view)", free: "Limited", pro: "Full" },
-      { feature: "Gantt view", free: "Limited", pro: "Full" },
-      { feature: "Project types (PDCA / DMAIC)", free: "Limited", pro: "Full" },
-      { feature: "Advanced collaboration / roles", free: "—", pro: "Included" },
-      { feature: "Priority support (later)", free: "—", pro: "Included" },
+      {
+        key: "workspace_edit",
+        label: "Edit workspace",
+        description: "Manage workspace settings (admin-only on paid).",
+        access: {
+          paid: { admin: true, owner: false, member: false, stakeholder: false },
+          free: { admin: false, owner: false, member: false, stakeholder: false },
+        },
+      },
+      {
+        key: "projects_view",
+        label: "View projects",
+        access: {
+          paid: { admin: true, owner: true, member: true, stakeholder: true },
+          free: { admin: true, owner: true, member: true, stakeholder: true },
+        },
+      },
+      {
+        key: "projects_propose",
+        label: "Propose projects",
+        description: "Create proposals (no editing without Pro).",
+        access: {
+          paid: { admin: true, owner: true, member: true, stakeholder: true },
+          free: { admin: true, owner: true, member: true, stakeholder: true },
+        },
+      },
+      {
+        key: "projects_edit",
+        label: "Edit projects",
+        access: {
+          paid: { admin: true, owner: true, member: true, stakeholder: false },
+          free: { admin: false, owner: false, member: false, stakeholder: false },
+        },
+      },
+      {
+        key: "tasks_manage",
+        label: "Create & edit tasks",
+        access: {
+          paid: { admin: true, owner: true, member: true, stakeholder: false },
+          free: { admin: false, owner: false, member: false, stakeholder: false },
+        },
+      },
+      {
+        key: "hours_add",
+        label: "Add hours",
+        access: {
+          paid: { admin: true, owner: true, member: true, stakeholder: false },
+          free: { admin: false, owner: false, member: false, stakeholder: false },
+        },
+      },
+      {
+        key: "kanban_view",
+        label: "View Kanban",
+        access: {
+          paid: { admin: true, owner: true, member: true, stakeholder: true },
+          free: { admin: true, owner: true, member: true, stakeholder: true },
+        },
+      },
+      {
+        key: "kanban_edit",
+        label: "Edit Kanban",
+        access: {
+          paid: { admin: true, owner: true, member: true, stakeholder: false },
+          free: { admin: false, owner: false, member: false, stakeholder: false },
+        },
+      },
+      {
+        key: "gantt_view",
+        label: "View Gantt chart",
+        access: {
+          paid: { admin: true, owner: true, member: true, stakeholder: true },
+          free: { admin: true, owner: true, member: true, stakeholder: true },
+        },
+      },
     ],
     []
   );
@@ -42,7 +140,6 @@ export default function PricingClient() {
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
 
-      // Not logged in? send to login, then user can return here.
       if (!token) {
         router.push("/login?next=/pricing");
         return;
@@ -78,8 +175,15 @@ export default function PricingClient() {
             <Link className="text-sm text-gray-600 hover:text-gray-900" href="/login">
               Login
             </Link>
-            <Button variant="primary" disabled={busy} onClick={startCheckout}>
-              {busy ? "Redirecting…" : "Start free trial"}
+
+            {/* Strong CTA color override */}
+            <Button
+              variant="primary"
+              disabled={busy}
+              onClick={startCheckout}
+              className="bg-blue-600 text-white border-blue-600 hover:bg-blue-700 hover:border-blue-700"
+            >
+              {busy ? "Redirecting…" : "Start 14-day trial"}
             </Button>
           </nav>
         </div>
@@ -88,32 +192,40 @@ export default function PricingClient() {
       {/* Hero */}
       <section className="max-w-6xl mx-auto px-6 py-12">
         <div className="max-w-2xl">
-          <h1 className="text-4xl font-semibold tracking-tight text-gray-900">Simple pricing.</h1>
+          <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs text-blue-700">
+            <span className="font-medium">Pro</span>
+            <span className="text-blue-600">€24 / month</span>
+            <span className="text-blue-700/80">• 14-day free trial</span>
+          </div>
+
+          <h1 className="mt-4 text-4xl font-semibold tracking-tight text-gray-900">
+            Clear pricing. Clear permissions.
+          </h1>
           <p className="mt-3 text-gray-600 leading-relaxed">
-            Start free. Upgrade to Pro when you want full planning and collaboration features.
+            Free is great for viewing and proposing. Pro unlocks editing, tasks, hours and Kanban work — based on role.
           </p>
         </div>
 
-        {/* Cards */}
+        {/* Pricing cards */}
         <div className="mt-10 grid gap-4 md:grid-cols-2">
           {/* Free */}
           <div className="border rounded-2xl p-6 bg-white">
             <div className="text-sm text-gray-500">Free</div>
             <div className="mt-1 text-3xl font-semibold text-gray-900">€0</div>
-            <div className="mt-1 text-sm text-gray-600">For personal testing and basic usage.</div>
+            <div className="mt-1 text-sm text-gray-600">View & propose. No editing.</div>
 
             <ul className="mt-6 grid gap-2 text-sm text-gray-700">
-              <li className="flex items-center gap-2">
-                <Check /> Projects & tasks
+              <li className="flex items-center justify-between">
+                <span>View projects / Kanban / Gantt</span> <BadgeYes />
               </li>
-              <li className="flex items-center gap-2">
-                <Check /> Basic progress overview
+              <li className="flex items-center justify-between">
+                <span>Propose projects</span> <BadgeYes />
               </li>
-              <li className="flex items-center gap-2">
-                <Dash /> Advanced planning (full)
+              <li className="flex items-center justify-between">
+                <span>Edit projects / tasks / hours</span> <BadgeNo />
               </li>
-              <li className="flex items-center gap-2">
-                <Dash /> Collaboration features (full)
+              <li className="flex items-center justify-between">
+                <span>Edit Kanban</span> <BadgeNo />
               </li>
             </ul>
 
@@ -131,66 +243,106 @@ export default function PricingClient() {
             <div className="flex items-center justify-between gap-2">
               <div className="text-sm text-blue-700 font-medium">Pro</div>
               <div className="text-xs text-blue-700 bg-blue-50 border border-blue-100 px-2 py-1 rounded-full">
-                14-day free trial
+                Best value
               </div>
             </div>
 
             <div className="mt-1 text-3xl font-semibold text-gray-900">€24 / month</div>
             <div className="mt-1 text-sm text-gray-600">
-              For serious planning, progress and team-ready workflows.
+              Unlock editing & execution flow. Trial first.
             </div>
 
             <ul className="mt-6 grid gap-2 text-sm text-gray-700">
-              <li className="flex items-center gap-2">
-                <Check /> Everything in Free
+              <li className="flex items-center justify-between">
+                <span>Editing (Owner/Member/Admin)</span> <BadgeYes />
               </li>
-              <li className="flex items-center gap-2">
-                <Check /> Full hours planning (week view)
+              <li className="flex items-center justify-between">
+                <span>Tasks & hours tracking</span> <BadgeYes />
               </li>
-              <li className="flex items-center gap-2">
-                <Check /> Full Gantt view
-              </li>
-              <li className="flex items-center gap-2">
-                <Check /> PDCA / DMAIC structure (expandable)
-              </li>
-              <li className="flex items-center gap-2">
-                <Check /> Collaboration / roles (workspace-level)
+              <li className="flex items-center justify-between">
+                <span>Stakeholders stay view-only</span>{" "}
+                <span className="text-xs text-gray-500">by design</span>
               </li>
             </ul>
 
             <div className="mt-6 grid gap-2">
-              <Button variant="primary" disabled={busy} onClick={startCheckout} className="w-full">
+              <Button
+                variant="primary"
+                disabled={busy}
+                onClick={startCheckout}
+                className="w-full bg-blue-600 text-white border-blue-600 hover:bg-blue-700 hover:border-blue-700"
+              >
                 {busy ? "Redirecting…" : "Start 14-day free trial"}
               </Button>
               <div className="text-xs text-gray-500 text-center">
-                You can manage your plan in <Link className="underline" href="/settings/billing">Billing</Link>.
+                Manage your plan in{" "}
+                <Link className="underline" href="/settings/billing">
+                  Billing
+                </Link>
+                .
               </div>
             </div>
           </div>
         </div>
 
-        {/* Comparison table */}
+        {/* Permissions matrix */}
         <div className="mt-12 border rounded-2xl overflow-hidden">
-          <div className="px-6 py-4 bg-gray-50 border-b">
-            <div className="font-medium text-gray-900">Compare features</div>
-            <div className="text-sm text-gray-600">A quick overview of what’s included.</div>
+          <div className="px-6 py-4 bg-gradient-to-r from-blue-50 to-white border-b">
+            <div className="font-medium text-gray-900">Permissions overview</div>
+            <div className="text-sm text-gray-600">
+              Exact access by plan and role (matches your current setup).
+            </div>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="min-w-[980px] w-full text-sm">
               <thead>
                 <tr className="text-left">
-                  <th className="p-4 border-b">Feature</th>
-                  <th className="p-4 border-b">Free</th>
-                  <th className="p-4 border-b">Pro</th>
+                  <th className="p-4 border-b bg-white">Capability</th>
+
+                  <th className="p-4 border-b bg-blue-50" colSpan={4}>
+                    Trial / Paid
+                  </th>
+                  <th className="p-4 border-b bg-gray-50" colSpan={4}>
+                    Not paying
+                  </th>
+                </tr>
+                <tr className="text-left">
+                  <th className="p-4 border-b bg-white"></th>
+
+                  {roles.map((r) => (
+                    <th key={`paid-${r}`} className="p-4 border-b bg-blue-50">
+                      <RoleChip role={r} />
+                    </th>
+                  ))}
+                  {roles.map((r) => (
+                    <th key={`free-${r}`} className="p-4 border-b bg-gray-50">
+                      <RoleChip role={r} />
+                    </th>
+                  ))}
                 </tr>
               </thead>
+
               <tbody>
-                {rows.map((r) => (
-                  <tr key={r.feature} className="align-top">
-                    <td className="p-4 border-b font-medium text-gray-900">{r.feature}</td>
-                    <td className="p-4 border-b text-gray-700">{r.free}</td>
-                    <td className="p-4 border-b text-gray-700">{r.pro}</td>
+                {capabilities.map((c) => (
+                  <tr key={c.key} className="align-top">
+                    <td className="p-4 border-b bg-white">
+                      <div className="font-medium text-gray-900">{c.label}</div>
+                      {c.description ? (
+                        <div className="mt-1 text-xs text-gray-500">{c.description}</div>
+                      ) : null}
+                    </td>
+
+                    {roles.map((r) => (
+                      <td key={`paid-${c.key}-${r}`} className="p-4 border-b bg-blue-50/50">
+                        {c.access.paid[r] ? <BadgeYes /> : <BadgeNo />}
+                      </td>
+                    ))}
+                    {roles.map((r) => (
+                      <td key={`free-${c.key}-${r}`} className="p-4 border-b bg-gray-50/60">
+                        {c.access.free[r] ? <BadgeYes /> : <BadgeNo />}
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>
@@ -199,12 +351,17 @@ export default function PricingClient() {
         </div>
 
         {/* Bottom CTA */}
-        <div className="mt-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border rounded-2xl p-6 bg-white">
+        <div className="mt-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border rounded-2xl p-6 bg-blue-50/60">
           <div>
-            <div className="font-semibold text-gray-900">Ready to run your next improvement project?</div>
-            <div className="text-sm text-gray-600">Start Pro with a 14-day free trial. €24/month after.</div>
+            <div className="font-semibold text-gray-900">Unlock editing for your team roles</div>
+            <div className="text-sm text-gray-600">Start Pro with a 14-day trial. €24/month after.</div>
           </div>
-          <Button variant="primary" disabled={busy} onClick={startCheckout}>
+          <Button
+            variant="primary"
+            disabled={busy}
+            onClick={startCheckout}
+            className="bg-blue-600 text-white border-blue-600 hover:bg-blue-700 hover:border-blue-700"
+          >
             {busy ? "Redirecting…" : "Start free trial"}
           </Button>
         </div>
