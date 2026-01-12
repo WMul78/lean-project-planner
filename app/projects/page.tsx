@@ -251,10 +251,7 @@ export default function ProjectsPage() {
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold">Projects</h1>
 
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-  <h1 className="text-2xl font-semibold">Add Project</h1>
-</div>
-
+          
 
           <div className="text-sm text-gray-500">Role: {role}</div>
           
