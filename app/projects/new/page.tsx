@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "@/app/components/Button";
 import { supabase } from "@/lib/supabaseClient";
-import { getActiveWorkspace, requireUser, WorkspaceRole, getActiveWorkspaceTier } from "@/app/lib/appContext";
+import { getActiveWorkspace, getActiveWorkspaceTier, requireUser, WorkspaceRole } from "@/app/lib/appContext";
 import WorkspaceSwitcher from "@/app/components/WorkspaceSwitcher";
 
 type Priority = "low" | "medium" | "high" | "very_high";
@@ -28,7 +28,6 @@ const PHASES: Record<ProjectType, { value: string; label: string }[]> = {
   ],
 };
 
-
 function hoursTextToMinutes(txt: string) {
   const clean = txt.replace(",", ".").trim();
   if (!clean) return null;
@@ -47,6 +46,15 @@ export default function ProjectNewPage() {
   const [role, setRole] = useState<WorkspaceRole>("member");
   const [userId, setUserId] = useState<string | null>(null);
 
+  // Workspace tier
+  const [tier, setTier] = useState<"free" | "core" | "pro">("free");
+
+  // Free limit precheck (active projects)
+  const [activeCount, setActiveCount] = useState<number>(0);
+  const [activeLimit, setActiveLimit] = useState<number>(2);
+  const [canCreateActiveNow, setCanCreateActiveNow] = useState<boolean>(true);
+  const [limitMsg, setLimitMsg] = useState<string | null>(null);
+
   // Form state
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -61,9 +69,6 @@ export default function ProjectNewPage() {
   const [locationLink, setLocationLink] = useState<string>("");
 
   const isStakeholder = useMemo(() => role === "stakeholder", [role]);
-
-const [tier, setTier] = useState<"free" | "core" | "pro">("free");
-
 
   useEffect(() => {
     async function init() {
@@ -85,18 +90,48 @@ const [tier, setTier] = useState<"free" | "core" | "pro">("free");
 
       setWorkspaceId(ws.workspaceId);
       setRole(ws.role);
-      
-// Workspace tier (free/core/pro) via RPC workspace_effective_tier
-const t = await getActiveWorkspaceTier();
-setTier(t);
 
-// Defaults per role + tier:
-// - Stakeholder => proposals only
-// - Non-stakeholder: allow 'active' by default (RLS will enforce free limits)
-const canCreateActive = ws.role !== "stakeholder";
-setStatus(canCreateActive ? "active" : "proposed");
+      // Load effective tier (free/core/pro)
+      const t = await getActiveWorkspaceTier();
+      setTier(t);
 
+      // Precheck active project count (only needed for free UX, but harmless for all)
+      const { count, error: cntErr } = await supabase
+        .from("projects")
+        .select("id", { count: "exact", head: true })
+        .eq("workspace_id", ws.workspaceId)
+        .eq("status", "active");
 
+      if (cntErr) {
+        console.warn("Active projects count error:", cntErr);
+        setActiveCount(0);
+        setActiveLimit(2);
+        setCanCreateActiveNow(true);
+        setLimitMsg(null);
+      } else {
+        const n = count ?? 0;
+        setActiveCount(n);
+
+        const limit = 2;
+        setActiveLimit(limit);
+
+        const ok = t !== "free" || n < limit;
+        setCanCreateActiveNow(ok);
+
+        if (t === "free" && !ok) {
+          setLimitMsg(
+            `Free plan limit reached: you already have ${n}/${limit} active projects. Upgrade to create more active projects, or create a proposal instead.`
+          );
+        } else {
+          setLimitMsg(null);
+        }
+      }
+
+      // Default status:
+      // - Stakeholder: proposed
+      // - Others: active (RLS enforces cap; UI will downgrade if needed)
+      const canCreateActiveDefault = ws.role !== "stakeholder";
+      setStatus(canCreateActiveDefault ? "active" : "proposed");
 
       setLoading(false);
     }
@@ -115,30 +150,34 @@ setStatus(canCreateActive ? "active" : "proposed");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectType]);
 
-  const isPaid = tier === "core" || tier === "pro";
-  const statusOptions: { value: ProjectStatus; label: string; disabled?: boolean }[] = useMemo(() => {
-  // Stakeholders can only propose
-  if (isStakeholder) {
-    return [{ value: "proposed", label: "proposed" }];
-  }
+  // If free + active limit reached, do not keep status on "active"
+  useEffect(() => {
+    if (tier === "free" && !isStakeholder && status === "active" && !canCreateActiveNow) {
+      setStatus("proposed");
+    }
+  }, [tier, isStakeholder, status, canCreateActiveNow]);
 
-  // Free: allow proposed + active (done/archived only paid)
-  if (tier === "free") {
+  const statusOptions: { value: ProjectStatus; label: string; disabled?: boolean }[] = useMemo(() => {
+    if (isStakeholder) {
+      return [{ value: "proposed", label: "proposed" }];
+    }
+
+    // Free: proposed + active (active disabled if cap reached). Done/archived only for paid tiers.
+    if (tier === "free") {
+      return [
+        { value: "proposed", label: "proposed" },
+        { value: "active", label: "active", disabled: !canCreateActiveNow },
+      ];
+    }
+
+    // Core/Pro: all statuses
     return [
       { value: "proposed", label: "proposed" },
       { value: "active", label: "active" },
+      { value: "done", label: "done" },
+      { value: "archived", label: "archived" },
     ];
-  }
-
-  // Core/Pro: all statuses
-  return [
-    { value: "proposed", label: "proposed" },
-    { value: "active", label: "active" },
-    { value: "done", label: "done" },
-    { value: "archived", label: "archived" },
-  ];
-}, [isStakeholder, tier]);
-
+  }, [isStakeholder, tier, canCreateActiveNow]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -148,13 +187,19 @@ setStatus(canCreateActive ? "active" : "proposed");
     if (!cleanName) return alert("Please enter a title.");
     if (!workspaceId || !userId) return alert("No workspace or user found.");
 
+    // Friendly pre-check to avoid ugly RLS error
+    if (tier === "free" && !isStakeholder && status === "active" && !canCreateActiveNow) {
+      alert(`Free plan limit reached (${activeCount}/${activeLimit} active projects). Please upgrade or create a proposal.`);
+      return;
+    }
+
     const nextDeadline = deadline ? deadline : null;
     const nextEstimatedMinutes = hoursTextToMinutes(estimatedHours);
     const nextPhase = projectType === "standard" ? null : phase.trim() ? phase.trim() : null;
     const loc = locationLink.trim();
 
     // Stakeholder stays forced proposed
-const nextStatus: ProjectStatus = isStakeholder ? "proposed" : status;
+    const nextStatus: ProjectStatus = isStakeholder ? "proposed" : status;
 
     setSaving(true);
 
@@ -163,9 +208,8 @@ const nextStatus: ProjectStatus = isStakeholder ? "proposed" : status;
       name: cleanName,
       description: description.trim() || null,
       status: nextStatus,
-      // created_by: userId,
 
-      // The app uses owner_id (for members often equal to created_by)
+      // owner_id is null for proposals
       owner_id: nextStatus === "proposed" ? null : userId,
 
       deadline: nextDeadline,
@@ -176,57 +220,60 @@ const nextStatus: ProjectStatus = isStakeholder ? "proposed" : status;
       location_link: loc || null,
     };
 
-    const { data, error } = await supabase.from("projects").insert(payload).select("id").single();
+    const { error } = await supabase.from("projects").insert(payload);
 
     setSaving(false);
 
     if (error) {
-      console.error("Create project error:", error);
+      const msg = (error.message ?? "Save failed").toLowerCase();
+
+      // Map common "limit reached" errors to a nicer text
+      if (msg.includes("limit") || msg.includes("can_create_active_project")) {
+        alert(
+          `Free plan limit reached (${activeCount}/${activeLimit} active projects). Upgrade to create more active projects, or create a proposal.`
+        );
+        return;
+      }
+
       alert(error.message);
       return;
     }
 
-    // Navigate to project detail
-    router.push(`/projects/${data.id}`);
+    router.push("/projects");
   }
 
   if (loading) {
     return (
       <main className="p-6 max-w-3xl mx-auto">
-        <div className="text-gray-500">Loading…</div>
+        <div className="text-gray-600">Loading…</div>
       </main>
     );
   }
 
   return (
     <main className="p-6 max-w-3xl mx-auto">
-      <header className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">
-            {isStakeholder ? "Propose project" : "New project"}
-          </h1>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h1 className="text-2xl font-semibold">Add Project</h1>
+        <WorkspaceSwitcher />
+      </div>
 
-          <div className="mt-2">
-            <WorkspaceSwitcher />
+      {/* Pre-warning banner for free limit */}
+      {tier === "free" && limitMsg ? (
+        <div className="mt-4 border rounded-lg p-3 bg-amber-50 text-amber-900 text-sm">
+          <div className="font-medium">Active project limit reached</div>
+          <div className="mt-1">{limitMsg}</div>
+          <div className="mt-2 flex gap-2 flex-wrap">
+            <Button variant="primary" onClick={() => router.push("/settings/billing")}>
+              Upgrade
+            </Button>
+            <Button variant="outline" onClick={() => setStatus("proposed")}>
+              Create as proposal
+            </Button>
           </div>
-
-          <div className="text-sm text-gray-500">Role: {role}</div>
-          {workspaceId ? (
-            <div className="text-xs text-gray-400 mt-1">
-              Workspace: <span className="font-mono">{workspaceId}</span>
-            </div>
-          ) : null}
         </div>
+      ) : null}
 
-        <div className="flex flex-col gap-2 items-end">
-          <Button variant="outline" onClick={() => router.push("/projects")}>
-            ← Back
-          </Button>
-        </div>
-      </header>
-
-      <form onSubmit={onSubmit} className="mt-6 grid gap-4">
-        {/* Title */}
+      <form onSubmit={onSubmit} className="mt-6 space-y-4">
         <div className="grid gap-1">
           <label className="text-sm font-medium">Title</label>
           <input
@@ -234,157 +281,137 @@ const nextStatus: ProjectStatus = isStakeholder ? "proposed" : status;
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Project title"
-            autoFocus
-            disabled={saving}
           />
         </div>
 
-        {/* Description */}
         <div className="grid gap-1">
           <label className="text-sm font-medium">Description</label>
           <textarea
-            className="border rounded-md px-3 py-2 min-h-[100px]"
+            className="border rounded-md px-3 py-2 min-h-[90px]"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Short description (optional)"
-            disabled={saving}
+            placeholder="Short description"
           />
         </div>
 
-        {/* Two-column block */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Deadline */}
+        <div className="grid gap-4 md:grid-cols-2">
           <div className="grid gap-1">
             <label className="text-sm font-medium">Deadline</label>
             <input
-              type="date"
               className="border rounded-md px-3 py-2"
+              type="date"
               value={deadline}
               onChange={(e) => setDeadline(e.target.value)}
-              disabled={saving}
             />
           </div>
 
-          {/* Estimated hours */}
           <div className="grid gap-1">
             <label className="text-sm font-medium">Estimated hours</label>
             <input
               className="border rounded-md px-3 py-2"
               value={estimatedHours}
               onChange={(e) => setEstimatedHours(e.target.value)}
-              placeholder="e.g. 2"
+              placeholder="e.g. 12.5"
               inputMode="decimal"
-              disabled={saving}
             />
-            <div className="text-xs text-gray-500">Leave empty if unknown.</div>
           </div>
+        </div>
 
-          {/* Priority */}
+        <div className="grid gap-4 md:grid-cols-3">
           <div className="grid gap-1">
             <label className="text-sm font-medium">Priority</label>
             <select
               className="border rounded-md px-3 py-2"
               value={priority}
               onChange={(e) => setPriority(e.target.value as Priority)}
-              disabled={saving}
             >
               <option value="low">low</option>
               <option value="medium">medium</option>
               <option value="high">high</option>
-              <option value="very_high">very_high</option>
+              <option value="very_high">very high</option>
             </select>
           </div>
 
-          {/* Status */}
           <div className="grid gap-1">
             <label className="text-sm font-medium">Status</label>
             <select
               className="border rounded-md px-3 py-2"
               value={status}
               onChange={(e) => setStatus(e.target.value as ProjectStatus)}
-              disabled={saving || isStakeholder || !isPaid}
             >
-              {statusOptions.map((o) => (
-                <option key={o.value} value={o.value} disabled={o.disabled}>
-                  {o.label}
+              {statusOptions.map((opt) => (
+                <option key={opt.value} value={opt.value} disabled={opt.disabled}>
+                  {opt.label}
                 </option>
               ))}
             </select>
-            {isStakeholder ? (
-  <div className="text-xs text-gray-500">Stakeholders can only create proposals.</div>
-) : !isPaid ? (
-  <div className="text-xs text-gray-500">
-    You are on the free plan. Projects will be submitted as proposals.
-  </div>
-) : null}
 
+            {/* Small hint under the dropdown */}
+            {tier === "free" && !canCreateActiveNow ? (
+              <div className="text-xs text-amber-700 mt-1">
+                You reached the free limit for active projects. Choose <b>proposed</b> or upgrade.
+              </div>
+            ) : null}
           </div>
 
-          {/* Type */}
           <div className="grid gap-1">
-            <label className="text-sm font-medium">Project type</label>
+            <label className="text-sm font-medium">Type</label>
             <select
               className="border rounded-md px-3 py-2"
               value={projectType}
               onChange={(e) => setProjectType(e.target.value as ProjectType)}
-              disabled={saving}
             >
               <option value="standard">standard</option>
               <option value="pdca">pdca</option>
               <option value="dmaic">dmaic</option>
             </select>
           </div>
+        </div>
 
-          {/* Phase (only for pdca/dmaic) */}
+        {projectType !== "standard" ? (
           <div className="grid gap-1">
             <label className="text-sm font-medium">Phase</label>
             <select
               className="border rounded-md px-3 py-2"
               value={phase}
               onChange={(e) => setPhase(e.target.value)}
-              disabled={saving || projectType === "standard"}
             >
-              <option value="">—</option>
+              <option value="">Select…</option>
               {PHASES[projectType].map((p) => (
                 <option key={p.value} value={p.value}>
                   {p.label}
                 </option>
               ))}
             </select>
-            <div className="text-xs text-gray-500">
-              Only applicable for PDCA/DMAIC projects.
-            </div>
           </div>
-        </div>
+        ) : null}
 
-        {/* Location link */}
         <div className="grid gap-1">
           <label className="text-sm font-medium">Location link</label>
           <input
             className="border rounded-md px-3 py-2"
             value={locationLink}
             onChange={(e) => setLocationLink(e.target.value)}
-            placeholder="e.g. https://... or a file path (later)"
-            disabled={saving}
+            placeholder="e.g. c:\\projects\\..."
           />
-          <div className="text-xs text-gray-500">
-            MVP: free text. Later you can validate URL vs file path.
-          </div>
         </div>
 
-        {/* Actions */}
         <div className="flex gap-2 pt-2">
-          <Button type="submit" disabled={saving}>
-            {saving ? "Creating…" : isStakeholder ? "Submit proposal" : "Create"}
+          <Button variant="primary" type="submit" disabled={saving}>
+            {saving ? "Saving…" : "Save"}
           </Button>
-          <Button
-            variant="outline"
-            type="button"
-            onClick={() => router.push("/projects")}
-            disabled={saving}
-          >
+
+          <Button variant="outline" type="button" onClick={() => router.push("/projects")} disabled={saving}>
             Cancel
           </Button>
+        </div>
+
+        {/* Debug (optioneel - kun je later weghalen) */}
+        <div className="text-xs text-gray-500 pt-2">
+          Plan: <span className="font-medium">{tier}</span> • Active projects:{" "}
+          <span className="font-medium">
+            {activeCount}/{activeLimit}
+          </span>
         </div>
       </form>
     </main>
