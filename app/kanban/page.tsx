@@ -45,8 +45,6 @@ type TotalsRowExecuted = { project_id: string; executed_minutes: number };
 
 type OwnerOption = { id: string; label: string };
 
-const [tier, setTier] = useState<"free" | "core" | "pro">("free");
-
 const STATUS_COLUMNS: { key: ProjectStatus; label: string }[] = [
   { key: "proposed", label: "Proposed" },
   { key: "active", label: "Active" },
@@ -84,6 +82,10 @@ export default function ProjectsKanbanPage() {
 
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [role, setRole] = useState<WorkspaceRole>("member");
+  const [tier, setTier] = useState<"free" | "core" | "pro">("free"); // ✅ hier
+
+
+
 
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const projectsRef = useRef<ProjectRow[]>([]);
@@ -146,14 +148,14 @@ export default function ProjectsKanbanPage() {
         return;
       }
 
-      if (seq === loadSeq.current) {
-      setWorkspaceId(ws.workspaceId);
-      setRole(ws.role);
+     if (seq === loadSeq.current) {
+  setWorkspaceId(ws.workspaceId);
+  setRole(ws.role);
+}
 
-      // Load effective tier (free/core/pro)
-      const t = await getActiveWorkspaceTier();
-      setTier(t);
-    }
+const t = await getActiveWorkspaceTier();
+if (seq === loadSeq.current) setTier(t);
+
 
 
       // 1) Projects
@@ -425,27 +427,28 @@ export default function ProjectsKanbanPage() {
         </div>
 
         <div className="mt-2 md:hidden">
-          <label className="text-[11px] text-gray-500">Project status</label>
-          <select
-  className="mt-1 w-full border rounded-md px-2 py-1 text-sm"
-  value={p.status}
-  disabled={!canMoveProjects}
-  onChange={(e) => updateProjectStatus(p.id, e.target.value as ProjectStatus)}
->
-  {STATUS_COLUMNS.map((c) => (
-    <option key={c.key} value={c.key}>
-      {c.label}
-    </option>
-  ))}
-</select>
+  <label className="text-[11px] text-gray-500">Project status</label>
 
-{!canMoveProjects ? (
-  <div className="mt-1 text-[11px] text-amber-700">
-    Status changes in Kanban require a paid plan.
-  </div>
-) : null}
+  <select
+    className="mt-1 w-full border rounded-md px-2 py-1 text-sm"
+    value={p.status}
+    disabled={!canMoveProjects}
+    onChange={(e) => updateProjectStatus(p.id, e.target.value as ProjectStatus)}
+  >
+    {STATUS_COLUMNS.map((c) => (
+      <option key={c.key} value={c.key}>
+        {c.label}
+      </option>
+    ))}
+  </select>
 
-        </div>
+  {!canMoveProjects ? (
+    <div className="mt-1 text-[11px] text-amber-700">
+      Status changes in Kanban require a paid plan.
+    </div>
+  ) : null}
+</div>
+
 
         {!compact ? (
           <div className="mt-3">
