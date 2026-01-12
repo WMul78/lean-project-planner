@@ -6,7 +6,7 @@ import Button from "@/app/components/Button";
 import ProgressBar from "@/app/components/ProgressBar";
 import WorkspaceSwitcher from "@/app/components/WorkspaceSwitcher";
 import { supabase } from "@/lib/supabaseClient";
-import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appContext";
+import { getActiveWorkspace, getActiveWorkspaceTier, requireUser, WorkspaceRole } from "@/app/lib/appContext";
 import { statusBadgeClass, priorityBadgeClass, metaBadgeClass } from "@/app/lib/badges";
 
 type ProjectStatus = "proposed" | "active" | "done" | "archived";
@@ -44,6 +44,8 @@ type TotalsRowPlanned = { project_id: string; planned_minutes: number };
 type TotalsRowExecuted = { project_id: string; executed_minutes: number };
 
 type OwnerOption = { id: string; label: string };
+
+const [tier, setTier] = useState<"free" | "core" | "pro">("free");
 
 const STATUS_COLUMNS: { key: ProjectStatus; label: string }[] = [
   { key: "proposed", label: "Proposed" },
@@ -111,8 +113,9 @@ export default function ProjectsKanbanPage() {
 
   const loadSeq = useRef(0);
 
-  // Stakeholders can view Kanban but should not be able to change project status.
-  const canMoveProjects = role !== "stakeholder";
+  // Only paid workspaces (core/pro) may change project status in Kanban.
+  // Stakeholders are always read-only.
+  const canMoveProjects = role !== "stakeholder" && tier !== "free";
 
   const load = useCallback(async () => {
     const seq = ++loadSeq.current;
@@ -144,9 +147,14 @@ export default function ProjectsKanbanPage() {
       }
 
       if (seq === loadSeq.current) {
-        setWorkspaceId(ws.workspaceId);
-        setRole(ws.role);
-      }
+      setWorkspaceId(ws.workspaceId);
+      setRole(ws.role);
+
+      // Load effective tier (free/core/pro)
+      const t = await getActiveWorkspaceTier();
+      setTier(t);
+    }
+
 
       // 1) Projects
       const { data: pr, error: prErr } = await supabase
@@ -348,16 +356,24 @@ export default function ProjectsKanbanPage() {
   }, [owners]);
 
   async function updateProjectStatus(projectId: string, nextStatus: ProjectStatus) {
-    const prev = projectsRef.current;
-    setProjects((cur) => cur.map((p) => (p.id === projectId ? { ...p, status: nextStatus } : p)));
-
-    const { error } = await supabase.from("projects").update({ status: nextStatus }).eq("id", projectId);
-    if (error) {
-      console.error(error);
-      alert(error.message);
-      setProjects(prev);
-    }
+  // Hard block: no status changes in Kanban on free workspaces or for stakeholders
+  if (tier === "free" || role === "stakeholder") {
+    alert("Changing project status in Kanban is available on the paid plan. Upgrade to enable this feature.");
+    router.push("/settings/billing");
+    return;
   }
+
+  const prev = projectsRef.current;
+  setProjects((cur) => cur.map((p) => (p.id === projectId ? { ...p, status: nextStatus } : p)));
+
+  const { error } = await supabase.from("projects").update({ status: nextStatus }).eq("id", projectId);
+  if (error) {
+    console.error(error);
+    alert(error.message);
+    setProjects(prev);
+  }
+}
+
 
   function ProjectCard({ p, compact }: { p: ProjectRow; compact?: boolean }) {
     const planned = plannedByProject[p.id] ?? 0;
@@ -411,16 +427,24 @@ export default function ProjectsKanbanPage() {
         <div className="mt-2 md:hidden">
           <label className="text-[11px] text-gray-500">Project status</label>
           <select
-            className="mt-1 w-full border rounded-md px-2 py-1 text-sm"
-            value={p.status}
-            onChange={(e) => updateProjectStatus(p.id, e.target.value as ProjectStatus)}
-          >
-            {STATUS_COLUMNS.map((c) => (
-              <option key={c.key} value={c.key}>
-                {c.label}
-              </option>
-            ))}
-          </select>
+  className="mt-1 w-full border rounded-md px-2 py-1 text-sm"
+  value={p.status}
+  disabled={!canMoveProjects}
+  onChange={(e) => updateProjectStatus(p.id, e.target.value as ProjectStatus)}
+>
+  {STATUS_COLUMNS.map((c) => (
+    <option key={c.key} value={c.key}>
+      {c.label}
+    </option>
+  ))}
+</select>
+
+{!canMoveProjects ? (
+  <div className="mt-1 text-[11px] text-amber-700">
+    Status changes in Kanban require a paid plan.
+  </div>
+) : null}
+
         </div>
 
         {!compact ? (
