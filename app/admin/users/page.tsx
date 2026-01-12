@@ -247,7 +247,7 @@ export default function AdminUsersPage() {
           ← Back
         </Button>
         <div className="text-sm text-gray-500">
-          Role: {role} {workspaceId ? `• Workspace: ${workspaceId.slice(0, 8)}…` : ""}
+          Role: {role} {workspaceId ? `…` : ""}
         </div>
       </div>
 

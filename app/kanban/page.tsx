@@ -497,9 +497,7 @@ export default function ProjectsKanbanPage() {
       <header className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Projects • Kanban</h1>
-          <div className="mt-2">
-            <WorkspaceSwitcher />
-          </div>
+          
 
           <div className="text-sm text-gray-500">Role: {role}</div>
 

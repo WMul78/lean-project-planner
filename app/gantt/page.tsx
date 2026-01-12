@@ -412,9 +412,7 @@ export default function GanttPage() {
       <header className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold">Gantt</h1>
-          <div className="mt-2">
-            <WorkspaceSwitcher />
-          </div>
+          
           <div className="text-sm text-gray-500">Role: {workspaceRole}</div>
         </div>
 
