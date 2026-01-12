@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import Button from "@/app/components/Button";
+import { getActiveWorkspace } from "@/app/lib/appContext";
 
-type SubRow = {
+type WsSubRow = {
   status: string;
+  tier: "free" | "core" | "pro";
   trial_ends_at: string | null;
   current_period_ends_at: string | null;
   ends_at: string | null;
@@ -17,15 +19,28 @@ export default function BillingClient() {
   const router = useRouter();
   const sp = useSearchParams();
 
-  const [sub, setSub] = useState<SubRow | null>(null);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const [sub, setSub] = useState<WsSubRow | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
   async function load() {
     setLoading(true);
+
+    const ws = await getActiveWorkspace();
+    if (!ws?.workspaceId) {
+      setWorkspaceId(null);
+      setSub(null);
+      setLoading(false);
+      return;
+    }
+    setWorkspaceId(ws.workspaceId);
+
     const { data, error } = await supabase
-      .from("user_subscriptions")
-      .select("status,trial_ends_at,current_period_ends_at,ends_at,cancelled")
+      .from("workspace_subscriptions")
+      .select("status,tier,trial_ends_at,current_period_ends_at,ends_at,cancelled")
+      .eq("workspace_id", ws.workspaceId)
       .maybeSingle();
 
     if (error) console.error(error);
@@ -36,6 +51,10 @@ export default function BillingClient() {
   useEffect(() => {
     load();
     if (sp.get("success") === "1") load();
+
+    const handler = () => load();
+    window.addEventListener("workspace-changed", handler);
+    return () => window.removeEventListener("workspace-changed", handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -49,6 +68,7 @@ export default function BillingClient() {
         return;
       }
 
+      // checkout API reads active_workspace_id from profile server-side (zoals je route nu is aangepast)
       const res = await fetch("/api/billing/checkout", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -60,14 +80,15 @@ export default function BillingClient() {
 
       window.location.href = json.url;
     } catch (e: any) {
-      alert(e.message ?? "Checkout failed");
+      alert(e?.message ?? "Checkout failed");
     } finally {
       setBusy(false);
     }
   }
 
   const status = sub?.status ?? "inactive";
-  const isPaid = status === "active" || status === "on_trial" || status === "paused";
+  const tier = sub?.tier ?? "free";
+  const isPaid = tier === "core" || tier === "pro";
 
   return (
     <div className="max-w-xl mx-auto p-6 space-y-4">
@@ -78,23 +99,37 @@ export default function BillingClient() {
       ) : (
         <div className="rounded-xl border p-4 space-y-2">
           <div className="flex items-center justify-between">
-            <div className="font-medium">Plan status</div>
+            <div className="font-medium">Workspace</div>
+            <div className="text-sm">{workspaceId ? `${workspaceId.slice(0, 8)}…` : "-"}</div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="font-medium">Plan</div>
+            <div className="text-sm">{tier}</div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="font-medium">Billing status</div>
             <div className="text-sm">{status}</div>
           </div>
 
-          {sub?.trial_ends_at && (
+          {sub?.trial_ends_at ? (
             <div className="text-sm text-gray-600">
               Trial ends: {new Date(sub.trial_ends_at).toLocaleString()}
             </div>
-          )}
+          ) : null}
 
           {isPaid ? (
-            <div className="text-sm text-green-700">You have access to paid features.</div>
+            <div className="text-sm text-green-700">You have access to paid features for this workspace.</div>
           ) : (
             <div className="text-sm text-amber-700">
-              You are on the free plan. Paid features are locked.
+              This workspace is on the free plan. Some features are locked.
             </div>
           )}
+
+          <div className="text-xs text-gray-500 pt-2">
+            Cancel anytime. You keep access until the end of the current billing period.
+          </div>
         </div>
       )}
 

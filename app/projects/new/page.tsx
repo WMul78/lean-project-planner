@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "@/app/components/Button";
 import { supabase } from "@/lib/supabaseClient";
-import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appContext";
+import { getActiveWorkspace, requireUser, WorkspaceRole, getActiveWorkspaceTier } from "@/app/lib/appContext";
 import WorkspaceSwitcher from "@/app/components/WorkspaceSwitcher";
 
 type Priority = "low" | "medium" | "high" | "very_high";
@@ -62,8 +62,8 @@ export default function ProjectNewPage() {
 
   const isStakeholder = useMemo(() => role === "stakeholder", [role]);
 
-const [isPaid, setIsPaid] = useState(false);
-const [subStatus, setSubStatus] = useState<string | null>(null);
+const [tier, setTier] = useState<"free" | "core" | "pro">("free");
+
 
   useEffect(() => {
     async function init() {
@@ -86,25 +86,16 @@ const [subStatus, setSubStatus] = useState<string | null>(null);
       setWorkspaceId(ws.workspaceId);
       setRole(ws.role);
       
-// Load subscription status (paid / trial gating)
-const { data: sub, error: subErr } = await supabase
-  .from("user_subscriptions")
-  .select("status")
-  .maybeSingle();
+// Workspace tier (free/core/pro) via RPC workspace_effective_tier
+const t = await getActiveWorkspaceTier();
+setTier(t);
 
-if (subErr) console.warn("Subscription load error:", subErr);
-
-const paid =
-  sub?.status === "active" || sub?.status === "on_trial" || sub?.status === "paused";
-
-setSubStatus(sub?.status ?? null);
-setIsPaid(Boolean(paid));
-
-      // Defaults per role + payment:
-// - Stakeholder OR not paid => proposals only
-// - Paid admin/owner/member => can start as active
-const canCreateActive = ws.role !== "stakeholder" && paid;
+// Defaults per role + tier:
+// - Stakeholder => proposals only
+// - Non-stakeholder: allow 'active' by default (RLS will enforce free limits)
+const canCreateActive = ws.role !== "stakeholder";
 setStatus(canCreateActive ? "active" : "proposed");
+
 
 
       setLoading(false);
@@ -124,18 +115,29 @@ setStatus(canCreateActive ? "active" : "proposed");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectType]);
 
+  const isPaid = tier === "core" || tier === "pro";
   const statusOptions: { value: ProjectStatus; label: string; disabled?: boolean }[] = useMemo(() => {
-  // Stakeholders and non-paid users can only create proposals
-  if (isStakeholder || !isPaid) {
+  // Stakeholders can only propose
+  if (isStakeholder) {
     return [{ value: "proposed", label: "proposed" }];
   }
+
+  // Free: allow proposed + active (done/archived only paid)
+  if (tier === "free") {
+    return [
+      { value: "proposed", label: "proposed" },
+      { value: "active", label: "active" },
+    ];
+  }
+
+  // Core/Pro: all statuses
   return [
     { value: "proposed", label: "proposed" },
     { value: "active", label: "active" },
     { value: "done", label: "done" },
     { value: "archived", label: "archived" },
   ];
-}, [isStakeholder, isPaid]);
+}, [isStakeholder, tier]);
 
 
   async function onSubmit(e: React.FormEvent) {
@@ -152,7 +154,7 @@ setStatus(canCreateActive ? "active" : "proposed");
     const loc = locationLink.trim();
 
     // Stakeholder stays forced proposed
-    const nextStatus: ProjectStatus = (isStakeholder || !isPaid) ? "proposed" : status;
+const nextStatus: ProjectStatus = isStakeholder ? "proposed" : status;
 
     setSaving(true);
 

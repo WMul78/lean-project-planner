@@ -1,6 +1,27 @@
 // app/lib/appContext.ts
 import { supabase } from "@/lib/supabaseClient";
 
+
+// Returns 'free' | 'core' | 'pro'
+export async function getActiveWorkspaceTier(): Promise<"free" | "core" | "pro"> {
+  const ws = await getActiveWorkspace();
+  if (!ws?.workspaceId) return "free";
+
+  const { data, error } = await supabase
+    .rpc("workspace_effective_tier", { p_workspace_id: ws.workspaceId });
+
+  if (error) {
+    console.warn("workspace_effective_tier error:", error);
+    return "free";
+  }
+
+  const t = String(data ?? "free");
+  if (t === "core" || t === "pro") return t;
+  return "free";
+}
+
+
+
 export type WorkspaceRole = "owner" | "admin" | "member" | "stakeholder";
 
 export async function requireUser(router?: { push: (p: string) => void }) {
