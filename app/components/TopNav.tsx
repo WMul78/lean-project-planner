@@ -4,9 +4,9 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { getActiveWorkspace, WorkspaceRole } from "@/app/lib/appContext";
+import { getActiveWorkspace, getActiveWorkspaceTier, WorkspaceRole } from "@/app/lib/appContext";
 import Button from "@/app/components/Button";
-import PlanStatusPill from "@/app/components/PlanStatusPill";
+import WorkspaceSwitcher from "@/app/components/WorkspaceSwitcher";
 
 type MenuItem = {
   label: string;
@@ -20,6 +20,41 @@ function getInitial(email?: string | null) {
   return c || "U";
 }
 
+function PlanPill({
+  tier,
+  billingStatus,
+  onClick,
+}: {
+  tier: "free" | "core" | "pro";
+  billingStatus: string | null;
+  onClick?: () => void;
+}) {
+  const cls =
+    tier === "pro"
+      ? "bg-purple-50 text-purple-800 border-purple-200"
+      : tier === "core"
+      ? "bg-blue-50 text-blue-800 border-blue-200"
+      : "bg-gray-50 text-gray-700 border-gray-200";
+
+  const label = billingStatus ? `${tier} • ${billingStatus}` : tier;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "inline-flex items-center gap-2 text-xs border px-3 py-1.5 rounded-full",
+        "hover:bg-white transition",
+        cls,
+      ].join(" ")}
+      title="Billing / plan"
+    >
+      <span className="font-semibold uppercase">{label}</span>
+      {tier === "free" ? <span className="text-gray-500">Upgrade</span> : null}
+    </button>
+  );
+}
+
 export default function TopNav() {
   const router = useRouter();
   const pathname = usePathname();
@@ -27,6 +62,10 @@ export default function TopNav() {
   const [role, setRole] = useState<WorkspaceRole | null>(null);
   const [loggedIn, setLoggedIn] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  // Workspace plan state (NEW)
+  const [tier, setTier] = useState<"free" | "core" | "pro">("free");
+  const [billingStatus, setBillingStatus] = useState<string | null>(null);
 
   // Mobile nav menu state
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -39,7 +78,7 @@ export default function TopNav() {
   const hideNav = useMemo(() => pathname === "/login", [pathname]);
   const canManageUsers = role === "owner" || role === "admin";
 
-  const loadRole = useCallback(async () => {
+  const loadWorkspaceContext = useCallback(async () => {
     const { data } = await supabase.auth.getUser();
     const user = data.user;
 
@@ -48,29 +87,54 @@ export default function TopNav() {
 
     if (!user) {
       setRole(null);
+      setTier("free");
+      setBillingStatus(null);
       return;
     }
 
     const ws = await getActiveWorkspace();
     setRole(ws?.role ?? null);
+
+    // Effective tier via RPC
+    const t = await getActiveWorkspaceTier();
+    setTier(t);
+
+    // Optional: billing status for label (active/on_trial/paused/inactive)
+    if (ws?.workspaceId) {
+      const { data: sub, error } = await supabase
+        .from("workspace_subscriptions")
+        .select("status")
+        .eq("workspace_id", ws.workspaceId)
+        .maybeSingle();
+
+      if (error) {
+        // If you see this, you likely need an RLS SELECT policy on workspace_subscriptions.
+        console.warn("workspace_subscriptions select error:", error);
+        setBillingStatus(null);
+      } else {
+        setBillingStatus((sub as any)?.status ?? null);
+      }
+    } else {
+      setBillingStatus(null);
+    }
   }, []);
 
   useEffect(() => {
     if (hideNav) return;
 
-    loadRole();
+    loadWorkspaceContext();
 
-    const onWsChanged = () => loadRole();
+    const onWsChanged = () => loadWorkspaceContext();
     window.addEventListener("workspace-changed", onWsChanged);
 
-    const onFocus = () => loadRole();
+    const onFocus = () => loadWorkspaceContext();
     window.addEventListener("focus", onFocus);
 
     return () => {
       window.removeEventListener("workspace-changed", onWsChanged);
       window.removeEventListener("focus", onFocus);
     };
-  }, [hideNav, loadRole]);
+  }, [hideNav, loadWorkspaceContext]);
 
   // Close menus on route change
   useEffect(() => {
@@ -152,7 +216,7 @@ export default function TopNav() {
   return (
     <header className="fixed top-0 left-0 right-0 z-40 border-b bg-white/95 backdrop-blur">
       <div className="mx-auto max-w-7xl px-4 py-3 flex items-center justify-between gap-3">
-        {/* LEFT: Brand + Desktop nav */}
+        {/* LEFT: Brand + Desktop nav + WorkspaceSwitcher */}
         <div className="flex items-center gap-3 min-w-0">
           <button
             type="button"
@@ -176,13 +240,27 @@ export default function TopNav() {
               </Button>
             ))}
           </div>
+
+          {/* Workspace switcher in TopNav (desktop) */}
+          <div className="hidden md:block">
+            <WorkspaceSwitcher />
+          </div>
         </div>
 
-        {/* RIGHT: desktop plan + avatar, mobile hamburger + avatar */}
+        {/* RIGHT: plan pill + avatar, mobile hamburger */}
         <div className="flex items-center gap-2">
-          {/* Desktop plan pill (CTA only shows on Free) */}
+          {/* Desktop plan pill (workspace-based) */}
           <div className="hidden sm:flex items-center">
-            <PlanStatusPill />
+            <PlanPill
+              tier={tier}
+              billingStatus={billingStatus}
+              onClick={() => router.push("/settings/billing")}
+            />
+          </div>
+
+          {/* Workspace switcher on mobile (so it’s still reachable) */}
+          <div className="md:hidden">
+            <WorkspaceSwitcher />
           </div>
 
           {/* Avatar menu */}
@@ -271,10 +349,21 @@ export default function TopNav() {
               </div>
             </div>
 
+            <div className="p-3 border-b border-gray-200">
+              <div className="text-xs text-gray-500">Workspace</div>
+              <div className="mt-2">
+                <WorkspaceSwitcher />
+              </div>
+            </div>
+
             <div className="p-3">
               <div className="text-xs text-gray-500">Plan</div>
               <div className="mt-2">
-                <PlanStatusPill />
+                <PlanPill
+                  tier={tier}
+                  billingStatus={billingStatus}
+                  onClick={() => router.push("/settings/billing")}
+                />
               </div>
             </div>
           </div>

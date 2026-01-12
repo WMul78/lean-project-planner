@@ -253,9 +253,9 @@ export default function ProjectNewPage() {
   return (
     <main className="p-6 max-w-3xl mx-auto">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-2xl font-semibold">Add Project</h1>
-        <WorkspaceSwitcher />
-      </div>
+  <h1 className="text-2xl font-semibold">Add Project</h1>
+</div>
+
 
       {/* Pre-warning banner for free limit */}
       {tier === "free" && limitMsg ? (
