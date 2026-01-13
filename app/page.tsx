@@ -303,7 +303,7 @@ export default function HomePage() {
             ]}
             note="Best for small teams and startups that want planning without Lean tools."
             ctaLabel="Start Core (create account)"
-            ctaHref="/login?mode=signup&next=/settings/billing&plan=core"
+            ctaHref="/login?mode=signup&next=%2Fsettings%2Fbilling%3Fplan%3Dcore"
             highlight
           />
 
@@ -320,7 +320,7 @@ export default function HomePage() {
             ]}
             note="Best for CI / Lean teams and Operational Excellence."
             ctaLabel="Start Pro (create account)"
-            ctaHref="/login?mode=signup&next=/settings/billing&plan=pro"
+            ctaHref="/login?mode=signup&next=%2Fsettings%2Fbilling%3Fplan%3Dpro"
           />
         </div>
 

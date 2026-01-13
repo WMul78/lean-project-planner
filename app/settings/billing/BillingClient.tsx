@@ -73,7 +73,7 @@ export default function BillingClient() {
       const token = sess.session?.access_token;
       if (!token) {
         // Preserve intent: back here after login
-        router.push(`/login?mode=signin&next=/settings/billing&plan=${selectedPlan}`);
+        router.push(`/login?mode=signin&next=${encodeURIComponent(`/settings/billing?plan=${selectedPlan}`)}`);
         return;
       }
 
