@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import Button from "@/app/components/Button";
 import { supabase } from "@/lib/supabaseClient";
+import { getActiveWorkspace, WorkspaceRole } from "@/app/lib/appContext";
 
-type Role = "admin" | "owner" | "member" | "stakeholder";
-type Plan = "paid" | "free";
+type Role = WorkspaceRole; // "owner" | "admin" | "member" | "stakeholder"
+type Plan = "free" | "core" | "pro";
 
 type Capability = {
   key: string;
@@ -16,8 +17,9 @@ type Capability = {
   access: Record<Plan, Record<Role, boolean>>;
 };
 
-type SubRow = {
+type WsSubRow = {
   status: string;
+  tier: Plan;
   trial_ends_at: string | null;
   current_period_ends_at: string | null;
   ends_at: string | null;
@@ -63,189 +65,220 @@ function formatDateTime(value: string | null) {
   return d.toLocaleString();
 }
 
-function statusBadge(status: string) {
-  switch (status) {
-    case "active":
-      return { text: "Pro (active)", cls: "bg-emerald-50 text-emerald-800 border-emerald-200" };
-    case "on_trial":
-      return { text: "Pro (trial)", cls: "bg-blue-50 text-blue-800 border-blue-200" };
-    case "paused":
-      return { text: "Paused", cls: "bg-violet-50 text-violet-800 border-violet-200" };
-    case "cancelled":
-      return { text: "Cancelled", cls: "bg-rose-50 text-rose-800 border-rose-200" };
-    case "expired":
-      return { text: "Expired", cls: "bg-gray-50 text-gray-700 border-gray-200" };
-    case "inactive":
-    default:
-      return { text: "Free", cls: "bg-amber-50 text-amber-900 border-amber-200" };
-  }
+function statusBadge(tier: Plan, status: string) {
+  // tier first, status second (trial/paused/cancel)
+  const base =
+    tier === "pro"
+      ? { text: "Pro", cls: "bg-violet-50 text-violet-800 border-violet-200" }
+      : tier === "core"
+        ? { text: "Core", cls: "bg-blue-50 text-blue-800 border-blue-200" }
+        : { text: "Free", cls: "bg-amber-50 text-amber-900 border-amber-200" };
+
+  if (tier === "free") return base;
+
+  if (status === "on_trial") return { text: `${base.text} (trial)`, cls: base.cls };
+  if (status === "paused") return { text: `${base.text} (paused)`, cls: "bg-gray-50 text-gray-800 border-gray-200" };
+  if (status === "cancelled") return { text: `${base.text} (cancelled)`, cls: "bg-rose-50 text-rose-800 border-rose-200" };
+  if (status === "expired") return { text: `Free (expired)`, cls: "bg-gray-50 text-gray-700 border-gray-200" };
+
+  return { text: `${base.text} (active)`, cls: "bg-emerald-50 text-emerald-800 border-emerald-200" };
+}
+
+function encodeNext(path: string) {
+  return encodeURIComponent(path);
 }
 
 export default function PricingClient() {
   const router = useRouter();
 
-  const [checkingSession, setCheckingSession] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  const [sub, setSub] = useState<SubRow | null>(null);
+  const [loggedIn, setLoggedIn] = useState<boolean>(false);
+
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const [role, setRole] = useState<Role>("member");
+
+  const [sub, setSub] = useState<WsSubRow | null>(null);
   const [subLoading, setSubLoading] = useState(true);
 
-  // ---- Auth gate (members-only) ----
-  useEffect(() => {
-    let cancelled = false;
-
-    async function run() {
-      const { data } = await supabase.auth.getSession();
-      if (cancelled) return;
-
-      if (!data.session) {
-        router.replace("/login?next=/pricing");
-        return;
-      }
-      setCheckingSession(false);
-    }
-
-    run();
-
-    const { data: subAuth } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (cancelled) return;
-
-      if (!session) {
-        router.replace("/login?next=/pricing");
-        return;
-      }
-      setCheckingSession(false);
-    });
-
-    return () => {
-      cancelled = true;
-      subAuth.subscription.unsubscribe();
-    };
-  }, [router]);
-
-  async function loadSub() {
-    setSubLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from("user_subscriptions")
-        .select("status,trial_ends_at,current_period_ends_at,ends_at,cancelled")
-        .maybeSingle();
-
-      if (error) console.warn("Load subscription failed:", error);
-      setSub((data as any) ?? null);
-    } finally {
-      setSubLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    // Only load subscription after session gate resolves (prevents unnecessary requests).
-    if (checkingSession) return;
-    loadSub();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [checkingSession]);
+  // Plan chooser on pricing page (for checkout)
+  const [selectedPlan, setSelectedPlan] = useState<Exclude<Plan, "free">>("core");
 
   const roles: Role[] = ["admin", "owner", "member", "stakeholder"];
 
-  // Permissions matrix: EXACTLY your setup
+  // Capabilities matrix aligned to your strategy:
+  // - Everyone in workspace can view + propose (free/core/pro)
+  // - Only core/pro and role in admin/owner/member can edit/manage
+  // - Stakeholder always read-only
+  // - Lean tools only Pro (admin/owner/member)
   const capabilities: Capability[] = useMemo(
     () => [
-      {
-        key: "workspace_edit",
-        label: "Edit workspace",
-        description: "Admin-only on Pro. Disabled for all roles on Free.",
-        access: {
-          paid: { admin: true, owner: false, member: false, stakeholder: false },
-          free: { admin: false, owner: false, member: false, stakeholder: false },
-        },
-      },
       {
         key: "projects_view",
         label: "View projects",
         access: {
-          paid: { admin: true, owner: true, member: true, stakeholder: true },
           free: { admin: true, owner: true, member: true, stakeholder: true },
+          core: { admin: true, owner: true, member: true, stakeholder: true },
+          pro: { admin: true, owner: true, member: true, stakeholder: true },
         },
       },
       {
         key: "projects_propose",
         label: "Propose projects",
-        description: "Create proposals. Editing is Pro-only.",
+        description: "Submit improvement proposals (status: proposed).",
         access: {
-          paid: { admin: true, owner: true, member: true, stakeholder: true },
           free: { admin: true, owner: true, member: true, stakeholder: true },
+          core: { admin: true, owner: true, member: true, stakeholder: true },
+          pro: { admin: true, owner: true, member: true, stakeholder: true },
         },
       },
       {
         key: "projects_edit",
         label: "Edit projects",
+        description: "Move proposed → active, edit fields, close/archive.",
         access: {
-          paid: { admin: true, owner: true, member: true, stakeholder: false },
           free: { admin: false, owner: false, member: false, stakeholder: false },
+          core: { admin: true, owner: true, member: true, stakeholder: false },
+          pro: { admin: true, owner: true, member: true, stakeholder: false },
         },
       },
       {
         key: "tasks_manage",
         label: "Create & edit tasks",
         access: {
-          paid: { admin: true, owner: true, member: true, stakeholder: false },
           free: { admin: false, owner: false, member: false, stakeholder: false },
+          core: { admin: true, owner: true, member: true, stakeholder: false },
+          pro: { admin: true, owner: true, member: true, stakeholder: false },
         },
       },
       {
         key: "hours_add",
         label: "Add hours",
         access: {
-          paid: { admin: true, owner: true, member: true, stakeholder: false },
           free: { admin: false, owner: false, member: false, stakeholder: false },
+          core: { admin: true, owner: true, member: true, stakeholder: false },
+          pro: { admin: true, owner: true, member: true, stakeholder: false },
         },
       },
       {
         key: "kanban_view",
         label: "View Kanban",
         access: {
-          paid: { admin: true, owner: true, member: true, stakeholder: true },
           free: { admin: true, owner: true, member: true, stakeholder: true },
+          core: { admin: true, owner: true, member: true, stakeholder: true },
+          pro: { admin: true, owner: true, member: true, stakeholder: true },
         },
       },
       {
         key: "kanban_edit",
-        label: "Edit Kanban",
+        label: "Edit Kanban (move project status)",
         access: {
-          paid: { admin: true, owner: true, member: true, stakeholder: false },
           free: { admin: false, owner: false, member: false, stakeholder: false },
+          core: { admin: true, owner: true, member: true, stakeholder: false },
+          pro: { admin: true, owner: true, member: true, stakeholder: false },
         },
       },
       {
-        key: "gantt_view",
-        label: "View Gantt chart",
+        key: "gantt",
+        label: "Gantt planning",
+        description: "Planning view for active projects.",
         access: {
-          paid: { admin: true, owner: true, member: true, stakeholder: true },
-          free: { admin: true, owner: true, member: true, stakeholder: true },
+          free: { admin: true, owner: true, member: true, stakeholder: true }, // you currently show it for all; adjust if you want to gate it
+          core: { admin: true, owner: true, member: true, stakeholder: true },
+          pro: { admin: true, owner: true, member: true, stakeholder: true },
+        },
+      },
+      {
+        key: "lean_tools",
+        label: "Lean tools (5x Why, Ishikawa, A3, Charter, VSM)",
+        description: "Available only on Pro for execution roles.",
+        access: {
+          free: { admin: false, owner: false, member: false, stakeholder: false },
+          core: { admin: false, owner: false, member: false, stakeholder: false },
+          pro: { admin: true, owner: true, member: true, stakeholder: false },
         },
       },
     ],
     []
   );
 
-  const status = sub?.status ?? "inactive";
-  const isPaid = status === "active" || status === "on_trial" || status === "paused";
-  const s = statusBadge(status);
+  async function refreshAuthAndWorkspace() {
+    const { data } = await supabase.auth.getUser();
+    const user = data.user;
+    setLoggedIn(!!user);
 
-  async function startCheckout() {
+    if (!user) {
+      setWorkspaceId(null);
+      setRole("member");
+      setSub(null);
+      setSubLoading(false);
+      return;
+    }
+
+    const ws = await getActiveWorkspace();
+    if (!ws?.workspaceId) {
+      setWorkspaceId(null);
+      setRole("member");
+      setSub(null);
+      setSubLoading(false);
+      return;
+    }
+
+    setWorkspaceId(ws.workspaceId);
+    setRole(ws.role ?? "member");
+
+    // Load workspace subscription
+    setSubLoading(true);
+    const { data: subRow, error } = await supabase
+      .from("workspace_subscriptions")
+      .select("status,tier,trial_ends_at,current_period_ends_at,ends_at,cancelled")
+      .eq("workspace_id", ws.workspaceId)
+      .maybeSingle();
+
+    if (error) console.warn("Load workspace subscription failed:", error);
+    setSub((subRow as any) ?? null);
+    setSubLoading(false);
+  }
+
+  useEffect(() => {
+    refreshAuthAndWorkspace();
+
+    const { data: subAuth } = supabase.auth.onAuthStateChange(() => {
+      refreshAuthAndWorkspace();
+    });
+
+    const handler = () => refreshAuthAndWorkspace();
+    window.addEventListener("workspace-changed", handler);
+
+    return () => {
+      subAuth.subscription.unsubscribe();
+      window.removeEventListener("workspace-changed", handler);
+    };
+  }, []);
+
+  const tier: Plan = sub?.tier ?? "free";
+  const status = sub?.status ?? "inactive";
+  const badge = statusBadge(tier, status);
+
+  async function startCheckout(plan: Exclude<Plan, "free">) {
     setBusy(true);
     try {
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
 
       if (!token) {
-        router.replace("/login?next=/pricing");
+        // keep intent: after signup go straight to billing with plan preselected
+        router.push(`/login?mode=signup&next=${encodeNext(`/settings/billing?plan=${plan}`)}`);
         return;
       }
 
       const res = await fetch("/api/billing/checkout", {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ plan }),
       });
 
       const json = await res.json();
@@ -258,14 +291,6 @@ export default function PricingClient() {
     } finally {
       setBusy(false);
     }
-  }
-
-  if (checkingSession) {
-    return (
-      <main className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
-        <div className="text-gray-600">Loading…</div>
-      </main>
-    );
   }
 
   return (
@@ -281,29 +306,36 @@ export default function PricingClient() {
         {/* Header */}
         <header className="border-b border-gray-200 bg-white/80 backdrop-blur">
           <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-3">
-            <Link href="/projects" className="font-semibold text-gray-900">
+            <Link href="/" className="font-semibold text-gray-900">
               Improvica
             </Link>
 
             <nav className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                onClick={() => router.push("/projects")}
-                className="px-3 py-1.5 text-xs"
-              >
-                Back to app
-              </Button>
-
-              {!isPaid ? (
-                <Button
-                  variant="cta"
-                  disabled={busy}
-                  onClick={startCheckout}
-                  className="px-3 py-1.5 text-xs"
-                >
-                  {busy ? "Redirecting…" : "Start trial"}
-                </Button>
-              ) : null}
+              {loggedIn ? (
+                <>
+                  <Button variant="outline" onClick={() => router.push("/projects")} className="px-3 py-1.5 text-xs">
+                    Back to app
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => router.push("/settings/billing")}
+                    className="px-3 py-1.5 text-xs"
+                  >
+                    Billing settings
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Link href="/login?mode=signin&next=/projects">
+                    <Button variant="outline" className="px-3 py-1.5 text-xs">
+                      Log in
+                    </Button>
+                  </Link>
+                  <Link href="/login?mode=signup&next=/projects">
+                    <Button className="px-3 py-1.5 text-xs">Create account</Button>
+                  </Link>
+                </>
+              )}
             </nav>
           </div>
         </header>
@@ -311,35 +343,36 @@ export default function PricingClient() {
         {/* Content */}
         <section className="max-w-6xl mx-auto px-6 py-12">
           {/* Hero */}
-          <div className="max-w-2xl">
+          <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50/70 px-3 py-1 text-xs text-blue-700 shadow-sm">
-              <span className="font-semibold">Pro</span>
-              <span>€24 / month</span>
-              <span className="text-blue-700/80">• 14-day free trial</span>
+              <span className="font-semibold">Workspace plans</span>
+              <span className="text-blue-700/80">Pay per workspace — invite stakeholders for free</span>
             </div>
 
             <h1 className="mt-4 text-4xl font-semibold tracking-tight text-gray-900">
-              Pricing, permissions & your plan
+              Pricing & permissions
             </h1>
             <p className="mt-3 text-gray-600 leading-relaxed">
-              Free is ideal for viewing and proposing. Pro unlocks execution features (editing, tasks, hours, Kanban edits)
-              based on role — exactly as configured in your app.
+              Free is ideal for viewing and proposing improvements. Core unlocks unlimited active projects.
+              Pro adds Lean tools for structured problem solving.
             </p>
           </div>
 
-          {/* Current plan + helper */}
-          <div className="mt-8 grid gap-4 md:grid-cols-3">
-            {/* Current plan card */}
-            <div className="md:col-span-2 border border-gray-200 rounded-2xl bg-white shadow-sm overflow-hidden">
+          {/* Current workspace plan (only if logged in) */}
+          {loggedIn ? (
+            <div className="mt-8 border border-gray-200 rounded-2xl bg-white shadow-sm overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
                 <div className="flex items-start sm:items-center justify-between gap-3">
                   <div>
-                    <div className="font-medium text-gray-900">Current plan</div>
-                    <div className="text-sm text-gray-600">Your subscription status for this account.</div>
+                    <div className="font-medium text-gray-900">Current workspace</div>
+                    <div className="text-sm text-gray-600">
+                      {workspaceId ? `Workspace: ${workspaceId.slice(0, 8)}…` : "No active workspace selected."}
+                      <span className="ml-2">Role: {role}</span>
+                    </div>
                   </div>
 
-                  <div className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${s.cls}`}>
-                    {s.text}
+                  <div className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${badge.cls}`}>
+                    {badge.text}
                   </div>
                 </div>
               </div>
@@ -369,133 +402,130 @@ export default function PricingClient() {
                         <span className="font-medium">{formatDateTime(sub.ends_at)}</span>
                       </div>
                     ) : null}
-
-                    <div className="flex items-center justify-between gap-3 pt-2">
-                      <span className="text-gray-600">Access</span>
-                      {isPaid ? (
-                        <span className="font-medium text-emerald-700">Paid features enabled</span>
-                      ) : (
-                        <span className="font-medium text-amber-700">Free plan (paid features locked)</span>
-                      )}
-                    </div>
-
-                    {sub?.cancelled ? (
-                      <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 text-xs">
-                        This subscription is marked as cancelled.
-                      </div>
-                    ) : null}
                   </div>
                 )}
 
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {!isPaid ? (
-                    <Button variant="cta" disabled={busy} onClick={startCheckout}>
-                      {busy ? "Redirecting…" : "Start 14-day free trial"}
-                    </Button>
-                  ) : null}
-
-                  <Button variant="outline" onClick={loadSub} disabled={busy}>
+                  <Button variant="outline" onClick={refreshAuthAndWorkspace} disabled={busy}>
                     Refresh status
                   </Button>
-
-                  <Button variant="outline" onClick={() => router.push("/settings/billing")}>
-                    Billing settings
+                  <Button variant="outline" onClick={() => router.push("/settings/billing")} disabled={busy}>
+                    Open billing settings
                   </Button>
                 </div>
               </div>
             </div>
-
-            {/* Tip card */}
-            <div className="border border-blue-100 rounded-2xl bg-blue-50/60 p-5">
-              <div className="font-semibold text-gray-900">What changes with Pro?</div>
-              <div className="mt-2 text-sm text-gray-700 leading-relaxed">
-                Free users can view projects, Kanban and Gantt and propose projects.
-                Pro unlocks editing, tasks, hours and Kanban updates — role-based.
-              </div>
-
-              {!isPaid ? (
-                <div className="mt-4">
-                  <Button variant="cta" disabled={busy} onClick={startCheckout}>
-                    {busy ? "Redirecting…" : "Start trial"}
-                  </Button>
-                </div>
-              ) : (
-                <div className="mt-4 text-sm text-gray-700">
-                  You’re on Pro — enjoy the unlocked features.
-                </div>
-              )}
-            </div>
-          </div>
+          ) : null}
 
           {/* Pricing cards */}
-          <div className="mt-10 grid gap-4 md:grid-cols-2">
+          <div className="mt-10 grid gap-4 md:grid-cols-3">
             {/* Free */}
             <div className="border border-gray-200 rounded-2xl p-6 bg-white shadow-sm">
               <div className="text-sm text-gray-500">Free</div>
               <div className="mt-1 text-3xl font-semibold text-gray-900">€0</div>
-              <div className="mt-1 text-sm text-gray-600">View & propose. No editing.</div>
+              <div className="mt-1 text-sm text-gray-600">Proposals + limited active execution.</div>
 
               <ul className="mt-6 grid gap-2 text-sm text-gray-700">
                 <li className="flex items-center justify-between">
-                  <span>View projects / Kanban / Gantt</span> <BadgeYes />
+                  <span>Unlimited proposals</span> <BadgeYes />
                 </li>
                 <li className="flex items-center justify-between">
-                  <span>Propose projects</span> <BadgeYes />
+                  <span>Up to 2 active projects</span> <BadgeYes />
                 </li>
                 <li className="flex items-center justify-between">
                   <span>Edit projects / tasks / hours</span> <BadgeNo />
                 </li>
                 <li className="flex items-center justify-between">
-                  <span>Edit Kanban</span> <BadgeNo />
+                  <span>Lean tools</span> <BadgeNo />
                 </li>
               </ul>
+
+              <div className="mt-6">
+                {!loggedIn ? (
+                  <Link href="/login?mode=signup&next=/projects">
+                    <Button className="w-full">Start Free</Button>
+                  </Link>
+                ) : (
+                  <Button variant="outline" className="w-full" onClick={() => router.push("/projects")}>
+                    Go to app
+                  </Button>
+                )}
+              </div>
             </div>
 
-            {/* Pro */}
+            {/* Core */}
             <div className="border border-blue-200 rounded-2xl p-6 bg-white shadow-sm ring-1 ring-blue-200">
               <div className="flex items-center justify-between gap-2">
-                <div className="text-sm text-blue-700 font-semibold">Pro</div>
+                <div className="text-sm text-blue-700 font-semibold">Core</div>
                 <div className="text-xs text-blue-700 bg-blue-50 border border-blue-100 px-2 py-1 rounded-full">
-                  Best value
+                  Most popular
                 </div>
               </div>
 
-              <div className="mt-1 text-3xl font-semibold text-gray-900">€24 / month</div>
-              <div className="mt-1 text-sm text-gray-600">
-                Unlock execution features with role-based control.
-              </div>
+              <div className="mt-1 text-3xl font-semibold text-gray-900">€9 / month</div>
+              <div className="mt-1 text-sm text-gray-600">Unlimited active projects for your workspace.</div>
 
               <ul className="mt-6 grid gap-2 text-sm text-gray-700">
                 <li className="flex items-center justify-between">
-                  <span>Editing (Admin/Owner/Member)</span> <BadgeYes />
+                  <span>Unlimited active projects</span> <BadgeYes />
                 </li>
                 <li className="flex items-center justify-between">
-                  <span>Tasks & hours tracking</span> <BadgeYes />
+                  <span>Projects + tasks + hours</span> <BadgeYes />
                 </li>
                 <li className="flex items-center justify-between">
-                  <span>Stakeholders stay view-only</span>{" "}
-                  <span className="text-xs text-gray-500">by design</span>
+                  <span>Kanban edits (execution roles)</span> <BadgeYes />
+                </li>
+                <li className="flex items-center justify-between">
+                  <span>Lean tools</span> <BadgeNo />
                 </li>
               </ul>
 
-              {!isPaid ? (
-                <div className="mt-6 grid gap-2">
-                  <Button variant="cta" disabled={busy} onClick={startCheckout} className="w-full">
-                    {busy ? "Redirecting…" : "Start 14-day free trial"}
-                  </Button>
-                  <div className="text-xs text-gray-500 text-center">
-                    You can manage your plan in{" "}
-                    <Link className="underline" href="/settings/billing">
-                      Billing settings
-                    </Link>
-                    .
-                  </div>
+              <div className="mt-6 grid gap-2">
+                <Button
+                  disabled={busy}
+                  onClick={() => startCheckout("core")}
+                  className="w-full"
+                >
+                  {busy ? "Redirecting…" : "Start Core trial"}
+                </Button>
+
+                <div className="text-xs text-gray-500 text-center">
+                  You’ll create an account first if you’re not signed in.
                 </div>
-              ) : (
-                <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
-                  You already have Pro access.
+              </div>
+            </div>
+
+            {/* Pro */}
+            <div className="border border-gray-200 rounded-2xl p-6 bg-white shadow-sm">
+              <div className="text-sm text-gray-500 font-semibold">Pro</div>
+              <div className="mt-1 text-3xl font-semibold text-gray-900">€24 / month</div>
+              <div className="mt-1 text-sm text-gray-600">Lean tools for continuous improvement teams.</div>
+
+              <ul className="mt-6 grid gap-2 text-sm text-gray-700">
+                <li className="flex items-center justify-between">
+                  <span>Everything in Core</span> <BadgeYes />
+                </li>
+                <li className="flex items-center justify-between">
+                  <span>Lean tools (5x Why, Ishikawa, A3…)</span> <BadgeYes />
+                </li>
+                <li className="flex items-center justify-between">
+                  <span>Templates & structured analysis</span> <BadgeYes />
+                </li>
+              </ul>
+
+              <div className="mt-6 grid gap-2">
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => startCheckout("pro")}
+                  className="w-full"
+                >
+                  {busy ? "Redirecting…" : "Start Pro trial"}
+                </Button>
+                <div className="text-xs text-gray-500 text-center">
+                  Pro is best if you want Lean tools.
                 </div>
-              )}
+              </div>
             </div>
           </div>
 
@@ -503,30 +533,41 @@ export default function PricingClient() {
           <div className="mt-12 border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm">
             <div className="px-6 py-4 bg-gradient-to-r from-blue-50/80 to-white border-b border-gray-200">
               <div className="font-medium text-gray-900">Permissions overview</div>
-              <div className="text-sm text-gray-600">Exact access by plan and role.</div>
+              <div className="text-sm text-gray-600">Access by plan and role.</div>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="min-w-[980px] w-full text-sm">
+              <table className="min-w-[1100px] w-full text-sm">
                 <thead>
                   <tr className="text-left">
                     <th className="p-4 border-b border-gray-200 bg-white">Capability</th>
-                    <th className="p-4 border-b border-gray-200 bg-blue-50/70" colSpan={4}>
-                      Improvica Pro
-                    </th>
+
                     <th className="p-4 border-b border-gray-200 bg-gray-50" colSpan={4}>
-                      Improvica Free
+                      Free
+                    </th>
+                    <th className="p-4 border-b border-gray-200 bg-blue-50/70" colSpan={4}>
+                      Core
+                    </th>
+                    <th className="p-4 border-b border-gray-200 bg-violet-50/70" colSpan={4}>
+                      Pro
                     </th>
                   </tr>
+
                   <tr className="text-left">
                     <th className="p-4 border-b border-gray-200 bg-white"></th>
+
                     {roles.map((r) => (
-                      <th key={`paid-${r}`} className="p-4 border-b border-gray-200 bg-blue-50/50">
+                      <th key={`free-${r}`} className="p-4 border-b border-gray-200 bg-gray-50/70">
                         <RoleChip role={r} />
                       </th>
                     ))}
                     {roles.map((r) => (
-                      <th key={`free-${r}`} className="p-4 border-b border-gray-200 bg-gray-50/70">
+                      <th key={`core-${r}`} className="p-4 border-b border-gray-200 bg-blue-50/50">
+                        <RoleChip role={r} />
+                      </th>
+                    ))}
+                    {roles.map((r) => (
+                      <th key={`pro-${r}`} className="p-4 border-b border-gray-200 bg-violet-50/40">
                         <RoleChip role={r} />
                       </th>
                     ))}
@@ -538,17 +579,26 @@ export default function PricingClient() {
                     <tr key={c.key} className="align-top">
                       <td className="p-4 border-b border-gray-200 bg-white">
                         <div className="font-medium text-gray-900">{c.label}</div>
-                        {c.description ? <div className="mt-1 text-xs text-gray-500">{c.description}</div> : null}
+                        {c.description ? (
+                          <div className="mt-1 text-xs text-gray-500">{c.description}</div>
+                        ) : null}
                       </td>
 
                       {roles.map((r) => (
-                        <td key={`paid-${c.key}-${r}`} className="p-4 border-b border-gray-200 bg-blue-50/30">
-                          {c.access.paid[r] ? <BadgeYes /> : <BadgeNo />}
-                        </td>
-                      ))}
-                      {roles.map((r) => (
                         <td key={`free-${c.key}-${r}`} className="p-4 border-b border-gray-200 bg-gray-50/40">
                           {c.access.free[r] ? <BadgeYes /> : <BadgeNo />}
+                        </td>
+                      ))}
+
+                      {roles.map((r) => (
+                        <td key={`core-${c.key}-${r}`} className="p-4 border-b border-gray-200 bg-blue-50/30">
+                          {c.access.core[r] ? <BadgeYes /> : <BadgeNo />}
+                        </td>
+                      ))}
+
+                      {roles.map((r) => (
+                        <td key={`pro-${c.key}-${r}`} className="p-4 border-b border-gray-200 bg-violet-50/20">
+                          {c.access.pro[r] ? <BadgeYes /> : <BadgeNo />}
                         </td>
                       ))}
                     </tr>
@@ -559,17 +609,29 @@ export default function PricingClient() {
           </div>
 
           {/* Bottom CTA */}
-          {!isPaid ? (
-            <div className="mt-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border border-blue-100 rounded-2xl p-6 bg-blue-50/60 shadow-sm">
-              <div>
-                <div className="font-semibold text-gray-900">Ready to unlock execution?</div>
-                <div className="text-sm text-gray-600">Start Pro with a 14-day free trial. €24/month after.</div>
+          <div className="mt-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border border-blue-100 rounded-2xl p-6 bg-blue-50/60 shadow-sm">
+            <div>
+              <div className="font-semibold text-gray-900">Ready to upgrade your workspace?</div>
+              <div className="text-sm text-gray-600">
+                Pick Core for unlimited projects, or Pro for Lean tools.
               </div>
-              <Button variant="cta" disabled={busy} onClick={startCheckout}>
-                {busy ? "Redirecting…" : "Start free trial"}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <select
+                className="border rounded-xl px-3 py-2 text-sm bg-white"
+                value={selectedPlan}
+                onChange={(e) => setSelectedPlan(e.target.value as any)}
+              >
+                <option value="core">Core (€9)</option>
+                <option value="pro">Pro (€24)</option>
+              </select>
+
+              <Button disabled={busy} onClick={() => startCheckout(selectedPlan)}>
+                {busy ? "Redirecting…" : "Start trial"}
               </Button>
             </div>
-          ) : null}
+          </div>
         </section>
 
         {/* Footer */}
@@ -581,7 +643,7 @@ export default function PricingClient() {
                 App
               </Link>
               <Link className="hover:text-gray-800" href="/settings/billing">
-                Billing settings
+                Billing
               </Link>
             </div>
           </div>
