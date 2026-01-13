@@ -5,16 +5,16 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import Button from "@/app/components/Button";
 import { supabase } from "@/lib/supabaseClient";
-import { getActiveWorkspace, WorkspaceRole } from "@/app/lib/appContext";
+import { getActiveWorkspace } from "@/app/lib/appContext";
+import PublicHeader from "@/app/components/PublicHeader";
 
-type Role = WorkspaceRole; // "owner" | "admin" | "member" | "stakeholder"
 type Plan = "free" | "core" | "pro";
 
 type Capability = {
   key: string;
   label: string;
   description?: string;
-  access: Record<Plan, Record<Role, boolean>>;
+  access: Record<Plan, boolean>;
 };
 
 type WsSubRow = {
@@ -42,22 +42,6 @@ function BadgeNo() {
   );
 }
 
-function RoleChip({ role }: { role: Role }) {
-  const map: Record<Role, { label: string; cls: string }> = {
-    admin: { label: "Admin", cls: "bg-blue-50 text-blue-700 border-blue-100" },
-    owner: { label: "Owner", cls: "bg-violet-50 text-violet-700 border-violet-100" },
-    member: { label: "Member", cls: "bg-sky-50 text-sky-700 border-sky-100" },
-    stakeholder: { label: "Stakeholder", cls: "bg-amber-50 text-amber-700 border-amber-100" },
-  };
-
-  const m = map[role];
-  return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${m.cls}`}>
-      {m.label}
-    </span>
-  );
-}
-
 function formatDateTime(value: string | null) {
   if (!value) return null;
   const d = new Date(value);
@@ -66,22 +50,21 @@ function formatDateTime(value: string | null) {
 }
 
 function statusBadge(tier: Plan, status: string) {
-  // tier first, status second (trial/paused/cancel)
   const base =
     tier === "pro"
-      ? { text: "Pro", cls: "bg-violet-50 text-violet-800 border-violet-200" }
+      ? { text: "PRO", cls: "bg-violet-50 text-violet-800 border-violet-200" }
       : tier === "core"
-        ? { text: "Core", cls: "bg-blue-50 text-blue-800 border-blue-200" }
-        : { text: "Free", cls: "bg-amber-50 text-amber-900 border-amber-200" };
+      ? { text: "CORE", cls: "bg-blue-50 text-blue-800 border-blue-200" }
+      : { text: "FREE", cls: "bg-amber-50 text-amber-900 border-amber-200" };
 
   if (tier === "free") return base;
 
-  if (status === "on_trial") return { text: `${base.text} (trial)`, cls: base.cls };
-  if (status === "paused") return { text: `${base.text} (paused)`, cls: "bg-gray-50 text-gray-800 border-gray-200" };
-  if (status === "cancelled") return { text: `${base.text} (cancelled)`, cls: "bg-rose-50 text-rose-800 border-rose-200" };
-  if (status === "expired") return { text: `Free (expired)`, cls: "bg-gray-50 text-gray-700 border-gray-200" };
+  if (status === "on_trial") return { text: `${base.text} • Trial`, cls: base.cls };
+  if (status === "paused") return { text: `${base.text} • Paused`, cls: "bg-gray-50 text-gray-800 border-gray-200" };
+  if (status === "cancelled") return { text: `${base.text} • Cancelled`, cls: "bg-rose-50 text-rose-800 border-rose-200" };
+  if (status === "expired") return { text: "FREE • Expired", cls: "bg-gray-50 text-gray-700 border-gray-200" };
 
-  return { text: `${base.text} (active)`, cls: "bg-emerald-50 text-emerald-800 border-emerald-200" };
+  return { text: `${base.text} • Active`, cls: "bg-emerald-50 text-emerald-800 border-emerald-200" };
 }
 
 function encodeNext(path: string) {
@@ -92,125 +75,60 @@ export default function PricingClient() {
   const router = useRouter();
 
   const [busy, setBusy] = useState(false);
-
-  const [loggedIn, setLoggedIn] = useState<boolean>(false);
+  const [loggedIn, setLoggedIn] = useState(false);
 
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
-  const [role, setRole] = useState<Role>("member");
+  const [workspaceName, setWorkspaceName] = useState<string | null>(null);
 
   const [sub, setSub] = useState<WsSubRow | null>(null);
   const [subLoading, setSubLoading] = useState(true);
-  const [workspaceName, setWorkspaceName] = useState<string | null>(null);
 
-  // Plan chooser on pricing page (for checkout)
+  // Optional: chooser at bottom CTA
   const [selectedPlan, setSelectedPlan] = useState<Exclude<Plan, "free">>("core");
 
-  const roles: Role[] = ["admin", "owner", "member", "stakeholder"];
-
-  // Capabilities matrix aligned to your strategy:
-  // - Everyone in workspace can view + propose (free/core/pro)
-  // - Only core/pro and role in admin/owner/member can edit/manage
-  // - Stakeholder always read-only
-  // - Lean tools only Pro (admin/owner/member)
   const capabilities: Capability[] = useMemo(
     () => [
       {
-        key: "projects_view",
-        label: "View projects",
-        access: {
-          free: { admin: true, owner: true, member: true, stakeholder: true },
-          core: { admin: true, owner: true, member: true, stakeholder: true },
-          pro: { admin: true, owner: true, member: true, stakeholder: true },
-        },
+        key: "view",
+        label: "View projects / Kanban / Gantt",
+        access: { free: true, core: true, pro: true },
       },
       {
-        key: "projects_propose",
+        key: "propose",
         label: "Propose projects",
         description: "Submit improvement proposals (status: proposed).",
-        access: {
-          free: { admin: true, owner: true, member: true, stakeholder: true },
-          core: { admin: true, owner: true, member: true, stakeholder: true },
-          pro: { admin: true, owner: true, member: true, stakeholder: true },
-        },
+        access: { free: true, core: true, pro: true },
       },
       {
-        key: "projects_edit",
-        label: "Edit projects",
-        description: "Move proposed → active, edit fields, close/archive.",
-        access: {
-          free: { admin: false, owner: false, member: false, stakeholder: false },
-          core: { admin: true, owner: true, member: true, stakeholder: false },
-          pro: { admin: true, owner: true, member: true, stakeholder: false },
-        },
-      },
-      {
-        key: "tasks_manage",
-        label: "Create & edit tasks",
-        access: {
-          free: { admin: false, owner: false, member: false, stakeholder: false },
-          core: { admin: true, owner: true, member: true, stakeholder: false },
-          pro: { admin: true, owner: true, member: true, stakeholder: false },
-        },
-      },
-      {
-        key: "hours_add",
-        label: "Add hours",
-        access: {
-          free: { admin: false, owner: false, member: false, stakeholder: false },
-          core: { admin: true, owner: true, member: true, stakeholder: false },
-          pro: { admin: true, owner: true, member: true, stakeholder: false },
-        },
-      },
-      {
-        key: "kanban_view",
-        label: "View Kanban",
-        access: {
-          free: { admin: true, owner: true, member: true, stakeholder: true },
-          core: { admin: true, owner: true, member: true, stakeholder: true },
-          pro: { admin: true, owner: true, member: true, stakeholder: true },
-        },
+        key: "execute",
+        label: "Edit projects + manage tasks + add hours",
+        description: "Execution features for workspace members (stakeholders remain read-only).",
+        access: { free: false, core: true, pro: true },
       },
       {
         key: "kanban_edit",
-        label: "Edit Kanban (move project status)",
-        access: {
-          free: { admin: false, owner: false, member: false, stakeholder: false },
-          core: { admin: true, owner: true, member: true, stakeholder: false },
-          pro: { admin: true, owner: true, member: true, stakeholder: false },
-        },
-      },
-      {
-        key: "gantt",
-        label: "Gantt planning",
-        description: "Planning view for active projects.",
-        access: {
-          free: { admin: true, owner: true, member: true, stakeholder: true }, // you currently show it for all; adjust if you want to gate it
-          core: { admin: true, owner: true, member: true, stakeholder: true },
-          pro: { admin: true, owner: true, member: true, stakeholder: true },
-        },
+        label: "Change project status in Kanban",
+        access: { free: false, core: true, pro: true },
       },
       {
         key: "lean_tools",
         label: "Lean tools (5x Why, Ishikawa, A3, Charter, VSM)",
-        description: "Available only on Pro for execution roles.",
-        access: {
-          free: { admin: false, owner: false, member: false, stakeholder: false },
-          core: { admin: false, owner: false, member: false, stakeholder: false },
-          pro: { admin: true, owner: true, member: true, stakeholder: false },
-        },
+        description: "Unlocked on Pro.",
+        access: { free: false, core: false, pro: true },
       },
     ],
     []
   );
 
-  async function refreshAuthAndWorkspace() {
+  async function refresh() {
+    // Auth state
     const { data } = await supabase.auth.getUser();
     const user = data.user;
     setLoggedIn(!!user);
 
     if (!user) {
       setWorkspaceId(null);
-      setRole("member");
+      setWorkspaceName(null);
       setSub(null);
       setSubLoading(false);
       return;
@@ -219,16 +137,30 @@ export default function PricingClient() {
     const ws = await getActiveWorkspace();
     if (!ws?.workspaceId) {
       setWorkspaceId(null);
-      setRole("member");
+      setWorkspaceName(null);
       setSub(null);
       setSubLoading(false);
       return;
     }
 
     setWorkspaceId(ws.workspaceId);
-    setRole(ws.role ?? "member");
 
-    // Load workspace subscription
+    // 1) Workspace name: prefer ws.name, else fetch from DB
+    const nameFromWs = (ws as any)?.name as string | undefined;
+    if (nameFromWs && nameFromWs.trim()) {
+      setWorkspaceName(nameFromWs.trim());
+    } else {
+      const { data: wRow, error: wErr } = await supabase
+        .from("workspaces")
+        .select("name")
+        .eq("id", ws.workspaceId)
+        .maybeSingle();
+
+      if (!wErr && wRow?.name) setWorkspaceName(String(wRow.name));
+      else setWorkspaceName(null); // show nothing if not available
+    }
+
+    // 2) Workspace subscription
     setSubLoading(true);
     const { data: subRow, error } = await supabase
       .from("workspace_subscriptions")
@@ -242,13 +174,13 @@ export default function PricingClient() {
   }
 
   useEffect(() => {
-    refreshAuthAndWorkspace();
+    refresh();
 
     const { data: subAuth } = supabase.auth.onAuthStateChange(() => {
-      refreshAuthAndWorkspace();
+      refresh();
     });
 
-    const handler = () => refreshAuthAndWorkspace();
+    const handler = () => refresh();
     window.addEventListener("workspace-changed", handler);
 
     return () => {
@@ -268,7 +200,6 @@ export default function PricingClient() {
       const token = sess.session?.access_token;
 
       if (!token) {
-        // keep intent: after signup go straight to billing with plan preselected
         router.push(`/login?mode=signup&next=${encodeNext(`/settings/billing?plan=${plan}`)}`);
         return;
       }
@@ -296,53 +227,19 @@ export default function PricingClient() {
 
   return (
     <main className="min-h-screen bg-slate-50 relative overflow-hidden">
-      {/* Decorative background */}
-      <div aria-hidden className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-48 -left-48 h-[620px] w-[620px] rounded-full bg-[radial-gradient(circle_at_center,rgba(37,99,235,0.18),transparent_65%)]" />
-        <div className="absolute -bottom-56 -right-56 h-[660px] w-[660px] rounded-full bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.14),transparent_65%)]" />
-        <div className="absolute inset-0 opacity-[0.06] bg-[linear-gradient(to_right,#111827_1px,transparent_1px),linear-gradient(to_bottom,#111827_1px,transparent_1px)] bg-[size:48px_48px]" />
-      </div>
+      {/* Show public header ONLY when logged out */}
+      {!loggedIn ? <PublicHeader /> : null}
 
-      <div className="relative">
-        {/* Header */}
-        <header className="border-b border-gray-200 bg-white/80 backdrop-blur">
-          <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-3">
-            <Link href="/" className="font-semibold text-gray-900">
-              Improvica
-            </Link>
+      {/* Add padding when TopNav is visible (fixed) */}
+      <div className={loggedIn ? "pt-20" : ""}>
+        {/* Decorative background */}
+        <div aria-hidden className="pointer-events-none absolute inset-0">
+          <div className="absolute -top-48 -left-48 h-[620px] w-[620px] rounded-full bg-[radial-gradient(circle_at_center,rgba(37,99,235,0.18),transparent_65%)]" />
+          <div className="absolute -bottom-56 -right-56 h-[660px] w-[660px] rounded-full bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.14),transparent_65%)]" />
+          <div className="absolute inset-0 opacity-[0.06] bg-[linear-gradient(to_right,#111827_1px,transparent_1px),linear-gradient(to_bottom,#111827_1px,transparent_1px)] bg-[size:48px_48px]" />
+        </div>
 
-            <nav className="flex items-center gap-2">
-              {loggedIn ? (
-                <>
-                  <Button variant="outline" onClick={() => router.push("/projects")} className="px-3 py-1.5 text-xs">
-                    Back to app
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => router.push("/settings/billing")}
-                    className="px-3 py-1.5 text-xs"
-                  >
-                    Billing settings
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Link href="/login?mode=signin&next=/projects">
-                    <Button variant="outline" className="px-3 py-1.5 text-xs">
-                      Log in
-                    </Button>
-                  </Link>
-                  <Link href="/login?mode=signup&next=/projects">
-                    <Button className="px-3 py-1.5 text-xs">Create account</Button>
-                  </Link>
-                </>
-              )}
-            </nav>
-          </div>
-        </header>
-
-        {/* Content */}
-        <section className="max-w-6xl mx-auto px-6 py-12">
+        <section className="relative max-w-6xl mx-auto px-6 py-12">
           {/* Hero */}
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50/70 px-3 py-1 text-xs text-blue-700 shadow-sm">
@@ -350,12 +247,9 @@ export default function PricingClient() {
               <span className="text-blue-700/80">Pay per workspace — invite stakeholders for free</span>
             </div>
 
-            <h1 className="mt-4 text-4xl font-semibold tracking-tight text-gray-900">
-              Pricing & permissions
-            </h1>
+            <h1 className="mt-4 text-4xl font-semibold tracking-tight text-gray-900">Pricing</h1>
             <p className="mt-3 text-gray-600 leading-relaxed">
-              Free is ideal for viewing and proposing improvements. Core unlocks unlimited active projects.
-              Pro adds Lean tools for structured problem solving.
+              Free is ideal for proposals and visibility. Core unlocks unlimited active projects. Pro adds Lean tools.
             </p>
           </div>
 
@@ -367,12 +261,10 @@ export default function PricingClient() {
                   <div>
                     <div className="font-medium text-gray-900">Current workspace</div>
                     <div className="text-sm text-gray-600">
-                      {workspaceName
-                      ? `Workspace: ${workspaceName}`
-                      : workspaceId
-                      ? `Workspace: ${workspaceId.slice(0, 8)}…`
-                      : "No active workspace selected."}
-                      <span className="ml-2">Role: {role}</span>
+                      {workspaceName ? workspaceName : "—"}
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500">
+                      Stakeholders are always read-only by role.
                     </div>
                   </div>
 
@@ -411,7 +303,7 @@ export default function PricingClient() {
                 )}
 
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={refreshAuthAndWorkspace} disabled={busy}>
+                  <Button variant="outline" onClick={refresh} disabled={busy}>
                     Refresh status
                   </Button>
                   <Button variant="outline" onClick={() => router.push("/settings/billing")} disabled={busy}>
@@ -428,7 +320,7 @@ export default function PricingClient() {
             <div className="border border-gray-200 rounded-2xl p-6 bg-white shadow-sm">
               <div className="text-sm text-gray-500">Free</div>
               <div className="mt-1 text-3xl font-semibold text-gray-900">€0</div>
-              <div className="mt-1 text-sm text-gray-600">Proposals + limited active execution.</div>
+              <div className="mt-1 text-sm text-gray-600">Unlimited proposals + limited active execution.</div>
 
               <ul className="mt-6 grid gap-2 text-sm text-gray-700">
                 <li className="flex items-center justify-between">
@@ -438,7 +330,7 @@ export default function PricingClient() {
                   <span>Up to 2 active projects</span> <BadgeYes />
                 </li>
                 <li className="flex items-center justify-between">
-                  <span>Edit projects / tasks / hours</span> <BadgeNo />
+                  <span>Execution features</span> <BadgeNo />
                 </li>
                 <li className="flex items-center justify-between">
                   <span>Lean tools</span> <BadgeNo />
@@ -478,25 +370,15 @@ export default function PricingClient() {
                   <span>Projects + tasks + hours</span> <BadgeYes />
                 </li>
                 <li className="flex items-center justify-between">
-                  <span>Kanban edits (execution roles)</span> <BadgeYes />
-                </li>
-                <li className="flex items-center justify-between">
                   <span>Lean tools</span> <BadgeNo />
                 </li>
               </ul>
 
               <div className="mt-6 grid gap-2">
-                <Button
-                  disabled={busy}
-                  onClick={() => startCheckout("core")}
-                  className="w-full"
-                >
+                <Button disabled={busy} onClick={() => startCheckout("core")} className="w-full">
                   {busy ? "Redirecting…" : "Start Core trial"}
                 </Button>
-
-                <div className="text-xs text-gray-500 text-center">
-                  You’ll create an account first if you’re not signed in.
-                </div>
+                <div className="text-xs text-gray-500 text-center">Cancel anytime.</div>
               </div>
             </div>
 
@@ -511,71 +393,34 @@ export default function PricingClient() {
                   <span>Everything in Core</span> <BadgeYes />
                 </li>
                 <li className="flex items-center justify-between">
-                  <span>Lean tools (5x Why, Ishikawa, A3…)</span> <BadgeYes />
-                </li>
-                <li className="flex items-center justify-between">
-                  <span>Templates & structured analysis</span> <BadgeYes />
+                  <span>Lean tools</span> <BadgeYes />
                 </li>
               </ul>
 
               <div className="mt-6 grid gap-2">
-                <Button
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => startCheckout("pro")}
-                  className="w-full"
-                >
+                <Button variant="outline" disabled={busy} onClick={() => startCheckout("pro")} className="w-full">
                   {busy ? "Redirecting…" : "Start Pro trial"}
                 </Button>
-                <div className="text-xs text-gray-500 text-center">
-                  Pro is best if you want Lean tools.
-                </div>
+                <div className="text-xs text-gray-500 text-center">Best if you want Lean tools.</div>
               </div>
             </div>
           </div>
 
-          {/* Permissions matrix */}
+          {/* Simple plan-only matrix (no roles) */}
           <div className="mt-12 border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm">
             <div className="px-6 py-4 bg-gradient-to-r from-blue-50/80 to-white border-b border-gray-200">
-              <div className="font-medium text-gray-900">Permissions overview</div>
-              <div className="text-sm text-gray-600">Access by plan and role.</div>
+              <div className="font-medium text-gray-900">What’s included</div>
+              <div className="text-sm text-gray-600">Plan comparison (workspace-based).</div>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="min-w-[1100px] w-full text-sm">
+              <table className="min-w-[720px] w-full text-sm">
                 <thead>
                   <tr className="text-left">
                     <th className="p-4 border-b border-gray-200 bg-white">Capability</th>
-
-                    <th className="p-4 border-b border-gray-200 bg-gray-50" colSpan={4}>
-                      Free
-                    </th>
-                    <th className="p-4 border-b border-gray-200 bg-blue-50/70" colSpan={4}>
-                      Core
-                    </th>
-                    <th className="p-4 border-b border-gray-200 bg-violet-50/70" colSpan={4}>
-                      Pro
-                    </th>
-                  </tr>
-
-                  <tr className="text-left">
-                    <th className="p-4 border-b border-gray-200 bg-white"></th>
-
-                    {roles.map((r) => (
-                      <th key={`free-${r}`} className="p-4 border-b border-gray-200 bg-gray-50/70">
-                        <RoleChip role={r} />
-                      </th>
-                    ))}
-                    {roles.map((r) => (
-                      <th key={`core-${r}`} className="p-4 border-b border-gray-200 bg-blue-50/50">
-                        <RoleChip role={r} />
-                      </th>
-                    ))}
-                    {roles.map((r) => (
-                      <th key={`pro-${r}`} className="p-4 border-b border-gray-200 bg-violet-50/40">
-                        <RoleChip role={r} />
-                      </th>
-                    ))}
+                    <th className="p-4 border-b border-gray-200 bg-amber-50/60">Free</th>
+                    <th className="p-4 border-b border-gray-200 bg-blue-50/50">Core</th>
+                    <th className="p-4 border-b border-gray-200 bg-violet-50/40">Pro</th>
                   </tr>
                 </thead>
 
@@ -584,32 +429,19 @@ export default function PricingClient() {
                     <tr key={c.key} className="align-top">
                       <td className="p-4 border-b border-gray-200 bg-white">
                         <div className="font-medium text-gray-900">{c.label}</div>
-                        {c.description ? (
-                          <div className="mt-1 text-xs text-gray-500">{c.description}</div>
-                        ) : null}
+                        {c.description ? <div className="mt-1 text-xs text-gray-500">{c.description}</div> : null}
                       </td>
-
-                      {roles.map((r) => (
-                        <td key={`free-${c.key}-${r}`} className="p-4 border-b border-gray-200 bg-gray-50/40">
-                          {c.access.free[r] ? <BadgeYes /> : <BadgeNo />}
-                        </td>
-                      ))}
-
-                      {roles.map((r) => (
-                        <td key={`core-${c.key}-${r}`} className="p-4 border-b border-gray-200 bg-blue-50/30">
-                          {c.access.core[r] ? <BadgeYes /> : <BadgeNo />}
-                        </td>
-                      ))}
-
-                      {roles.map((r) => (
-                        <td key={`pro-${c.key}-${r}`} className="p-4 border-b border-gray-200 bg-violet-50/20">
-                          {c.access.pro[r] ? <BadgeYes /> : <BadgeNo />}
-                        </td>
-                      ))}
+                      <td className="p-4 border-b border-gray-200 bg-amber-50/30">{c.access.free ? <BadgeYes /> : <BadgeNo />}</td>
+                      <td className="p-4 border-b border-gray-200 bg-blue-50/20">{c.access.core ? <BadgeYes /> : <BadgeNo />}</td>
+                      <td className="p-4 border-b border-gray-200 bg-violet-50/10">{c.access.pro ? <BadgeYes /> : <BadgeNo />}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            <div className="px-6 py-4 text-xs text-gray-500">
+              Note: Workspace roles still apply. Stakeholders remain view-only by design.
             </div>
           </div>
 
@@ -617,9 +449,7 @@ export default function PricingClient() {
           <div className="mt-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border border-blue-100 rounded-2xl p-6 bg-blue-50/60 shadow-sm">
             <div>
               <div className="font-semibold text-gray-900">Ready to upgrade your workspace?</div>
-              <div className="text-sm text-gray-600">
-                Pick Core for unlimited projects, or Pro for Lean tools.
-              </div>
+              <div className="text-sm text-gray-600">Pick Core for unlimited projects, or Pro for Lean tools.</div>
             </div>
 
             <div className="flex items-center gap-2">
@@ -639,7 +469,6 @@ export default function PricingClient() {
           </div>
         </section>
 
-        {/* Footer */}
         <footer className="bg-white/80 border-t border-gray-200">
           <div className="max-w-6xl mx-auto px-6 py-8 text-xs text-gray-500 flex flex-wrap gap-3 justify-between">
             <div>© {new Date().getFullYear()} Improvica</div>
