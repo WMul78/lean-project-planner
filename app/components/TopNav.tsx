@@ -207,7 +207,7 @@ export default function TopNav() {
   const userItems: MenuItem[] = [
     { label: "Account", onClick: () => router.push("/account") },
     { label: "Manage users", onClick: () => router.push("/admin/users"), disabled: !canManageUsers },
-    { label: "Billing", onClick: () => router.push("/settings/billing") },
+    { label: "Billing", onClick: () => router.push("/pricing") },
     { label: "Sign out", onClick: signOut, danger: true },
   ];
 
