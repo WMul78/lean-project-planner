@@ -1,5 +1,8 @@
-import { redirect } from "next/navigation";
+// app/settings/billing/page.tsx
+import BillingClient from "./BillingClient";
+
+export const dynamic = "force-dynamic";
 
 export default function BillingPage() {
-  redirect("/pricing");
+  return <BillingClient />;
 }

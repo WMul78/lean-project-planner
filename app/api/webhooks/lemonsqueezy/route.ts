@@ -24,7 +24,8 @@ function tierFromVariant(variantId: string | null) {
 }
 
 export async function POST(request: NextRequest) {
-  const secret = process.env.LEMONSQUEEZY_WEBHOOK_SECRET!;
+  const secret = process.env.LEMONSQUEEZY_WEBHOOK_SECRET;
+  if (!secret) return NextResponse.json("Missing webhook secret", { status: 500 });
   const rawBody = await request.text();
   const sig = request.headers.get("X-Signature") ?? "";
 
