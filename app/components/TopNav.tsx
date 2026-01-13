@@ -362,7 +362,7 @@ export default function TopNav() {
                 <PlanPill
                   tier={tier}
                   billingStatus={billingStatus}
-                  onClick={() => router.push("/settings/billing")}
+                  onClick={() => router.push("/pricing")}
                 />
               </div>
             </div>
