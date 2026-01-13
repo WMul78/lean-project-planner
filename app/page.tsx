@@ -49,6 +49,7 @@ function PriceCard({
   ctaLabel,
   ctaHref,
   highlight,
+  note,
 }: {
   name: string;
   price: string;
@@ -57,6 +58,7 @@ function PriceCard({
   ctaLabel: string;
   ctaHref: string;
   highlight?: boolean;
+  note?: string;
 }) {
   return (
     <div
@@ -88,11 +90,22 @@ function PriceCard({
         ))}
       </ul>
 
+      {note ? <div className="mt-4 text-xs text-gray-500">{note}</div> : null}
+
       <div className="mt-6">
         <Link href={ctaHref}>
           <Button className="w-full">{ctaLabel}</Button>
         </Link>
       </div>
+    </div>
+  );
+}
+
+function FAQItem({ q, a }: { q: string; a: string }) {
+  return (
+    <div className="rounded-xl border border-gray-200 p-4 bg-white">
+      <div className="font-semibold text-gray-900">{q}</div>
+      <div className="mt-2 text-sm text-gray-600 leading-6">{a}</div>
     </div>
   );
 }
@@ -111,12 +124,12 @@ export default function HomePage() {
               </div>
 
               <h1 className="mt-4 text-4xl md:text-5xl font-semibold tracking-tight text-gray-900">
-                Turn improvement ideas into executed Lean projects.
+                Turn improvement ideas into executed projects.
               </h1>
 
               <p className="mt-4 text-lg text-gray-600 leading-7">
-                Capture bottom-up proposals, run structured projects, and track real progress with tasks and hours.
-                When you’re ready, unlock Lean tools like 5x Why and Ishikawa.
+                Capture bottom-up proposals, run structured projects, and track progress with tasks and hours.
+                Upgrade when you’re ready to unlock Lean tools like 5x Why and Ishikawa.
               </p>
 
               <div className="mt-6 flex flex-col sm:flex-row gap-3">
@@ -133,7 +146,7 @@ export default function HomePage() {
               </div>
 
               <div className="mt-4 text-sm text-gray-500">
-                Start free (no payment details) • Installable as an app (PWA) • Cancel anytime
+                Start free (no payment details) • Install it like an app (PWA) • Cancel anytime
               </div>
 
               <div className="mt-6">
@@ -173,7 +186,7 @@ export default function HomePage() {
         <div className="mt-6 grid gap-4 md:grid-cols-3">
           <FeatureItem
             title="Bottom-up proposals"
-            text="Let the team propose improvements without turning everyone into a paid ‘seat’. Keep ideas flowing."
+            text="Let the whole team propose improvements. Keep ideas flowing without forcing everyone into a paid account."
           />
           <FeatureItem
             title="Execution + progress"
@@ -219,12 +232,12 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* WORKSPACE PRICING EXPLANATION (later on purpose) */}
+      {/* WORKSPACE PRICING EXPLANATION (AFTER VALUE) */}
       <section className="max-w-6xl mx-auto px-6 py-12">
-        <h2 className="text-2xl font-semibold text-gray-900">Designed for teams</h2>
+        <h2 className="text-2xl font-semibold text-gray-900">Designed for teams (without per-user pricing)</h2>
         <p className="mt-2 text-gray-600 max-w-3xl leading-7">
           In many organizations only a few project leads actively manage improvements, while the broader team contributes ideas and feedback.
-          Improvica supports that reality: plans apply to a workspace, so stakeholders can join without paid seats.
+          Improvica supports that reality: plans apply to a workspace, so stakeholders can join and propose improvements without paid seats.
         </p>
       </section>
 
@@ -232,7 +245,7 @@ export default function HomePage() {
       <section id="pricing" className="max-w-6xl mx-auto px-6 py-12">
         <h2 className="text-2xl font-semibold text-gray-900">Pricing</h2>
         <p className="mt-2 text-gray-600 max-w-3xl">
-          Plans are per workspace. Create an account first, then you can start a trial or upgrade anytime.
+          Plans are per workspace. Create an account first, then you can upgrade anytime.
         </p>
 
         <div className="mt-6 grid gap-4 md:grid-cols-3">
@@ -247,20 +260,22 @@ export default function HomePage() {
               "Invite stakeholders (read-only)",
               "No payment details required",
             ]}
+            note="Great for evaluating the workflow and collecting proposals."
             ctaLabel="Start Free (create account)"
             ctaHref="/login"
           />
 
           <PriceCard
             name="Core"
-            price="€24 / month"
+            price="€9 / month"
             tagline="Unlimited active projects for a workspace."
             bullets={[
               "Unlimited active projects",
               "Projects + Kanban + Hours + Gantt",
-              "Better collaboration for project leads",
+              "For project leads managing real work",
               "Cancel anytime",
             ]}
+            note="Best for small teams and startups that want planning without Lean tools."
             ctaLabel="Start Core (create account)"
             ctaHref="/login"
             highlight
@@ -268,21 +283,23 @@ export default function HomePage() {
 
           <PriceCard
             name="Pro"
-            price="€49 / month"
+            price="€24 / month"
             tagline="Lean tools for continuous improvement teams."
             bullets={[
               "Everything in Core",
               "Lean tools (5x Why, Ishikawa, Project Charter, VSM, …)",
               "Templates and structured analysis",
+              "Export / history (as you release it)",
               "Cancel anytime",
             ]}
+            note="Best for CI / Lean teams and Operational Excellence."
             ctaLabel="Start Pro (create account)"
             ctaHref="/login"
           />
         </div>
 
         <div className="mt-4 text-xs text-gray-500">
-          Note: You’ll create an account first (Supabase Auth). After that you can start a trial and manage billing via Lemon Squeezy.
+          Note: You’ll create an account first (Supabase Auth). After that you can upgrade and manage billing via Lemon Squeezy.
         </div>
       </section>
 
@@ -292,33 +309,22 @@ export default function HomePage() {
           <h3 className="text-lg font-semibold text-gray-900">FAQ</h3>
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <div>
-              <div className="font-medium text-gray-900">Do we pay per user?</div>
-              <div className="mt-1 text-sm text-gray-600">
-                No. Plans apply to a workspace. Stakeholders can participate without paid seats.
-              </div>
-            </div>
-
-            <div>
-              <div className="font-medium text-gray-900">Can I cancel anytime?</div>
-              <div className="mt-1 text-sm text-gray-600">
-                Yes. You can cancel anytime and keep access until the end of the billing period.
-              </div>
-            </div>
-
-            <div>
-              <div className="font-medium text-gray-900">Do I need a credit card to start?</div>
-              <div className="mt-1 text-sm text-gray-600">
-                Not for Free. For a trial/upgrade you’ll add payment details during checkout.
-              </div>
-            </div>
-
-            <div>
-              <div className="font-medium text-gray-900">What is “installable as an app”?</div>
-              <div className="mt-1 text-sm text-gray-600">
-                You can install Improvica on mobile and use it like an app (PWA).
-              </div>
-            </div>
+            <FAQItem
+              q="Do we pay per user?"
+              a="No. Plans apply to a workspace. Invite your whole team and use roles like stakeholder/viewer so they can participate without paid seats."
+            />
+            <FAQItem
+              q="Do I need payment details to start?"
+              a="Not for Free. For an upgrade you add payment details during checkout. This keeps the free onboarding frictionless."
+            />
+            <FAQItem
+              q="Can I cancel anytime?"
+              a="Yes. You can cancel your workspace subscription anytime and keep access until the end of the current billing period."
+            />
+            <FAQItem
+              q="What does ‘install it like an app’ mean?"
+              a="Improvica is a PWA: you can install it on mobile and open it from your home screen like a native app."
+            />
           </div>
 
           <div className="mt-6 flex flex-col sm:flex-row gap-3">
