@@ -100,6 +100,7 @@ export default function PricingClient() {
 
   const [sub, setSub] = useState<WsSubRow | null>(null);
   const [subLoading, setSubLoading] = useState(true);
+  const [workspaceName, setWorkspaceName] = useState<string | null>(null);
 
   // Plan chooser on pricing page (for checkout)
   const [selectedPlan, setSelectedPlan] = useState<Exclude<Plan, "free">>("core");
@@ -366,7 +367,11 @@ export default function PricingClient() {
                   <div>
                     <div className="font-medium text-gray-900">Current workspace</div>
                     <div className="text-sm text-gray-600">
-                      {workspaceId ? `Workspace: ${workspaceId.slice(0, 8)}…` : "No active workspace selected."}
+                      {workspaceName
+                      ? `Workspace: ${workspaceName}`
+                      : workspaceId
+                      ? `Workspace: ${workspaceId.slice(0, 8)}…`
+                      : "No active workspace selected."}
                       <span className="ml-2">Role: {role}</span>
                     </div>
                   </div>

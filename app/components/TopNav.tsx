@@ -20,13 +20,35 @@ function getInitial(email?: string | null) {
   return c || "U";
 }
 
+function humanStatus(s: string | null) {
+  if (!s) return null;
+  switch (s) {
+    case "active":
+      return "Active";
+    case "on_trial":
+      return "Trial";
+    case "paused":
+      return "Paused";
+    case "cancelled":
+      return "Cancelled";
+    case "expired":
+      return "Expired";
+    case "inactive":
+      return null;
+    default:
+      return s;
+  }
+}
+
 function PlanPill({
   tier,
   billingStatus,
+  workspaceName,
   onClick,
 }: {
   tier: "free" | "core" | "pro";
   billingStatus: string | null;
+  workspaceName?: string | null;
   onClick?: () => void;
 }) {
   const cls =
@@ -36,7 +58,9 @@ function PlanPill({
       ? "bg-blue-50 text-blue-800 border-blue-200"
       : "bg-gray-50 text-gray-700 border-gray-200";
 
-  const label = billingStatus ? `${tier} • ${billingStatus}` : tier;
+  const statusLabel = humanStatus(billingStatus);
+  const tierLabel = tier.toUpperCase();
+  const label = statusLabel ? `${tierLabel} • ${statusLabel}` : tierLabel;
 
   return (
     <button
@@ -47,13 +71,14 @@ function PlanPill({
         "hover:bg-white transition",
         cls,
       ].join(" ")}
-      title="Billing / plan"
+      title={workspaceName ? `Plan for ${workspaceName}` : "Billing / plan"}
     >
-      <span className="font-semibold uppercase">{label}</span>
+      <span className="font-semibold">{label}</span>
       {tier === "free" ? <span className="text-gray-500">Upgrade</span> : null}
     </button>
   );
 }
+
 
 export default function TopNav() {
   const router = useRouter();
@@ -62,6 +87,7 @@ export default function TopNav() {
   const [role, setRole] = useState<WorkspaceRole | null>(null);
   const [loggedIn, setLoggedIn] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [workspaceName, setWorkspaceName] = useState<string | null>(null);
 
   // Workspace plan state (NEW)
   const [tier, setTier] = useState<"free" | "core" | "pro">("free");

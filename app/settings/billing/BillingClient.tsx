@@ -27,6 +27,9 @@ export default function BillingClient() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
+  const [workspaceName, setWorkspaceName] = useState<string | null>(null);
+
+
   // Plan selected from landing CTA: ?plan=core|pro
   const selectedPlan: Plan = useMemo(() => {
     const p = sp.get("plan");
@@ -44,6 +47,7 @@ export default function BillingClient() {
       return;
     }
     setWorkspaceId(ws.workspaceId);
+    setWorkspaceName((ws as any)?.name ?? null);
 
     const { data, error } = await supabase
       .from("workspace_subscriptions")
@@ -112,7 +116,9 @@ export default function BillingClient() {
         <div className="rounded-xl border p-4 space-y-2">
           <div className="flex items-center justify-between">
             <div className="font-medium">Workspace</div>
-            <div className="text-sm">{workspaceId ? `${workspaceId.slice(0, 8)}…` : "-"}</div>
+            <div className="text-sm">
+               {workspaceName ? workspaceName : workspaceId ? `${workspaceId.slice(0, 8)}…` : "-"}
+            </div>
           </div>
 
           <div className="flex items-center justify-between">
