@@ -1,32 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+type Plan = "core" | "pro";
+
+function pickPlan(v: any): Plan {
+  return v === "core" ? "core" : "pro";
+}
+
 export async function POST(req: NextRequest) {
   const apiKey = process.env.LEMONSQUEEZY_API_KEY;
   const storeId = process.env.LEMONSQUEEZY_STORE_ID;
-  const variantId = process.env.LEMONSQUEEZY_VARIANT_ID_MONTHLY;
+
+  // New env vars (set these in Vercel + local)
+  const variantCore = process.env.LEMONSQUEEZY_VARIANT_ID_CORE;
+  const variantPro = process.env.LEMONSQUEEZY_VARIANT_ID_PRO;
+
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
 
-  // Log env presence (server logs: Vercel)
-  console.log("LEMON ENV", {
-    storeId,
-    variantId,
-    hasKey: Boolean(apiKey),
-    appUrl,
-  });
-
-console.log("VERCEL", {
-  env: process.env.VERCEL_ENV,
-  url: process.env.VERCEL_URL,
-  git: process.env.VERCEL_GIT_COMMIT_SHA,
-});
-
-  if (!apiKey || !storeId || !variantId || !appUrl) {
-    return NextResponse.json(
-      { error: "Missing environment variables" },
-      { status: 500 }
-    );
+  if (!apiKey || !storeId || !variantCore || !variantPro || !appUrl) {
+    return NextResponse.json({ error: "Missing environment variables" }, { status: 500 });
   }
+
+  const body = await req.json().catch(() => ({}));
+  const plan = pickPlan(body?.plan);
+
+  const variantId = plan === "core" ? variantCore : variantPro;
 
   const authHeader = req.headers.get("authorization") ?? "";
   const supabase = createClient(
@@ -35,20 +33,53 @@ console.log("VERCEL", {
     { global: { headers: { Authorization: authHeader } } }
   );
 
-  const { data: { user }, error: userErr } = await supabase.auth.getUser();
+  const {
+    data: { user },
+    error: userErr,
+  } = await supabase.auth.getUser();
+
   if (userErr) console.error("supabase.auth.getUser error:", userErr);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Read active workspace from profile (auth user context)
+  const { data: profile, error: profErr } = await supabase
+    .from("profiles")
+    .select("active_workspace_id")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profErr) {
+    console.error("profiles select error:", profErr);
+    return NextResponse.json({ error: "Failed to load profile" }, { status: 500 });
+  }
+
+  const workspaceId = profile?.active_workspace_id as string | null;
+  if (!workspaceId) {
+    return NextResponse.json({ error: "No active workspace selected" }, { status: 400 });
+  }
+
+  // Optional (recommended): ensure the user is actually a member of that workspace
+  const { data: wm, error: wmErr } = await supabase
+    .from("workspace_members")
+    .select("workspace_id")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (wmErr) console.error("workspace_members check error:", wmErr);
+  if (!wm) return NextResponse.json({ error: "Not a member of active workspace" }, { status: 403 });
 
   const payload = {
     data: {
       type: "checkouts",
       attributes: {
         product_options: {
-          redirect_url: `${appUrl}/settings/billing?success=1`,
+          redirect_url: `${appUrl}/settings/billing?success=1&plan=${plan}`,
         },
         checkout_data: {
           email: user.email,
-          custom: { user_id: user.id },
+          // IMPORTANT: include workspace_id so webhook can attach subscription to workspace
+          custom: { user_id: user.id, workspace_id: workspaceId, plan },
         },
       },
       relationships: {
@@ -57,11 +88,6 @@ console.log("VERCEL", {
       },
     },
   };
-
-  console.log("LEMON checkout create payload ids", {
-    storeId: String(storeId),
-    variantId: String(variantId),
-  });
 
   const res = await fetch("https://api.lemonsqueezy.com/v1/checkouts", {
     method: "POST",
@@ -84,5 +110,4 @@ console.log("VERCEL", {
 
   const json = await res.json();
   return NextResponse.json({ url: json?.data?.attributes?.url }, { status: 200 });
-  
 }

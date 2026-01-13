@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import Button from "@/app/components/Button";
@@ -15,6 +15,8 @@ type WsSubRow = {
   cancelled: boolean;
 };
 
+type Plan = "core" | "pro";
+
 export default function BillingClient() {
   const router = useRouter();
   const sp = useSearchParams();
@@ -24,6 +26,12 @@ export default function BillingClient() {
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+
+  // Plan selected from landing CTA: ?plan=core|pro
+  const selectedPlan: Plan = useMemo(() => {
+    const p = sp.get("plan");
+    return p === "core" ? "core" : "pro";
+  }, [sp]);
 
   async function load() {
     setLoading(true);
@@ -64,14 +72,18 @@ export default function BillingClient() {
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
       if (!token) {
-        router.push("/login");
+        // Preserve intent: back here after login
+        router.push(`/login?mode=signin&next=/settings/billing&plan=${selectedPlan}`);
         return;
       }
 
-      // checkout API reads active_workspace_id from profile server-side (zoals je route nu is aangepast)
       const res = await fetch("/api/billing/checkout", {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ plan: selectedPlan }),
       });
 
       const json = await res.json();
@@ -104,13 +116,18 @@ export default function BillingClient() {
           </div>
 
           <div className="flex items-center justify-between">
-            <div className="font-medium">Plan</div>
+            <div className="font-medium">Current plan</div>
             <div className="text-sm">{tier}</div>
           </div>
 
           <div className="flex items-center justify-between">
             <div className="font-medium">Billing status</div>
             <div className="text-sm">{status}</div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="font-medium">Selected upgrade</div>
+            <div className="text-sm">{selectedPlan}</div>
           </div>
 
           {sub?.trial_ends_at ? (
@@ -122,9 +139,7 @@ export default function BillingClient() {
           {isPaid ? (
             <div className="text-sm text-green-700">You have access to paid features for this workspace.</div>
           ) : (
-            <div className="text-sm text-amber-700">
-              This workspace is on the free plan. Some features are locked.
-            </div>
+            <div className="text-sm text-amber-700">This workspace is on the free plan. Some features are locked.</div>
           )}
 
           <div className="text-xs text-gray-500 pt-2">
@@ -135,7 +150,7 @@ export default function BillingClient() {
 
       <div className="flex gap-2">
         <Button variant="primary" disabled={busy} onClick={startCheckout}>
-          {busy ? "Redirecting…" : "Upgrade / Start trial"}
+          {busy ? "Redirecting…" : `Start ${selectedPlan.toUpperCase()} trial`}
         </Button>
 
         <Button variant="outline" onClick={load} disabled={busy}>
