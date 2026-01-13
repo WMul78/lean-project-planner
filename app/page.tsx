@@ -2,6 +2,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import Button from "@/app/components/Button";
+import PublicHeader from "@/app/components/PublicHeader";
 
 function FeatureItem({ title, text }: { title: string; text: string }) {
   return (
@@ -114,27 +115,8 @@ export default function HomePage() {
   return (
     <main className="min-h-screen bg-white">
       {/* Public top bar (visible when not logged in) */}
-      <header className="sticky top-0 z-30 border-b bg-white/90 backdrop-blur">
-        <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between gap-3">
-          <Link href="/" className="font-semibold text-gray-900">
-            Improvica
-          </Link>
+      <PublicHeader />
 
-          <div className="flex items-center gap-2">
-            <a href="#pricing" className="hidden sm:block text-sm text-gray-600 hover:text-gray-900">
-              Pricing
-            </a>
-
-            <Link href="/login?mode=signin&next=/projects">
-              <Button variant="outline">Log in</Button>
-            </Link>
-
-            <Link href="/login?mode=signup&next=/projects">
-              <Button>Create account</Button>
-            </Link>
-          </div>
-        </div>
-      </header>
 
       {/* HERO */}
       <section className="bg-gradient-to-b from-blue-50 to-white">
