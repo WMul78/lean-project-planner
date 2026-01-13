@@ -113,9 +113,32 @@ function FAQItem({ q, a }: { q: string; a: string }) {
 export default function HomePage() {
   return (
     <main className="min-h-screen bg-white">
+      {/* Public top bar (visible when not logged in) */}
+      <header className="sticky top-0 z-30 border-b bg-white/90 backdrop-blur">
+        <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between gap-3">
+          <Link href="/" className="font-semibold text-gray-900">
+            Improvica
+          </Link>
+
+          <div className="flex items-center gap-2">
+            <a href="#pricing" className="hidden sm:block text-sm text-gray-600 hover:text-gray-900">
+              Pricing
+            </a>
+
+            <Link href="/login?mode=signin&next=/projects">
+              <Button variant="outline">Log in</Button>
+            </Link>
+
+            <Link href="/login?mode=signup&next=/projects">
+              <Button>Create account</Button>
+            </Link>
+          </div>
+        </div>
+      </header>
+
       {/* HERO */}
       <section className="bg-gradient-to-b from-blue-50 to-white">
-        <div className="max-w-6xl mx-auto px-6 pt-16 pb-12">
+        <div className="max-w-6xl mx-auto px-6 pt-10 pb-12">
           <div className="grid gap-10 md:grid-cols-2 md:items-center">
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border bg-white px-3 py-1 text-xs text-gray-700">
@@ -133,8 +156,8 @@ export default function HomePage() {
               </p>
 
               <div className="mt-6 flex flex-col sm:flex-row gap-3">
-                {/* Auth-first: user creates an account before any billing */}
-                <Link href="/login">
+                {/* Auth-first: create account before billing */}
+                <Link href="/login?mode=signup&next=/projects&plan=free">
                   <Button className="w-full sm:w-auto">Create a free workspace</Button>
                 </Link>
 
@@ -149,10 +172,13 @@ export default function HomePage() {
                 Start free (no payment details) • Install it like an app (PWA) • Cancel anytime
               </div>
 
-              <div className="mt-6">
+              <div className="mt-6 flex items-center gap-3">
                 <a href="#pricing" className="text-sm text-blue-700 hover:underline">
                   View pricing →
                 </a>
+                <Link href="/login?mode=signin&next=/projects" className="text-sm text-gray-600 hover:text-gray-900">
+                  Already have an account?
+                </Link>
               </div>
             </div>
 
@@ -232,7 +258,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* WORKSPACE PRICING EXPLANATION (AFTER VALUE) */}
+      {/* WORKSPACE PRICING EXPLANATION */}
       <section className="max-w-6xl mx-auto px-6 py-12">
         <h2 className="text-2xl font-semibold text-gray-900">Designed for teams (without per-user pricing)</h2>
         <p className="mt-2 text-gray-600 max-w-3xl leading-7">
@@ -262,7 +288,7 @@ export default function HomePage() {
             ]}
             note="Great for evaluating the workflow and collecting proposals."
             ctaLabel="Start Free (create account)"
-            ctaHref="/login"
+            ctaHref="/login?mode=signup&next=/projects&plan=free"
           />
 
           <PriceCard
@@ -277,7 +303,7 @@ export default function HomePage() {
             ]}
             note="Best for small teams and startups that want planning without Lean tools."
             ctaLabel="Start Core (create account)"
-            ctaHref="/login"
+            ctaHref="/login?mode=signup&next=/settings/billing&plan=core"
             highlight
           />
 
@@ -294,7 +320,7 @@ export default function HomePage() {
             ]}
             note="Best for CI / Lean teams and Operational Excellence."
             ctaLabel="Start Pro (create account)"
-            ctaHref="/login"
+            ctaHref="/login?mode=signup&next=/settings/billing&plan=pro"
           />
         </div>
 
@@ -328,12 +354,17 @@ export default function HomePage() {
           </div>
 
           <div className="mt-6 flex flex-col sm:flex-row gap-3">
-            <Link href="/login">
+            <Link href="/login?mode=signup&next=/projects">
               <Button className="w-full sm:w-auto">Create a free workspace</Button>
             </Link>
             <Link href="/invites">
               <Button variant="outline" className="w-full sm:w-auto">
                 Accept an invite
+              </Button>
+            </Link>
+            <Link href="/login?mode=signin&next=/projects">
+              <Button variant="outline" className="w-full sm:w-auto">
+                Log in
               </Button>
             </Link>
           </div>
