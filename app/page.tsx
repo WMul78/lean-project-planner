@@ -325,7 +325,7 @@ export default function HomePage() {
         </div>
 
         <div className="mt-4 text-xs text-gray-500">
-          Note: You’ll create an account first (Supabase Auth). After that you can upgrade and manage billing via Lemon Squeezy.
+          
         </div>
       </section>
 
