@@ -370,16 +370,8 @@ export default function ProjectEditPage() {
           <div className="mt-1 text-sm">{limitMsg}</div>
 
           <div className="mt-3 flex gap-2 flex-wrap">
-            <Button variant="primary" type="button" onClick={() => router.push("/settings/billing")} disabled={saving}>
+            <Button variant="primary" type="button" onClick={() => router.push("/pricing")} disabled={saving}>
               Upgrade
-            </Button>
-            <Button
-              variant="outline"
-              type="button"
-              onClick={() => setStatus("proposed")}
-              disabled={saving}
-            >
-              Keep as proposal
             </Button>
           </div>
         </div>
