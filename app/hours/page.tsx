@@ -1,11 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "@/app/components/Button";
 import { supabase } from "@/lib/supabaseClient";
-import { getActiveWorkspace, requireUser } from "@/app/lib/appContext";
-import React from "react";
+import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appContext";
+
+type ProjectStatus = "proposed" | "active" | "done" | "archived";
+type TodoAutoStatus = "proposed" | "active" | "done";
+
+type WsMember = {
+  id: string;
+  user_id: string;
+  role: WorkspaceRole;
+  profiles?: { email?: string | null; full_name?: string | null };
+};
 
 type TodoRow = {
   id: string;
@@ -13,8 +22,10 @@ type TodoRow = {
   title: string;
   assigned_to: string | null;
   estimated_minutes: number | null;
-  is_done: boolean;
-  projects: { name: string } | null;
+  executed_minutes: number | null;
+  auto_status: TodoAutoStatus;
+  // embedded project
+  projects: { id: string; name: string; status: ProjectStatus } | null;
 };
 
 type EntryCell = {
@@ -68,12 +79,27 @@ function hoursInputToMinutes(txt: string) {
   return Math.round(n * 60);
 }
 
+function labelForMember(m: WsMember) {
+  const name = (m.profiles?.full_name ?? "").trim();
+  const email = (m.profiles?.email ?? "").trim();
+  return name || email || m.user_id.slice(0, 8);
+}
+
 export default function HoursPlannerPage() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
+
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
+  const [workspaceRole, setWorkspaceRole] = useState<WorkspaceRole>("member");
+
+  const [loggedInUserId, setLoggedInUserId] = useState<string | null>(null);
+
+  // ✅ user filter
+  const [members, setMembers] = useState<WsMember[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
+
+  const isAdmin = workspaceRole === "owner" || workspaceRole === "admin";
 
   const [weekStart, setWeekStart] = useState<Date>(() => startOfWeekMonday(new Date()));
   const days = useMemo(() => Array.from({ length: 5 }, (_, i) => addDays(weekStart, i)), [weekStart]); // Mon–Fri
@@ -83,16 +109,33 @@ export default function HoursPlannerPage() {
 
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
-  // Explicit typing to avoid index/TS issues
+  // Executed minutes (per todo)
   const [executedByTodo, setExecutedByTodo] = useState<Record<string, number>>({});
 
   const todayISO = useMemo(() => iso(new Date()), []);
+
   const [mobileDayIndex, setMobileDayIndex] = useState(0); // 0..4
   const mobileDay = days[mobileDayIndex];
   const mobileDayISO = mobileDay ? iso(mobileDay) : "";
 
   function cellKey(todoId: string, dateISO: string) {
     return `${todoId}|${dateISO}`;
+  }
+
+  async function loadMembers(wsId: string) {
+    const { data, error } = await supabase
+      .from("workspace_members")
+      .select("id,user_id,role,profiles(email,full_name)")
+      .eq("workspace_id", wsId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.warn("Load members failed:", error);
+      setMembers([]);
+      return;
+    }
+
+    setMembers(((data as any) ?? []) as WsMember[]);
   }
 
   async function load() {
@@ -102,105 +145,115 @@ export default function HoursPlannerPage() {
       const user = await requireUser(router);
       if (!user) return;
 
-      setUserId(user.id);
+      setLoggedInUserId(user.id);
 
       const ws = await getActiveWorkspace();
       if (!ws?.workspaceId) {
         alert("No workspace found.");
-        router.push("/projects");
         return;
       }
-      setWorkspaceId(ws.workspaceId);
 
-      // 1) My tasks (assigned_to = me)
+      setWorkspaceId(ws.workspaceId);
+      setWorkspaceRole(ws.role);
+
+      await loadMembers(ws.workspaceId);
+
+      // Default selected user:
+      // - admin/owner: keep selection if already set, else default to self
+      // - others: forced to self
+      const nextSelected = isAdmin ? (selectedUserId || user.id) : user.id;
+      setSelectedUserId(nextSelected);
+
+      // ✅ 1+2) Load todos but HIDE:
+      // - projects with status proposed/done
+      // - todos with auto_status proposed/done
+      //
+      // Use todo_status_auto so we can filter on auto_status.
       const { data: td, error: tdErr } = await supabase
-        .from("todos")
-        .select("id,project_id,title,assigned_to,estimated_minutes,is_done,projects(name)")
-        .eq("assigned_to", user.id)
-        .eq("is_done", false) // only open tasks
-        .order("project_id", { ascending: true })
-        .order("inserted_at", { ascending: false });
+        .from("todo_status_auto")
+        .select(
+          "id,project_id,title,assigned_to,estimated_minutes,executed_minutes,auto_status,projects:projects(id,name,status)"
+        )
+        .eq("workspace_id", ws.workspaceId)
+        .neq("auto_status", "proposed")
+        .neq("auto_status", "done");
 
       if (tdErr) {
-        console.error(tdErr);
-        alert(tdErr.message);
+        console.error("Load todos failed:", tdErr);
         setTodos([]);
-        setCells({});
-        setExecutedByTodo({});
-        return;
+      } else {
+        const raw = ((td as any) ?? []) as TodoRow[];
+
+        // extra safety: hide proposed/done projects
+        const filtered = raw.filter((t) => {
+          const ps = t.projects?.status;
+          if (ps === "proposed") return false;
+          if (ps === "done") return false;
+          return true;
+        });
+
+        // Sort: by project name then by title
+        filtered.sort((a, b) => {
+          const pa = a.projects?.name ?? "";
+          const pb = b.projects?.name ?? "";
+          if (pa !== pb) return pa.localeCompare(pb);
+          return (a.title ?? "").localeCompare(b.title ?? "");
+        });
+
+        setTodos(filtered);
+
+        // executedByTodo map (if executed_minutes exists in the view)
+        const execMap: Record<string, number> = {};
+        for (const t of filtered) execMap[t.id] = t.executed_minutes ?? 0;
+        setExecutedByTodo(execMap);
       }
 
-      const todoList = ((td as any) ?? []) as TodoRow[];
-      setTodos(todoList);
+      // Load time entries for selected user + current week window
+      // (Mon..Fri)
+      const fromISO = iso(days[0]);
+      const toISO = iso(days[4]);
 
-      const ids = todoList.map((t) => t.id);
-      if (ids.length === 0) {
-        setCells({});
-        setExecutedByTodo({});
-        return;
-      }
-
-      // 2) Entries in this week (for me)
-      const from = iso(days[0]);
-      const to = iso(days[days.length - 1]);
-
-      const { data: entries, error: eErr } = await supabase
+      const { data: te, error: teErr } = await supabase
         .from("time_entries")
         .select("id,todo_id,project_id,user_id,entry_date,minutes,note")
-        .in("todo_id", ids)
-        .eq("user_id", user.id)
-        .gte("entry_date", from)
-        .lte("entry_date", to);
+        .eq("workspace_id", ws.workspaceId)
+        .eq("user_id", nextSelected)
+        .gte("entry_date", fromISO)
+        .lte("entry_date", toISO);
 
-      if (eErr) {
-        console.error(eErr);
-        alert(eErr.message);
+      if (teErr) {
+        console.error("Load time entries failed:", teErr);
         setCells({});
       } else {
-        const map: Record<string, EntryCell> = {};
-        for (const en of ((entries as any) ?? []) as EntryCell[]) {
-          map[cellKey(en.todo_id, en.entry_date)] = en;
+        const m: Record<string, EntryCell> = {};
+        for (const r of ((te as any) ?? []) as EntryCell[]) {
+          m[cellKey(r.todo_id, r.entry_date)] = r;
         }
-        setCells(map);
-      }
-
-      // 3) Executed totals per todo (<= today) via view
-      const { data: ex, error: exErr } = await supabase
-        .from("todo_executed_totals")
-        .select("todo_id, executed_minutes")
-        .in("todo_id", ids);
-
-      if (exErr) {
-        console.error(exErr);
-        setExecutedByTodo({});
-      } else {
-        const m: Record<string, number> = {};
-        for (const r of (ex as any[]) ?? []) {
-          m[r.todo_id] = r.executed_minutes ?? 0;
-        }
-        setExecutedByTodo(m);
+        setCells(m);
       }
     } finally {
       setLoading(false);
     }
   }
 
+  // reset mobile day when week changes
   useEffect(() => {
     setMobileDayIndex(0);
   }, [weekStart]);
 
+  // load on week change + when selected user changes
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekStart]);
+  }, [weekStart, selectedUserId]);
 
   async function setCell(todo: TodoRow, dateISO: string, hoursText: string) {
-    if (!workspaceId || !userId) return;
+    if (!workspaceId || !loggedInUserId || !selectedUserId) return;
 
     const key = cellKey(todo.id, dateISO);
     const minutes = hoursInputToMinutes(hoursText);
 
-    // Empty => delete (if something existed)
+    // Empty => delete
     if (!minutes) {
       const existing = cells[key];
       if (!existing) return;
@@ -221,15 +274,20 @@ export default function HoursPlannerPage() {
       return;
     }
 
-    // Upsert (requires unique index on todo_id, entry_date, user_id)
+    // Upsert
     setSavingKey(key);
 
     const payload = {
       workspace_id: workspaceId,
       project_id: todo.project_id,
       todo_id: todo.id,
-      user_id: userId, // MVP: your own planner (later: assignee)
-      logged_by: userId, // later: owner can plan for others
+
+      // ✅ planned/logged user (filter)
+      user_id: selectedUserId,
+
+      // ✅ who performed the change (audit)
+      logged_by: loggedInUserId,
+
       entry_date: dateISO,
       minutes,
       note: null,
@@ -276,297 +334,244 @@ export default function HoursPlannerPage() {
     setWeekStart(addDays(weekStart, -7));
   }
 
+  // ✅ group by project
   const grouped = useMemo(() => {
     const g = new Map<string, { projectId: string; projectName: string; items: TodoRow[] }>();
     for (const t of todos) {
-      const name = t.projects?.name ?? "Project";
-      const k = `${t.project_id}|${name}`;
-      if (!g.has(k)) g.set(k, { projectId: t.project_id, projectName: name, items: [] });
-      g.get(k)!.items.push(t);
+      const pid = t.project_id;
+      const pname = t.projects?.name ?? "Project";
+      const cur = g.get(pid) ?? { projectId: pid, projectName: pname, items: [] };
+      cur.items.push(t);
+      g.set(pid, cur);
     }
     return Array.from(g.values());
   }, [todos]);
 
+  const userOptions = useMemo(() => {
+    if (!loggedInUserId) return [];
+    if (!isAdmin) return members.filter((m) => m.user_id === loggedInUserId);
+    return members;
+  }, [members, loggedInUserId, isAdmin]);
+
   if (loading) {
     return (
-      <main className="p-6 max-w-7xl mx-auto">
+      <main className="p-6 max-w-6xl mx-auto">
         <div className="text-gray-500">Loading…</div>
       </main>
     );
   }
 
   return (
-    <main className="p-6 max-w-7xl mx-auto">
-      <header className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Plan hours (week)</h1>
+    <main className="p-6 max-w-6xl mx-auto">
+      <header className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold">Hours</h1>
           <div className="text-sm text-gray-500">
-            Only your tasks. Future hours do not count toward progress.
+            Week of {iso(weekStart)} • Role: {workspaceRole}
+          </div>
+          <div className="text-xs text-gray-400">
+            Hidden: projects <span className="font-medium">proposed/done</span> and tasks{" "}
+            <span className="font-medium">proposed/done</span>.
           </div>
         </div>
 
-        <div className="flex flex-col gap-2 items-end">
+        <div className="flex flex-col items-end gap-2">
           <Button variant="outline" onClick={() => router.push("/projects")}>
             ← Projects
           </Button>
+        </div>
+      </header>
 
-          <div className="flex gap-2">
+      {/* ✅ User filter */}
+      <section className="mt-5 border rounded-lg bg-white p-4">
+        <div className="grid gap-3 sm:grid-cols-3 items-end">
+          <div className="grid gap-1">
+            <label className="text-sm font-medium">User</label>
+            <select
+              className="border rounded-md px-3 py-2"
+              value={selectedUserId}
+              onChange={(e) => setSelectedUserId(e.target.value)}
+              disabled={!isAdmin}
+            >
+              {userOptions.map((m) => (
+                <option key={m.user_id} value={m.user_id}>
+                  {labelForMember(m)} ({m.role})
+                </option>
+              ))}
+            </select>
+            {!isAdmin ? <div className="text-xs text-gray-500">You can only plan/view your own hours.</div> : null}
+          </div>
+
+          <div className="flex gap-2 sm:justify-center">
             <Button variant="outline" onClick={prevWeek}>
-              ← Previous
-            </Button>
-            <Button variant="outline" onClick={() => setWeekStart(startOfWeekMonday(new Date()))}>
-              Today
+              ← Prev
             </Button>
             <Button variant="outline" onClick={nextWeek}>
               Next →
             </Button>
           </div>
 
-          <div className="text-sm text-gray-600">
-            Week starting <span className="font-medium">{iso(days[0])}</span>
+          {/* mobile day picker */}
+          <div className="grid gap-1 sm:justify-self-end">
+            <label className="text-sm font-medium">Mobile day</label>
+            <select
+              className="border rounded-md px-3 py-2"
+              value={mobileDayIndex}
+              onChange={(e) => setMobileDayIndex(Number(e.target.value))}
+            >
+              {days.map((d, i) => (
+                <option key={i} value={i}>
+                  {iso(d)}{iso(d) === todayISO ? " (today)" : ""}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
-      </header>
+      </section>
 
-      {/* Mobile day picker */}
-      <div className="mt-4 flex items-center justify-between md:hidden">
-        <Button
-          variant="outline"
-          onClick={() => setMobileDayIndex((i) => Math.max(0, i - 1))}
-          disabled={mobileDayIndex === 0}
-        >
-          ←
-        </Button>
+      {/* Desktop table */}
+      <section className="mt-6 hidden md:block">
+        <div className="overflow-x-auto border rounded-lg bg-white">
+          <table className="min-w-[920px] w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="text-left p-3 border-b w-[360px]">Project / Task</th>
+                {days.map((d) => {
+                  const dISO = iso(d);
+                  return (
+                    <th key={dISO} className="text-left p-3 border-b w-[140px]">
+                      <div className="font-medium">
+                        {dISO} {dISO === todayISO ? "• Today" : ""}
+                      </div>
+                      <div className="text-xs text-gray-500">Total: {minutesToHoursText(dayTotalMinutes(dISO))}</div>
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
 
-        <div className="text-sm font-medium">
-          {mobileDay
-            ? mobileDay.toLocaleDateString(undefined, {
-                weekday: "long",
-                day: "2-digit",
-                month: "2-digit",
-              })
-            : ""}
-        </div>
-
-        <Button
-          variant="outline"
-          onClick={() => setMobileDayIndex((i) => Math.min(4, i + 1))}
-          disabled={mobileDayIndex === 4}
-        >
-          →
-        </Button>
-      </div>
-
-      {todos.length === 0 ? (
-        <div className="mt-8 text-gray-600">
-          No tasks assigned to you.
-          <div className="text-sm text-gray-500 mt-1">
-            Assign tasks via <code>assigned_to</code> to plan them here.
-          </div>
-        </div>
-      ) : (
-        <>
-          {/* DESKTOP: week table */}
-          <div className="mt-6 hidden md:block">
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse table-fixed">
-                <colgroup>
-                  <col style={{ width: 340 }} />
-                  {days.map((d) => (
-                    <col key={iso(d)} style={{ width: 96 }} />
-                  ))}
-                  <col style={{ width: 160 }} />
-                </colgroup>
-
-                <thead>
-                  <tr className="text-left bg-white">
-                    <th className="border p-2 sticky left-0 bg-white z-10">Task</th>
-
-                    {days.map((d) => {
-                      const dISO = iso(d);
-                      const label = d.toLocaleDateString(undefined, {
-                        weekday: "short",
-                        day: "2-digit",
-                        month: "2-digit",
-                      });
-
-                      return (
-                        <th key={dISO} className="border p-2">
-                          {label}
-                        </th>
-                      );
-                    })}
-
-                    <th className="border p-2">Progress</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {grouped.map((grp) => (
-                    <React.Fragment key={grp.projectId}>
-                      <tr>
-                        <td
-                          className="border p-2 font-semibold bg-gray-50 sticky left-0 z-10"
-                          colSpan={days.length + 2}
+            <tbody>
+              {grouped.length === 0 ? (
+                <tr>
+                  <td className="p-4 text-gray-500" colSpan={1 + days.length}>
+                    No tasks available (filters may hide everything).
+                  </td>
+                </tr>
+              ) : (
+                grouped.map((grp) => (
+                  <React.Fragment key={grp.projectId}>
+                    {/* ✅ Project row (clickable) */}
+                    <tr className="bg-white">
+                      <td className="p-3 border-b font-semibold text-gray-900" colSpan={1 + days.length}>
+                        <button
+                          type="button"
+                          className="text-left hover:underline"
+                          onClick={() => router.push(`/projects/${grp.projectId}`)}
                         >
                           {grp.projectName}
+                        </button>
+                      </td>
+                    </tr>
+
+                    {grp.items.map((t) => (
+                      <tr key={t.id} className="hover:bg-gray-50/60">
+                        <td className="p-3 border-b">
+                          <div className="text-gray-900">{t.title}</div>
+                          <div className="text-xs text-gray-500 flex gap-2 flex-wrap mt-1">
+                            {t.estimated_minutes ? <span>Est: {minutesToHoursText(t.estimated_minutes)}</span> : null}
+                            {typeof todoProgress(t) === "number" ? <span>Progress: {todoProgress(t)}%</span> : null}
+                          </div>
                         </td>
-                      </tr>
 
-                      {grp.items.map((t) => {
-                        const prog = todoProgress(t);
-                        const exec = executedByTodo[t.id] ?? 0;
+                        {days.map((d) => {
+                          const dISO = iso(d);
+                          const key = cellKey(t.id, dISO);
+                          const val = minutesToHoursInput(cells[key]?.minutes ?? null);
 
-                        return (
-                          <tr key={t.id}>
-                            <td className="border p-2 align-top sticky left-0 bg-white z-10">
-                              <div className="font-medium">{t.title}</div>
-                              <div className="text-xs text-gray-500">
-                                Planned: {minutesToHoursInput(t.estimated_minutes) || "—"}u
-                              </div>
-                            </td>
-
-                            {days.map((d) => {
-                              const dISO = iso(d);
-                              const key = cellKey(t.id, dISO);
-                              const value = minutesToHoursInput(cells[key]?.minutes);
-
-                              return (
-                                <td key={dISO} className="border p-2 align-top">
-                                  <input
-                                    className="w-full border rounded-md px-2 py-1 text-sm"
-                                    defaultValue={value}
-                                    placeholder="0"
-                                    inputMode="decimal"
-                                    disabled={savingKey === key}
-                                    onBlur={(e) => setCell(t, dISO, e.target.value)}
-                                  />
-                                </td>
-                              );
-                            })}
-
-                            <td className="border p-2 align-top">
-                              {prog === null ? (
-                                <span className="text-sm text-gray-500">—</span>
-                              ) : (
-                                <div className="text-sm">
-                                  <span className="font-medium">{prog}%</span>
-                                  <div className="text-xs text-gray-500">
-                                    executed: {minutesToHoursText(exec)}
-                                  </div>
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </React.Fragment>
-                  ))}
-
-                  <tr>
-                    <td className="border p-2 font-semibold sticky left-0 bg-white z-10">Total</td>
-                    {days.map((d) => {
-                      const dISO = iso(d);
-                      return (
-                        <td key={dISO} className="border p-2 font-semibold">
-                          {minutesToHoursText(dayTotalMinutes(dISO))}
-                        </td>
-                      );
-                    })}
-                    <td className="border p-2" />
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* MOBILE: per day list */}
-          <div className="mt-6 md:hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse table-fixed">
-                <colgroup>
-                  <col style={{ width: 260 }} />
-                  <col style={{ width: 120 }} />
-                  <col style={{ width: 140 }} />
-                </colgroup>
-
-                <thead>
-                  <tr className="text-left bg-white">
-                    <th className="border p-2">Task</th>
-                    <th className="border p-2">Hours</th>
-                    <th className="border p-2">Progress</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {grouped.map((grp) => (
-                    <React.Fragment key={grp.projectId}>
-                      <tr>
-                        <td className="border p-2 font-semibold bg-gray-50" colSpan={3}>
-                          {grp.projectName}
-                        </td>
-                      </tr>
-
-                      {grp.items.map((t) => {
-                        const prog = todoProgress(t);
-                        const exec = executedByTodo[t.id] ?? 0;
-
-                        const key = cellKey(t.id, mobileDayISO);
-                        const value = minutesToHoursInput(cells[key]?.minutes);
-
-                        return (
-                          <tr key={t.id}>
-                            <td className="border p-2 align-top">
-                              <div className="font-medium">{t.title}</div>
-                              <div className="text-xs text-gray-500">
-                                Planned: {minutesToHoursInput(t.estimated_minutes) || "—"}u
-                              </div>
-                            </td>
-
-                            <td className="border p-2 align-top">
+                          return (
+                            <td key={dISO} className="p-2 border-b align-top">
                               <input
-                                className="w-full border rounded-md px-2 py-1 text-sm"
-                                defaultValue={value}
-                                placeholder="0"
-                                inputMode="decimal"
+                                className={[
+                                  "w-full border rounded-md px-2 py-1",
+                                  dISO === todayISO ? "border-gray-900" : "",
+                                ].join(" ")}
+                                placeholder="h"
+                                value={val}
+                                onChange={(e) => setCell(t, dISO, e.target.value)}
                                 disabled={savingKey === key}
-                                onBlur={(e) => setCell(t, mobileDayISO, e.target.value)}
                               />
                             </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
-                            <td className="border p-2 align-top">
-                              {prog === null ? (
-                                <span className="text-sm text-gray-500">—</span>
-                              ) : (
-                                <div className="text-sm">
-                                  <span className="font-medium">{prog}%</span>
-                                  <div className="text-xs text-gray-500">
-                                    executed: {minutesToHoursText(exec)}
-                                  </div>
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </React.Fragment>
-                  ))}
-
-                  <tr>
-                    <td className="border p-2 font-semibold">Total</td>
-                    <td className="border p-2 font-semibold">{minutesToHoursText(dayTotalMinutes(mobileDayISO))}</td>
-                    <td className="border p-2" />
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+      {/* Mobile simplified */}
+      <section className="mt-6 md:hidden">
+        <div className="border rounded-lg bg-white p-4">
+          <div className="text-sm text-gray-700">
+            Day: <span className="font-medium">{mobileDayISO}</span>{" "}
+            {mobileDayISO === todayISO ? <span className="text-gray-900">• Today</span> : null}
           </div>
+          <div className="text-xs text-gray-500 mt-1">Total: {minutesToHoursText(dayTotalMinutes(mobileDayISO))}</div>
 
-          <div className="mt-3 text-xs text-gray-500">
-            Tip: edit a cell and click outside the input (onBlur) to save.
+          <div className="mt-4 grid gap-4">
+            {grouped.length === 0 ? (
+              <div className="text-sm text-gray-500">No tasks available.</div>
+            ) : (
+              grouped.map((grp) => (
+                <div key={grp.projectId} className="border rounded-lg p-3">
+                  {/* ✅ clickable project */}
+                  <button
+                    type="button"
+                    className="font-semibold text-gray-900 hover:underline"
+                    onClick={() => router.push(`/projects/${grp.projectId}`)}
+                  >
+                    {grp.projectName}
+                  </button>
+
+                  <div className="mt-2 grid gap-2">
+                    {grp.items.map((t) => {
+                      const key = cellKey(t.id, mobileDayISO);
+                      const val = minutesToHoursInput(cells[key]?.minutes ?? null);
+
+                      return (
+                        <div key={t.id} className="flex items-center gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm text-gray-900 truncate">{t.title}</div>
+                            <div className="text-xs text-gray-500">
+                              {t.estimated_minutes ? `Est: ${minutesToHoursText(t.estimated_minutes)}` : "No estimate"}
+                            </div>
+                          </div>
+
+                          <input
+                            className="w-[86px] border rounded-md px-2 py-1 text-sm"
+                            placeholder="h"
+                            value={val}
+                            onChange={(e) => setCell(t, mobileDayISO, e.target.value)}
+                            disabled={savingKey === key}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
-        </>
-      )}
+        </div>
+      </section>
+
+      <div className="mt-3 text-xs text-gray-500">
+        Tip: Admin/Owner can switch users. Projects are clickable to open their details.
+      </div>
     </main>
   );
 }
