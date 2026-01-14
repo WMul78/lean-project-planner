@@ -34,6 +34,7 @@ type GanttTask = {
   name: string;
   start: Date;
   end: Date;
+  progress: number;
   custom_class?: string; // must be single token
 };
 
@@ -316,6 +317,7 @@ export default function GanttPage() {
           name: projName,
           start: pStartDate,
           end: pEndDate,
+          progress: 0,
           custom_class: "gantt-project",
         });
 
@@ -336,6 +338,7 @@ export default function GanttPage() {
             name: `• ${t.title}`,
             start: tStartDate,
             end: tEndDate,
+            progress: 0,
             custom_class: "gantt-task",
           });
         }
@@ -502,7 +505,7 @@ export default function GanttPage() {
         </div>
       </section>
 
-      <div className="mt-3 text-xs text-gray-500">Improvica (C) 2026.</div>
+      <div className="mt-3 text-xs text-gray-500">(c) Improvica 2026.</div>
     </main>
   );
 }
