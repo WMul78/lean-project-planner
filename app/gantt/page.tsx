@@ -16,6 +16,8 @@ type WsMember = {
   profiles?: { email?: string | null; full_name?: string | null };
 };
 
+type ProjectStatus = "proposed" | "active" | "done" | "archived";
+
 type TodoRow = {
   id: string;
   title: string;
@@ -25,6 +27,7 @@ type TodoRow = {
 type ProjectRow = {
   id: string;
   name: string;
+  status: ProjectStatus;
 };
 
 type GanttTask = {
@@ -41,13 +44,13 @@ type TodoWindowRow = {
   todo_id: string | null;
   project_id: string;
   start_date: string; // YYYY-MM-DD
-  end_date: string;   // YYYY-MM-DD
+  end_date: string; // YYYY-MM-DD
 };
 
 type ProjectWindowRow = {
   project_id: string;
   start_date: string; // YYYY-MM-DD
-  end_date: string;   // YYYY-MM-DD
+  end_date: string; // YYYY-MM-DD
 };
 
 // -------------------- Helpers --------------------
@@ -84,7 +87,6 @@ function measureSvgHeight(container: HTMLDivElement): number | null {
   }
 }
 
-
 // -------------------- Page --------------------
 export default function GanttPage() {
   const router = useRouter();
@@ -103,9 +105,11 @@ export default function GanttPage() {
   const [tasks, setTasks] = useState<GanttTask[]>([]);
   const ganttRef = useRef<HTMLDivElement | null>(null);
 
+  // NEW: ref to the horizontal scroll container
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
   const isAdmin = workspaceRole === "owner" || workspaceRole === "admin";
   const [measuredHeight, setMeasuredHeight] = useState<number>(520);
-
 
   const userOptions = useMemo(() => {
     if (!myUserId) return [];
@@ -120,8 +124,29 @@ export default function GanttPage() {
 
   const ganttHeight = measuredHeight;
 
-  
+  function centerTodayInView() {
+    const scroller = scrollRef.current;
+    const container = ganttRef.current;
+    if (!scroller || !container) return;
 
+    // In your CSS this is the vertical today line:
+    // .gantt-container .current-highlight { ... } :contentReference[oaicite:1]{index=1}
+    const todayEl = container.querySelector(".current-highlight") as Element | null;
+    if (!todayEl) return;
+
+    const scrollerRect = scroller.getBoundingClientRect();
+    const todayRect = todayEl.getBoundingClientRect();
+
+    // Today X inside the scroller content
+    const todayCenterX = todayRect.left - scrollerRect.left + todayRect.width / 2;
+
+    // Scroll so that today is centered
+    const targetScrollLeft = scroller.scrollLeft + (todayCenterX - scroller.clientWidth / 2);
+
+    // Clamp
+    const max = scroller.scrollWidth - scroller.clientWidth;
+    scroller.scrollLeft = Math.max(0, Math.min(max, targetScrollLeft));
+  }
 
   async function loadBase() {
     setBaseLoading(true);
@@ -167,98 +192,103 @@ export default function GanttPage() {
     }
   }
 
-  async function loadGanttData(wsId: string, uid: string) {
+  async function loadGanttData(pWorkspaceId: string, pUserId: string) {
     setGanttLoading(true);
     setLoadError(null);
 
     try {
-      // 1) Todo windows (view)
-      const { data: todoWin, error: todoErr } = await supabase
-        .from("time_entries_todo_window")
-        .select("todo_id,project_id,start_date,end_date")
-        .eq("workspace_id", wsId)
-        .eq("user_id", uid);
+      // 1) Load projects (we need status to hide proposed/archived)
+      const { data: pr, error: prErr } = await supabase
+        .from("projects")
+        .select("id,name,status")
+        .eq("workspace_id", pWorkspaceId)
+        .order("inserted_at", { ascending: false });
 
-      if (todoErr) {
-        console.error(todoErr);
-        setLoadError(todoErr.message);
+      if (prErr) throw prErr;
+
+      const allProjects = ((pr as any) ?? []) as ProjectRow[];
+
+      // ✅ Hide proposed + archived
+      const visibleProjects = allProjects.filter((p) => p.status !== "proposed" && p.status !== "archived");
+      const visibleProjectIds = new Set(visibleProjects.map((p) => p.id));
+
+      const projectById = new Map<string, ProjectRow>();
+      for (const p of visibleProjects) projectById.set(p.id, p);
+
+      // If no visible projects -> empty gantt
+      if (visibleProjects.length === 0) {
         setTasks([]);
         return;
       }
 
-      const todoWindows = ((todoWin as any) ?? []) as TodoWindowRow[];
-      const todoIds = todoWindows.map((r) => r.todo_id).filter(Boolean) as string[];
-      if (todoIds.length === 0) {
-        setTasks([]);
-        return;
-      }
-
-      // 2) Project windows (view)
-      const { data: projWin, error: projErr } = await supabase
+      // 2) Windows per project (based on Hours)
+      const { data: pw, error: pwErr } = await supabase
         .from("time_entries_project_window")
         .select("project_id,start_date,end_date")
-        .eq("workspace_id", wsId)
-        .eq("user_id", uid);
+        .eq("workspace_id", pWorkspaceId)
+        .eq("user_id", pUserId);
 
-      if (projErr) {
-        console.error(projErr);
-        setLoadError(projErr.message);
+      if (pwErr) throw pwErr;
+
+      let projectWindows = (((pw as any) ?? []) as ProjectWindowRow[]).filter((x) => x.project_id);
+
+      // ✅ Filter out proposed/archived projects
+      projectWindows = projectWindows.filter((w) => visibleProjectIds.has(w.project_id));
+
+      if (projectWindows.length === 0) {
         setTasks([]);
         return;
       }
 
-      const projectWindows = ((projWin as any) ?? []) as ProjectWindowRow[];
+      // 3) Windows per todo (based on Hours)
+      const { data: tw, error: twErr } = await supabase
+        .from("time_entries_todo_window")
+        .select("todo_id,project_id,start_date,end_date")
+        .eq("workspace_id", pWorkspaceId)
+        .eq("user_id", pUserId);
 
-      // 3) Todos
-      const { data: td, error: tdErr } = await supabase
-        .from("todos")
-        .select("id,title,project_id")
-        .in("id", todoIds);
+      if (twErr) throw twErr;
 
-      if (tdErr) {
-        console.error(tdErr);
-        setLoadError(tdErr.message);
-        setTasks([]);
-        return;
-      }
+      let todoWindows = (((tw as any) ?? []) as TodoWindowRow[]).filter((x) => !!x.todo_id);
 
-      const todos = ((td as any) ?? []) as TodoRow[];
-      const todoById = new Map<string, TodoRow>(todos.map((t) => [t.id, t]));
+      // ✅ Filter out todos belonging to proposed/archived projects
+      todoWindows = todoWindows.filter((w) => visibleProjectIds.has(w.project_id));
 
-      // 4) Projects
-      const projectIds = Array.from(new Set(projectWindows.map((p) => p.project_id))) as string[];
+      // 4) Load todo titles for windowed todo_ids
+      const todoIds = Array.from(new Set(todoWindows.map((t) => t.todo_id).filter(Boolean))) as string[];
 
-      let projectById = new Map<string, ProjectRow>();
-      if (projectIds.length > 0) {
-        const { data: pr, error: prErr } = await supabase
-          .from("projects")
-          .select("id,name")
-          .in("id", projectIds);
+      const todoById = new Map<string, TodoRow>();
+      if (todoIds.length > 0) {
+        const { data: td, error: tdErr } = await supabase.from("todos").select("id,title,project_id").in("id", todoIds);
 
-        if (!prErr) {
-          const projects = ((pr as any) ?? []) as ProjectRow[];
-          projectById = new Map(projects.map((p) => [p.id, p]));
+        if (tdErr) throw tdErr;
+
+        for (const t of ((td as any) ?? []) as TodoRow[]) {
+          // extra safety: only keep if project is visible
+          if (visibleProjectIds.has(t.project_id)) {
+            todoById.set(t.id, t);
+          }
         }
       }
 
-      // 5) Build tasksByProject with RAW dates (no +1 here!)
-      const tasksByProject = new Map<string, Array<{ todoId: string; title: string; start: string; end: string }>>();
+      // 5) Build todo tasks grouped by project
+      const tasksByProject = new Map<string, { todoId: string; title: string; start: string; end: string }[]>();
 
-      for (const row of todoWindows) {
-        if (!row.todo_id) continue;
-        const todo = todoById.get(row.todo_id);
+      for (const w of todoWindows) {
+        if (!w.todo_id) continue;
+
+        const todo = todoById.get(w.todo_id);
         if (!todo) continue;
 
-        const start = row.start_date;
-        const end = row.end_date;
-        if (!start || !end) continue;
+        // safety (should already be true)
+        if (!visibleProjectIds.has(todo.project_id)) continue;
 
         const list = tasksByProject.get(todo.project_id) ?? [];
         list.push({
           todoId: todo.id,
           title: todo.title,
-          start,
-          end,
+          start: w.start_date,
+          end: w.end_date,
         });
         tasksByProject.set(todo.project_id, list);
       }
@@ -274,14 +304,14 @@ export default function GanttPage() {
       // 6) Build final gantt tasks
       const ganttTasks: GanttTask[] = [];
 
-      for (const pw of projOrder) {
-        const pid = pw.project_id;
+      for (const pwRow of projOrder) {
+        const pid = pwRow.project_id;
         const projName = projectById.get(pid)?.name ?? "Project";
 
-        if (!pw.start_date || !pw.end_date) continue;
+        if (!pwRow.start_date || !pwRow.end_date) continue;
 
-        const pStartDate = isoToUtcDate(pw.start_date);
-        const pEndDate = addOneDay(isoToUtcDate(pw.end_date)); // +1 once here
+        const pStartDate = isoToUtcDate(pwRow.start_date);
+        const pEndDate = addOneDay(isoToUtcDate(pwRow.end_date)); // +1 once here
 
         ganttTasks.push({
           id: `project:${pid}`,
@@ -359,32 +389,33 @@ export default function GanttPage() {
         }
 
         requestAnimationFrame(() => {
-  // eslint-disable-next-line no-new
-  new Gantt(ganttRef.current, tasks, {
-    view_mode: "Week",
-    bar_height: 20,
-    padding: 16,
-  });
+          // eslint-disable-next-line no-new
+          new Gantt(ganttRef.current, tasks, {
+            view_mode: "Week",
+            bar_height: 20,
+            padding: 16,
+          });
 
-  // Measure after layout. We do it twice to be safe (Frappe updates DOM in steps).
-  const el = ganttRef.current!;
-  const applyMeasure = () => {
-    const h = measureSvgHeight(el);
-    if (h) {
-      setMeasuredHeight((prev) => {
-        // avoid tiny oscillations that can cause rerenders
-        return Math.abs(prev - h) > 8 ? h : prev;
-      });
-    }
-  };
+          // Measure after layout. We do it twice to be safe (Frappe updates DOM in steps).
+          const el = ganttRef.current!;
+          const applyMeasure = () => {
+            const h = measureSvgHeight(el);
+            if (h) {
+              setMeasuredHeight((prev) => {
+                // avoid tiny oscillations that can cause rerenders
+                return Math.abs(prev - h) > 8 ? h : prev;
+              });
+            }
+          };
 
-  setTimeout(applyMeasure, 0);
-  setTimeout(applyMeasure, 50);
-});
+          setTimeout(applyMeasure, 0);
+          setTimeout(applyMeasure, 50);
 
-
-  
-
+          // ✅ Center “today” in the middle of the viewport
+          setTimeout(centerTodayInView, 0);
+          setTimeout(centerTodayInView, 60);
+          setTimeout(centerTodayInView, 180);
+        });
       } catch (e: any) {
         console.error("Render Gantt failed:", e);
         if (ganttRef.current) {
@@ -396,7 +427,16 @@ export default function GanttPage() {
     }
 
     render();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasks]);
+
+  // Keep today centered when resizing (optional but nice)
+  useEffect(() => {
+    const onResize = () => centerTodayInView();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (baseLoading) {
     return (
@@ -412,11 +452,11 @@ export default function GanttPage() {
       <header className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold">Gantt</h1>
-          
           <div className="text-sm text-gray-500">Role: {workspaceRole}</div>
         </div>
 
         <div className="flex flex-col items-end gap-2">
+          <WorkspaceSwitcher />
           <Button variant="outline" onClick={() => router.push("/projects")}>
             ← Projects
           </Button>
@@ -439,9 +479,7 @@ export default function GanttPage() {
                 </option>
               ))}
             </select>
-            {!isAdmin ? (
-              <div className="text-xs text-gray-500">You can only view your own planning.</div>
-            ) : null}
+            {!isAdmin ? <div className="text-xs text-gray-500">You can only view your own planning.</div> : null}
           </div>
 
           <div className="grid gap-1">
@@ -453,26 +491,23 @@ export default function GanttPage() {
             <div className="text-xs text-gray-500">
               {ganttLoading ? "Loading gantt…" : `Loaded for ${selectedLabel || "selected user"}.`}
             </div>
+            <div className="text-xs text-gray-400">
+              Hidden here: <span className="font-medium">proposed</span> and <span className="font-medium">archived</span>{" "}
+              projects.
+            </div>
           </div>
         </div>
 
         {loadError ? <div className="mt-3 text-sm text-red-600">{loadError}</div> : null}
       </section>
 
-     <section className="mt-6 border rounded-lg bg-white">
-  <div className="overflow-x-auto">
-    <div
-      ref={ganttRef}
-      className="gantt-container min-w-[900px] p-2 pl-4"
-      style={{ height: ganttHeight }}
-    />
-  </div>
-</section>
+      <section className="mt-6 border rounded-lg bg-white">
+        <div ref={scrollRef} className="overflow-x-auto">
+          <div ref={ganttRef} className="gantt-container min-w-[900px] p-2 pl-4" style={{ height: ganttHeight }} />
+        </div>
+      </section>
 
-
-      <div className="mt-3 text-xs text-gray-500">
-        Note: Simplified MVP (no progress). Uses database aggregation for speed.
-      </div>
+      <div className="mt-3 text-xs text-gray-500">Note: Simplified MVP (no progress). Uses database aggregation for speed.</div>
     </main>
   );
 }
