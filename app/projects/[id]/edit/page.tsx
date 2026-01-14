@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Button from "@/app/components/Button";
 import { supabase } from "@/lib/supabaseClient";
-import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appContext";
+import { getActiveWorkspace, getActiveWorkspaceTier, requireUser, WorkspaceRole } from "@/app/lib/appContext";
 
 type Priority = "low" | "medium" | "high" | "very_high";
 type ProjectType = "standard" | "pdca" | "dmaic";
@@ -73,6 +73,15 @@ export default function ProjectEditPage() {
 
   const [project, setProject] = useState<ProjectRow | null>(null);
 
+  // Workspace tier (free/core/pro)
+  const [tier, setTier] = useState<"free" | "core" | "pro">("free");
+
+  // Free limit precheck (active projects)
+  const [activeCount, setActiveCount] = useState<number>(0); // excluding current project
+  const [activeLimit, setActiveLimit] = useState<number>(2);
+  const [canActivateNow, setCanActivateNow] = useState<boolean>(true);
+  const [limitMsg, setLimitMsg] = useState<string | null>(null);
+
   // form state
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -103,6 +112,8 @@ export default function ProjectEditPage() {
     return false;
   }, [workspaceRole, project, userId, projectMemberRole]);
 
+  const isStakeholder = useMemo(() => workspaceRole === "stakeholder", [workspaceRole]);
+
   async function load() {
     setLoading(true);
 
@@ -115,6 +126,10 @@ export default function ProjectEditPage() {
 
     const ws = await getActiveWorkspace();
     if (ws) setWorkspaceRole(ws.role);
+
+    // Load effective tier (free/core/pro)
+    const t = await getActiveWorkspaceTier();
+    setTier(t);
 
     // Project
     const { data: proj, error: projErr } = await supabase
@@ -143,6 +158,39 @@ export default function ProjectEditPage() {
       .eq("user_id", user.id)
       .maybeSingle();
     setProjectMemberRole((pm as any)?.role ?? null);
+
+    // Precheck active count (exclude current project id)
+    const limit = 2;
+    setActiveLimit(limit);
+
+    const { count, error: cntErr } = await supabase
+      .from("projects")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", pr.workspace_id)
+      .eq("status", "active")
+      .neq("id", pr.id);
+
+    if (cntErr) {
+      console.warn("Active projects count error:", cntErr);
+      setActiveCount(0);
+      setCanActivateNow(true);
+      setLimitMsg(null);
+    } else {
+      const n = count ?? 0;
+      setActiveCount(n);
+
+      // If this project is already active, allow keeping it active even when at cap.
+      const ok = t !== "free" || n < limit || pr.status === "active";
+      setCanActivateNow(ok);
+
+      if (t === "free" && !ok) {
+        setLimitMsg(
+          `Free plan limit reached: you already have ${n}/${limit} active projects. Upgrade to activate more projects, or keep this as proposed.`
+        );
+      } else {
+        setLimitMsg(null);
+      }
+    }
 
     // init form
     setName(pr.name ?? "");
@@ -177,6 +225,36 @@ export default function ProjectEditPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectType]);
 
+  // If free + cap reached, don't allow switching to active (UI safety)
+  useEffect(() => {
+    if (!project) return;
+    const isSwitchingToActive = project.status !== "active" && status === "active";
+    if (tier === "free" && !isStakeholder && isSwitchingToActive && !canActivateNow) {
+      setStatus("proposed");
+    }
+  }, [tier, isStakeholder, status, canActivateNow, project]);
+
+  const statusOptions: { value: ProjectStatus; label: string; disabled?: boolean }[] = useMemo(() => {
+    if (isStakeholder) return [{ value: "proposed", label: "proposed" }];
+
+    // Free: proposed + active only (active disabled if cap reached and this project isn't already active)
+    if (tier === "free") {
+      const disableActive = !canActivateNow && project?.status !== "active";
+      return [
+        { value: "proposed", label: "proposed" },
+        { value: "active", label: "active", disabled: disableActive },
+      ];
+    }
+
+    // Core/Pro: all statuses
+    return [
+      { value: "proposed", label: "proposed" },
+      { value: "active", label: "active" },
+      { value: "done", label: "done" },
+      { value: "archived", label: "archived" },
+    ];
+  }, [isStakeholder, tier, canActivateNow, project?.status]);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!project) return;
@@ -185,6 +263,13 @@ export default function ProjectEditPage() {
 
     const cleanName = name.trim();
     if (!cleanName) return alert("Please enter a title.");
+
+    // Friendly pre-check to avoid ugly RLS error
+    const isSwitchingToActive = project.status !== "active" && status === "active";
+    if (tier === "free" && !isStakeholder && isSwitchingToActive && !canActivateNow) {
+      alert(`Free plan limit reached (${activeCount}/${activeLimit} active projects). Please upgrade or keep it as proposed.`);
+      return;
+    }
 
     // Basic validation for location link
     const loc = locationLink.trim();
@@ -200,13 +285,16 @@ export default function ProjectEditPage() {
 
     setSaving(true);
 
+    // Stakeholder stays forced proposed
+    const nextStatus: ProjectStatus = isStakeholder ? "proposed" : status;
+
     const payload = {
       name: cleanName,
       description: description.trim() || null,
       deadline: nextDeadline,
       estimated_minutes: nextEstimatedMinutes,
       priority,
-      status,
+      status: nextStatus,
       project_type: projectType,
       phase: nextPhase,
       location_link: loc || null,
@@ -218,6 +306,13 @@ export default function ProjectEditPage() {
 
     if (error) {
       console.error("Update project error:", error);
+
+      const msg = (error.message ?? "Update failed").toLowerCase();
+      if (msg.includes("limit") || msg.includes("can_create_active_project")) {
+        alert(`Free plan limit reached (${activeCount}/${activeLimit} active projects). Please upgrade or keep it as proposed.`);
+        return;
+      }
+
       alert(error.message);
       return;
     }
@@ -246,6 +341,13 @@ export default function ProjectEditPage() {
     );
   }
 
+  const showLimitBanner =
+    tier === "free" &&
+    !isStakeholder &&
+    project.status !== "active" &&
+    !canActivateNow &&
+    !!limitMsg;
+
   return (
     <main className="p-6 max-w-3xl mx-auto">
       <div className="flex justify-between items-center gap-3">
@@ -254,78 +356,90 @@ export default function ProjectEditPage() {
         </Button>
 
         <div className="text-sm text-gray-500">
-          Workspace role: {workspaceRole} {projectMemberRole ? `• Project role: ${projectMemberRole}` : ""}
+          Workspace role: {workspaceRole}
+          {projectMemberRole ? ` • Project role: ${projectMemberRole}` : ""}
+          {tier ? ` • Plan: ${tier}` : ""}
         </div>
       </div>
 
       <h1 className="mt-4 text-2xl font-semibold">Edit project</h1>
-      <div className="mt-1 text-sm text-gray-500">
-        {project.name} {!canEdit ? "• Read-only" : null}
-      </div>
 
-      {!canEdit ? (
-        <div className="mt-6 border rounded-lg p-4 bg-gray-50 text-sm text-gray-700">
-          You don't have permission to modify this project.
+      {showLimitBanner ? (
+        <div className="mt-4 border rounded-lg p-4 bg-amber-50 text-amber-900">
+          <div className="font-medium">Active project limit reached</div>
+          <div className="mt-1 text-sm">{limitMsg}</div>
+
+          <div className="mt-3 flex gap-2 flex-wrap">
+            <Button variant="primary" type="button" onClick={() => router.push("/settings/billing")} disabled={saving}>
+              Upgrade
+            </Button>
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() => setStatus("proposed")}
+              disabled={saving}
+            >
+              Keep as proposal
+            </Button>
+          </div>
         </div>
       ) : null}
 
-      <form onSubmit={onSubmit} className="mt-6 grid gap-4">
+      <form onSubmit={onSubmit} className="mt-6 grid gap-4 rounded-lg border bg-white p-4">
         {/* Title */}
-        <div className="grid gap-1">
+        <div>
           <label className="text-sm font-medium">Title</label>
           <input
-            className="border rounded-md px-3 py-2"
+            className="mt-1 w-full border rounded-md px-3 py-2"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            disabled={saving}
+            disabled={saving || !canEdit}
+            placeholder="Project title"
           />
         </div>
 
         {/* Description */}
-        <div className="grid gap-1">
+        <div>
           <label className="text-sm font-medium">Description</label>
           <textarea
-            className="border rounded-md px-3 py-2 min-h-[110px]"
+            className="mt-1 w-full border rounded-md px-3 py-2 min-h-[90px]"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            disabled={saving}
+            disabled={saving || !canEdit}
+            placeholder="Optional description"
           />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Deadline */}
-          <div className="grid gap-1">
-            <label className="text-sm font-medium">Deadline</label>
-            <input
-              type="date"
-              className="border rounded-md px-3 py-2"
-              value={deadline}
-              onChange={(e) => setDeadline(e.target.value)}
-              disabled={saving}
-            />
+        {/* Status / Priority */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="text-sm font-medium">Status</label>
+            <select
+              className="mt-1 w-full border rounded-md px-3 py-2"
+              value={status}
+              onChange={(e) => setStatus(e.target.value as ProjectStatus)}
+              disabled={saving || !canEdit}
+            >
+              {statusOptions.map((o) => (
+                <option key={o.value} value={o.value} disabled={o.disabled}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            {tier === "free" ? (
+              <div className="text-xs text-gray-500 mt-1">
+                Free plan: max {activeLimit} active projects.
+              </div>
+            ) : null}
           </div>
 
-          {/* Estimate */}
-          <div className="grid gap-1">
-            <label className="text-sm font-medium">Estimated hours</label>
-            <input
-              className="border rounded-md px-3 py-2"
-              value={estimatedHours}
-              onChange={(e) => setEstimatedHours(e.target.value)}
-              placeholder="e.g. 2"
-              inputMode="decimal"
-              disabled={saving}
-            />
-          </div>
-
-          {/* Priority */}
-          <div className="grid gap-1">
+          <div>
             <label className="text-sm font-medium">Priority</label>
             <select
-              className="border rounded-md px-3 py-2"
+              className="mt-1 w-full border rounded-md px-3 py-2"
               value={priority}
               onChange={(e) => setPriority(e.target.value as Priority)}
-              disabled={saving}
+              disabled={saving || !canEdit}
             >
               <option value="low">low</option>
               <option value="medium">medium</option>
@@ -333,31 +447,43 @@ export default function ProjectEditPage() {
               <option value="very_high">very_high</option>
             </select>
           </div>
+        </div>
 
-          {/* Status */}
-          <div className="grid gap-1">
-            <label className="text-sm font-medium">Status</label>
-            <select
-              className="border rounded-md px-3 py-2"
-              value={status}
-              onChange={(e) => setStatus(e.target.value as ProjectStatus)}
-              disabled={saving}
-            >
-              <option value="proposed">proposed</option>
-              <option value="active">active</option>
-              <option value="done">done</option>
-              <option value="archived">archived</option>
-            </select>
+        {/* Deadline / Estimate */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="text-sm font-medium">Deadline</label>
+            <input
+              type="date"
+              className="mt-1 w-full border rounded-md px-3 py-2"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              disabled={saving || !canEdit}
+            />
           </div>
 
-          {/* Type */}
-          <div className="grid gap-1">
+          <div>
+            <label className="text-sm font-medium">Estimated hours</label>
+            <input
+              className="mt-1 w-full border rounded-md px-3 py-2"
+              value={estimatedHours}
+              onChange={(e) => setEstimatedHours(e.target.value)}
+              disabled={saving || !canEdit}
+              placeholder="e.g. 12.5"
+            />
+            <div className="text-xs text-gray-500 mt-1">Enter hours (decimals allowed).</div>
+          </div>
+        </div>
+
+        {/* Type / Phase */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
             <label className="text-sm font-medium">Project type</label>
             <select
-              className="border rounded-md px-3 py-2"
+              className="mt-1 w-full border rounded-md px-3 py-2"
               value={projectType}
               onChange={(e) => setProjectType(e.target.value as ProjectType)}
-              disabled={saving}
+              disabled={saving || !canEdit}
             >
               <option value="standard">standard</option>
               <option value="pdca">pdca</option>
@@ -365,35 +491,33 @@ export default function ProjectEditPage() {
             </select>
           </div>
 
-          {/* Phase */}
-          <div className="grid gap-1">
+          <div>
             <label className="text-sm font-medium">Phase</label>
             <select
-              className="border rounded-md px-3 py-2"
+              className="mt-1 w-full border rounded-md px-3 py-2"
               value={phase}
               onChange={(e) => setPhase(e.target.value)}
-              disabled={saving || projectType === "standard"}
+              disabled={saving || !canEdit || projectType === "standard"}
             >
-              <option value="">—</option>
+              <option value="">{projectType === "standard" ? "—" : "Select phase"}</option>
               {PHASES[projectType].map((p) => (
                 <option key={p.value} value={p.value}>
                   {p.label}
                 </option>
               ))}
             </select>
-            <div className="text-xs text-gray-500">Only applicable for PDCA/DMAIC projects.</div>
           </div>
         </div>
 
         {/* Location link */}
-        <div className="grid gap-1">
+        <div>
           <label className="text-sm font-medium">Location link</label>
           <input
-            className="border rounded-md px-3 py-2"
+            className="mt-1 w-full border rounded-md px-3 py-2"
             value={locationLink}
             onChange={(e) => setLocationLink(e.target.value)}
             placeholder="e.g. https://... or a file path (later)"
-            disabled={saving}
+            disabled={saving || !canEdit}
           />
           <div className="text-xs text-gray-500">
             MVP: free text. Later you can validate URL vs file path.
@@ -402,7 +526,7 @@ export default function ProjectEditPage() {
 
         {/* Actions */}
         <div className="flex gap-2 pt-2">
-          <Button type="submit" disabled={saving}>
+          <Button type="submit" disabled={saving || !canEdit}>
             {saving ? "Saving…" : "Save"}
           </Button>
           <Button
@@ -413,6 +537,15 @@ export default function ProjectEditPage() {
           >
             Cancel
           </Button>
+        </div>
+
+        {/* Debug (optioneel) */}
+        <div className="text-xs text-gray-500 pt-2">
+          Plan: <span className="font-medium">{tier}</span> • Active projects:{" "}
+          <span className="font-medium">
+            {activeCount}/{activeLimit}
+          </span>{" "}
+          (excluding this project)
         </div>
       </form>
     </main>
