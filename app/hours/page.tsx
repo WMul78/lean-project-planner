@@ -9,13 +9,6 @@ import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appCon
 type ProjectStatus = "proposed" | "active" | "done" | "archived";
 type TodoAutoStatus = "proposed" | "active" | "done";
 
-type WsMember = {
-  id: string;
-  user_id: string;
-  role: WorkspaceRole;
-  profiles?: { email?: string | null; full_name?: string | null };
-};
-
 type TodoRow = {
   id: string;
   project_id: string;
@@ -24,7 +17,8 @@ type TodoRow = {
   estimated_minutes: number | null;
   executed_minutes: number | null;
   auto_status: TodoAutoStatus;
-  // embedded project
+
+  // embedded project (via join)
   projects: { id: string; name: string; status: ProjectStatus } | null;
 };
 
@@ -79,12 +73,6 @@ function hoursInputToMinutes(txt: string) {
   return Math.round(n * 60);
 }
 
-function labelForMember(m: WsMember) {
-  const name = (m.profiles?.full_name ?? "").trim();
-  const email = (m.profiles?.email ?? "").trim();
-  return name || email || m.user_id.slice(0, 8);
-}
-
 export default function HoursPlannerPage() {
   const router = useRouter();
 
@@ -93,13 +81,7 @@ export default function HoursPlannerPage() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [workspaceRole, setWorkspaceRole] = useState<WorkspaceRole>("member");
 
-  const [loggedInUserId, setLoggedInUserId] = useState<string | null>(null);
-
-  // ✅ user filter
-  const [members, setMembers] = useState<WsMember[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState<string>("");
-
-  const isAdmin = workspaceRole === "owner" || workspaceRole === "admin";
+  const [userId, setUserId] = useState<string | null>(null);
 
   const [weekStart, setWeekStart] = useState<Date>(() => startOfWeekMonday(new Date()));
   const days = useMemo(() => Array.from({ length: 5 }, (_, i) => addDays(weekStart, i)), [weekStart]); // Mon–Fri
@@ -109,33 +91,16 @@ export default function HoursPlannerPage() {
 
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
-  // Executed minutes (per todo)
+  // Executed minutes per todo (from view)
   const [executedByTodo, setExecutedByTodo] = useState<Record<string, number>>({});
 
   const todayISO = useMemo(() => iso(new Date()), []);
-
   const [mobileDayIndex, setMobileDayIndex] = useState(0); // 0..4
   const mobileDay = days[mobileDayIndex];
   const mobileDayISO = mobileDay ? iso(mobileDay) : "";
 
   function cellKey(todoId: string, dateISO: string) {
     return `${todoId}|${dateISO}`;
-  }
-
-  async function loadMembers(wsId: string) {
-    const { data, error } = await supabase
-      .from("workspace_members")
-      .select("id,user_id,role,profiles(email,full_name)")
-      .eq("workspace_id", wsId)
-      .order("created_at", { ascending: true });
-
-    if (error) {
-      console.warn("Load members failed:", error);
-      setMembers([]);
-      return;
-    }
-
-    setMembers(((data as any) ?? []) as WsMember[]);
   }
 
   async function load() {
@@ -145,7 +110,7 @@ export default function HoursPlannerPage() {
       const user = await requireUser(router);
       if (!user) return;
 
-      setLoggedInUserId(user.id);
+      setUserId(user.id);
 
       const ws = await getActiveWorkspace();
       if (!ws?.workspaceId) {
@@ -156,40 +121,28 @@ export default function HoursPlannerPage() {
       setWorkspaceId(ws.workspaceId);
       setWorkspaceRole(ws.role);
 
-      await loadMembers(ws.workspaceId);
-
-      // Default selected user:
-      // - admin/owner: keep selection if already set, else default to self
-      // - others: forced to self
-      const nextSelected = isAdmin ? (selectedUserId || user.id) : user.id;
-      setSelectedUserId(nextSelected);
-
-      // ✅ 1+2) Load todos but HIDE:
-      // - projects with status proposed/done
-      // - todos with auto_status proposed/done
-      //
-      // Use todo_status_auto so we can filter on auto_status.
+      // ✅ Load todos but HIDE:
+      // - projects with status proposed/archived
+      // - todos with auto_status proposed
+      // Visible: active + done
       const { data: td, error: tdErr } = await supabase
         .from("todo_status_auto")
-        .select(
-          "id,project_id,title,assigned_to,estimated_minutes,executed_minutes,auto_status,projects:projects(id,name,status)"
-        )
+        .select("id,project_id,title,assigned_to,estimated_minutes,executed_minutes,auto_status,projects:projects(id,name,status)")
         .eq("workspace_id", ws.workspaceId)
-        .neq("auto_status", "proposed")
-        .neq("auto_status", "done");
+        .neq("auto_status", "proposed");
 
       if (tdErr) {
         console.error("Load todos failed:", tdErr);
         setTodos([]);
+        setExecutedByTodo({});
       } else {
         const raw = ((td as any) ?? []) as TodoRow[];
 
-        // extra safety: hide proposed/done projects
         const filtered = raw.filter((t) => {
           const ps = t.projects?.status;
           if (ps === "proposed") return false;
-          if (ps === "done") return false;
-          return true;
+          if (ps === "archived") return false;
+          return true; // active + done
         });
 
         // Sort: by project name then by title
@@ -202,14 +155,12 @@ export default function HoursPlannerPage() {
 
         setTodos(filtered);
 
-        // executedByTodo map (if executed_minutes exists in the view)
         const execMap: Record<string, number> = {};
         for (const t of filtered) execMap[t.id] = t.executed_minutes ?? 0;
         setExecutedByTodo(execMap);
       }
 
-      // Load time entries for selected user + current week window
-      // (Mon..Fri)
+      // Load time entries for current user + current week (Mon..Fri)
       const fromISO = iso(days[0]);
       const toISO = iso(days[4]);
 
@@ -217,7 +168,7 @@ export default function HoursPlannerPage() {
         .from("time_entries")
         .select("id,todo_id,project_id,user_id,entry_date,minutes,note")
         .eq("workspace_id", ws.workspaceId)
-        .eq("user_id", nextSelected)
+        .eq("user_id", user.id)
         .gte("entry_date", fromISO)
         .lte("entry_date", toISO);
 
@@ -236,19 +187,17 @@ export default function HoursPlannerPage() {
     }
   }
 
-  // reset mobile day when week changes
   useEffect(() => {
     setMobileDayIndex(0);
   }, [weekStart]);
 
-  // load on week change + when selected user changes
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekStart, selectedUserId]);
+  }, [weekStart]);
 
   async function setCell(todo: TodoRow, dateISO: string, hoursText: string) {
-    if (!workspaceId || !loggedInUserId || !selectedUserId) return;
+    if (!workspaceId || !userId) return;
 
     const key = cellKey(todo.id, dateISO);
     const minutes = hoursInputToMinutes(hoursText);
@@ -274,20 +223,15 @@ export default function HoursPlannerPage() {
       return;
     }
 
-    // Upsert
+    // Upsert for current user
     setSavingKey(key);
 
     const payload = {
       workspace_id: workspaceId,
       project_id: todo.project_id,
       todo_id: todo.id,
-
-      // ✅ planned/logged user (filter)
-      user_id: selectedUserId,
-
-      // ✅ who performed the change (audit)
-      logged_by: loggedInUserId,
-
+      user_id: userId,
+      logged_by: userId,
       entry_date: dateISO,
       minutes,
       note: null,
@@ -334,7 +278,7 @@ export default function HoursPlannerPage() {
     setWeekStart(addDays(weekStart, -7));
   }
 
-  // ✅ group by project
+  // Group by project
   const grouped = useMemo(() => {
     const g = new Map<string, { projectId: string; projectName: string; items: TodoRow[] }>();
     for (const t of todos) {
@@ -346,12 +290,6 @@ export default function HoursPlannerPage() {
     }
     return Array.from(g.values());
   }, [todos]);
-
-  const userOptions = useMemo(() => {
-    if (!loggedInUserId) return [];
-    if (!isAdmin) return members.filter((m) => m.user_id === loggedInUserId);
-    return members;
-  }, [members, loggedInUserId, isAdmin]);
 
   if (loading) {
     return (
@@ -370,8 +308,8 @@ export default function HoursPlannerPage() {
             Week of {iso(weekStart)} • Role: {workspaceRole}
           </div>
           <div className="text-xs text-gray-400">
-            Hidden: projects <span className="font-medium">proposed/done</span> and tasks{" "}
-            <span className="font-medium">proposed/done</span>.
+            Hidden: projects <span className="font-medium">proposed/archived</span> and tasks{" "}
+            <span className="font-medium">proposed</span>. Visible: <span className="font-medium">active/done</span>.
           </div>
         </div>
 
@@ -382,27 +320,10 @@ export default function HoursPlannerPage() {
         </div>
       </header>
 
-      {/* ✅ User filter */}
+      {/* Week nav */}
       <section className="mt-5 border rounded-lg bg-white p-4">
-        <div className="grid gap-3 sm:grid-cols-3 items-end">
-          <div className="grid gap-1">
-            <label className="text-sm font-medium">User</label>
-            <select
-              className="border rounded-md px-3 py-2"
-              value={selectedUserId}
-              onChange={(e) => setSelectedUserId(e.target.value)}
-              disabled={!isAdmin}
-            >
-              {userOptions.map((m) => (
-                <option key={m.user_id} value={m.user_id}>
-                  {labelForMember(m)} ({m.role})
-                </option>
-              ))}
-            </select>
-            {!isAdmin ? <div className="text-xs text-gray-500">You can only plan/view your own hours.</div> : null}
-          </div>
-
-          <div className="flex gap-2 sm:justify-center">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex gap-2">
             <Button variant="outline" onClick={prevWeek}>
               ← Prev
             </Button>
@@ -412,7 +333,7 @@ export default function HoursPlannerPage() {
           </div>
 
           {/* mobile day picker */}
-          <div className="grid gap-1 sm:justify-self-end">
+          <div className="grid gap-1">
             <label className="text-sm font-medium">Mobile day</label>
             <select
               className="border rounded-md px-3 py-2"
@@ -421,7 +342,8 @@ export default function HoursPlannerPage() {
             >
               {days.map((d, i) => (
                 <option key={i} value={i}>
-                  {iso(d)}{iso(d) === todayISO ? " (today)" : ""}
+                  {iso(d)}
+                  {iso(d) === todayISO ? " (today)" : ""}
                 </option>
               ))}
             </select>
@@ -460,7 +382,7 @@ export default function HoursPlannerPage() {
               ) : (
                 grouped.map((grp) => (
                   <React.Fragment key={grp.projectId}>
-                    {/* ✅ Project row (clickable) */}
+                    {/* Project row (clickable) */}
                     <tr className="bg-white">
                       <td className="p-3 border-b font-semibold text-gray-900" colSpan={1 + days.length}>
                         <button
@@ -480,6 +402,7 @@ export default function HoursPlannerPage() {
                           <div className="text-xs text-gray-500 flex gap-2 flex-wrap mt-1">
                             {t.estimated_minutes ? <span>Est: {minutesToHoursText(t.estimated_minutes)}</span> : null}
                             {typeof todoProgress(t) === "number" ? <span>Progress: {todoProgress(t)}%</span> : null}
+                            <span className="opacity-70">• {t.auto_status}</span>
                           </div>
                         </td>
 
@@ -528,7 +451,6 @@ export default function HoursPlannerPage() {
             ) : (
               grouped.map((grp) => (
                 <div key={grp.projectId} className="border rounded-lg p-3">
-                  {/* ✅ clickable project */}
                   <button
                     type="button"
                     className="font-semibold text-gray-900 hover:underline"
@@ -547,7 +469,8 @@ export default function HoursPlannerPage() {
                           <div className="min-w-0 flex-1">
                             <div className="text-sm text-gray-900 truncate">{t.title}</div>
                             <div className="text-xs text-gray-500">
-                              {t.estimated_minutes ? `Est: ${minutesToHoursText(t.estimated_minutes)}` : "No estimate"}
+                              {t.estimated_minutes ? `Est: ${minutesToHoursText(t.estimated_minutes)}` : "No estimate"} •{" "}
+                              {t.auto_status}
                             </div>
                           </div>
 
@@ -570,7 +493,7 @@ export default function HoursPlannerPage() {
       </section>
 
       <div className="mt-3 text-xs text-gray-500">
-        Tip: Admin/Owner can switch users. Projects are clickable to open their details.
+        Projects are clickable to open their details. This view hides proposed/archived projects and proposed tasks.
       </div>
     </main>
   );
