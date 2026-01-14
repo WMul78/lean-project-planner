@@ -9,6 +9,12 @@ import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appCon
 type ProjectStatus = "proposed" | "active" | "done" | "archived";
 type TodoAutoStatus = "proposed" | "active" | "done";
 
+type ProjectRow = {
+  id: string;
+  name: string;
+  status: ProjectStatus;
+};
+
 type TodoRow = {
   id: string;
   project_id: string;
@@ -18,7 +24,7 @@ type TodoRow = {
   executed_minutes: number | null;
   auto_status: TodoAutoStatus;
 
-  // embedded project (via join)
+  // attached client-side (since todo_status_auto has no workspace_id)
   projects: { id: string; name: string; status: ProjectStatus } | null;
 };
 
@@ -121,43 +127,76 @@ export default function HoursPlannerPage() {
       setWorkspaceId(ws.workspaceId);
       setWorkspaceRole(ws.role);
 
-      // ✅ Load todos but HIDE:
-      // - projects with status proposed/archived
-      // - todos with auto_status proposed
+      // ✅ STEP 1: Load visible projects for this workspace
+      // Hide: proposed + archived
       // Visible: active + done
-      const { data: td, error: tdErr } = await supabase
-        .from("todo_status_auto")
-        .select("id,project_id,title,assigned_to,estimated_minutes,executed_minutes,auto_status,projects:projects(id,name,status)")
+      const { data: pr, error: prErr } = await supabase
+        .from("projects")
+        .select("id,name,status")
         .eq("workspace_id", ws.workspaceId)
-        .neq("auto_status", "proposed");
+        .not("status", "in", '("proposed","archived")');
 
-      if (tdErr) {
-        console.error("Load todos failed:", tdErr);
+      if (prErr) {
+        console.error("Load projects failed:", prErr);
         setTodos([]);
         setExecutedByTodo({});
       } else {
-        const raw = ((td as any) ?? []) as TodoRow[];
+        const projects = ((pr as any) ?? []) as ProjectRow[];
+        const projectIds = projects.map((p) => p.id);
 
-        const filtered = raw.filter((t) => {
-          const ps = t.projects?.status;
-          if (ps === "proposed") return false;
-          if (ps === "archived") return false;
-          return true; // active + done
-        });
+        if (projectIds.length === 0) {
+          setTodos([]);
+          setExecutedByTodo({});
+        } else {
+          const projectById: Record<string, ProjectRow> = {};
+          for (const p of projects) projectById[p.id] = p;
 
-        // Sort: by project name then by title
-        filtered.sort((a, b) => {
-          const pa = a.projects?.name ?? "";
-          const pb = b.projects?.name ?? "";
-          if (pa !== pb) return pa.localeCompare(pb);
-          return (a.title ?? "").localeCompare(b.title ?? "");
-        });
+          // ✅ STEP 2: Load todos via todo_status_auto using project_id IN (...)
+          // Hide: todos that are proposed (keep active + done)
+          // IMPORTANT: todo_status_auto has NO workspace_id, so we filter by project_id.
+          const { data: td, error: tdErr } = await supabase
+            .from("todo_status_auto")
+            .select("id,project_id,title,assigned_to,estimated_minutes,executed_minutes,auto_status,inserted_at")
+            .in("project_id", projectIds)
+            .neq("auto_status", "proposed")
+            .order("inserted_at", { ascending: false });
 
-        setTodos(filtered);
+          if (tdErr) {
+            console.error("Load todos failed:", tdErr);
+            setTodos([]);
+            setExecutedByTodo({});
+          } else {
+            const raw = ((td as any) ?? []) as any[];
 
-        const execMap: Record<string, number> = {};
-        for (const t of filtered) execMap[t.id] = t.executed_minutes ?? 0;
-        setExecutedByTodo(execMap);
+            // ✅ STEP 3: Attach project info client-side (for grouping + clicking)
+            const enriched: TodoRow[] = raw
+              .map((t) => ({
+                id: String(t.id),
+                project_id: String(t.project_id),
+                title: String(t.title ?? ""),
+                assigned_to: (t.assigned_to as string | null) ?? null,
+                estimated_minutes: (t.estimated_minutes as number | null) ?? null,
+                executed_minutes: (t.executed_minutes as number | null) ?? null,
+                auto_status: (t.auto_status as TodoAutoStatus) ?? "active",
+                projects: projectById[String(t.project_id)] ?? null,
+              }))
+              .filter((t) => !!t.projects); // safety
+
+            // Sort: by project name then by title
+            enriched.sort((a, b) => {
+              const pa = a.projects?.name ?? "";
+              const pb = b.projects?.name ?? "";
+              if (pa !== pb) return pa.localeCompare(pb);
+              return (a.title ?? "").localeCompare(b.title ?? "");
+            });
+
+            setTodos(enriched);
+
+            const execMap: Record<string, number> = {};
+            for (const t of enriched) execMap[t.id] = t.executed_minutes ?? 0;
+            setExecutedByTodo(execMap);
+          }
+        }
       }
 
       // Load time entries for current user + current week (Mon..Fri)
