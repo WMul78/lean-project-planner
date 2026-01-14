@@ -371,22 +371,22 @@ export default function HoursPlannerPage() {
             </Button>
           </div>
 
-          {/* mobile day picker */}
-          <div className="grid gap-1">
-            <label className="text-sm font-medium">Mobile day</label>
-            <select
-              className="border rounded-md px-3 py-2"
-              value={mobileDayIndex}
-              onChange={(e) => setMobileDayIndex(Number(e.target.value))}
-            >
-              {days.map((d, i) => (
-                <option key={i} value={i}>
-                  {iso(d)}
-                  {iso(d) === todayISO ? " (today)" : ""}
-                </option>
-              ))}
-            </select>
-          </div>
+        {/* mobile day picker (mobile only) */}
+        <div className="grid gap-1 md:hidden">
+          <label className="text-sm font-medium">Mobile day</label>
+           <select
+            className="border rounded-md px-3 py-2"
+            value={mobileDayIndex}
+            onChange={(e) => setMobileDayIndex(Number(e.target.value))}
+          >
+            {days.map((d, i) => (
+              <option key={i} value={i}>
+                {iso(d)}
+                {iso(d) === todayISO ? " (today)" : ""}
+              </option>
+            ))}
+          </select>
+        </div>
         </div>
       </section>
 
@@ -532,7 +532,7 @@ export default function HoursPlannerPage() {
       </section>
 
       <div className="mt-3 text-xs text-gray-500">
-        Projects are clickable to open their details. This view hides proposed/archived projects and proposed tasks.
+        (c) Improvica 2026
       </div>
     </main>
   );
