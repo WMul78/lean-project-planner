@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "@/app/components/Button";
-import WorkspaceSwitcher from "@/app/components/WorkspaceSwitcher";
 import { supabase } from "@/lib/supabaseClient";
 import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appContext";
 import "@/app/styles/vendor/frappe-gantt.css";
@@ -456,7 +455,6 @@ export default function GanttPage() {
         </div>
 
         <div className="flex flex-col items-end gap-2">
-          <WorkspaceSwitcher />
           <Button variant="outline" onClick={() => router.push("/projects")}>
             ← Projects
           </Button>
