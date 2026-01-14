@@ -521,7 +521,7 @@ export default function ProjectDetailPage() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="font-medium text-sm truncate">{t.title}</div>
+                      <div className="font-medium text-sm break-words whitespace-normal line-clamp-2 sm:line-clamp-1">{t.title}</div>
 
                       <div className="mt-1 flex flex-wrap gap-2">
                         <span className={metaBadgeClass()}>status: {t.auto_status}</span>
