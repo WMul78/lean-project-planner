@@ -162,29 +162,31 @@ export default function EditProjectPage() {
   }
 
   async function load() {
-    setLoading(true);
+  setLoading(true);
 
+  try {
     const user = await requireUser(router);
-    if (!user) {
-      setLoading(false);
-      return;
-    }
+    if (!user) return;
+
     setUserId(user.id);
 
     const ws = await getActiveWorkspace();
     if (ws) setWorkspaceRole(ws.role);
 
+    // Load effective tier (free/core/pro)
     const t = await getActiveWorkspaceTier();
     setTier(t);
 
+    // Project
     const { data: proj, error: projErr } = await supabase
       .from("projects")
-      .select("id,workspace_id,name,description,status,owner_id,created_by,deadline,estimated_minutes,priority,project_type,phase,location_link")
+      .select(
+        "id,workspace_id,name,description,status,owner_id,created_by,deadline,estimated_minutes,priority,project_type,phase,location_link"
+      )
       .eq("id", projectId)
       .single();
 
     if (projErr) {
-      setLoading(false);
       alert(projErr.message);
       router.push(`/projects/${projectId}`);
       return;
@@ -194,12 +196,14 @@ export default function EditProjectPage() {
     setProject(pr);
 
     // Project membership role (for member collaboration)
-    const { data: pm } = await supabase
+    const { data: pm, error: pmErr } = await supabase
       .from("project_members")
       .select("role")
       .eq("project_id", projectId)
       .eq("user_id", user.id)
       .maybeSingle();
+
+    if (pmErr) console.warn("Load project member role failed:", pmErr);
     setProjectMemberRole((pm as any)?.role ?? null);
 
     // Precheck active count (exclude current project id)
@@ -238,18 +242,20 @@ export default function EditProjectPage() {
     setName(pr.name ?? "");
     setDescription(pr.description ?? "");
     setDeadline(pr.deadline ?? "");
-    setEstimatedHours(minutesToHoursText(pr.estimated_minutes));
-    setPriority((pr.priority ?? "medium") as Priority);
-    setStatus((pr.status ?? "active") as ProjectStatus);
-    setProjectType((pr.project_type ?? "standard") as ProjectType);
+    setEstimatedHours(minutesToHoursText(pr.estimated_minutes ?? null));
+    setPriority(pr.priority ?? "medium");
+    setStatus(pr.status ?? "active");
+    setProjectType(pr.project_type ?? "standard");
     setPhase(pr.phase ?? "");
     setLocationLink(pr.location_link ?? "");
-
-    // NEW: stakeholders load
-    await loadStakeholders(pr.workspace_id);
-
+  } catch (e: any) {
+    console.error("Project edit load failed:", e);
+    alert(e?.message ?? "Failed to load project.");
+  } finally {
     setLoading(false);
   }
+}
+
 
   useEffect(() => {
     load();
