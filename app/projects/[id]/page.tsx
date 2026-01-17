@@ -375,6 +375,23 @@ async function markChatRead(pid: string, uid: string) {
   setLastReadAt(nowIso);
 }
 
+async function loadChatReadState(pid: string, uid: string) {
+  const { data, error } = await supabase
+    .from("project_message_reads")
+    .select("last_read_at")
+    .eq("project_id", pid)
+    .eq("user_id", uid)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("Load read state failed:", error);
+    setLastReadAt(null);
+    return;
+  }
+
+  setLastReadAt((data as any)?.last_read_at ?? null);
+}
+
 
   async function sendMessage() {
   if (!project?.workspace_id) {
@@ -434,14 +451,19 @@ async function markChatRead(pid: string, uid: string) {
 
       try {
         const ctx = await loadProject();
-        if (!ctx) return;
+        if (!ctx) {
+         // Critical: don’t leave the UI in a "Loading…" limbo
+          setPageError("No user/workspace context found. Please refresh or log in again.");
+          return;
+        }
 
         await loadTodos();
         await loadWorkspaceMembers();
         await loadTotals(projectId);
 
         await loadChat(projectId);
-        await markChatRead(projectId, ctx.userId);
+        await loadChatReadState(projectId, ctx.userId); // <-- this sets lastReadAt
+        await markChatRead(projectId, ctx.userId);      // <-- optionally mark immediately as read
       } catch (e: any) {
         console.error("Project detail bootstrap failed:", e);
         if (!cancelled) setPageError(e?.message ?? "Failed to load project details.");
@@ -637,12 +659,22 @@ async function markChatRead(pid: string, uid: string) {
   }
 
   if (!project) {
-    return (
-      <main className="p-6 max-w-3xl mx-auto">
-        <div className="text-gray-500">Loading…</div>
-      </main>
-    );
-  }
+  return (
+    <main className="p-6 max-w-3xl mx-auto">
+      <div className="text-gray-700 font-medium">Project not loaded</div>
+      <div className="mt-2 text-sm text-gray-600">
+        This can happen if the session/workspace context wasn’t available yet.
+      </div>
+      <div className="mt-4 flex gap-2">
+        <Button variant="outline" onClick={() => router.push("/projects")}>
+          ← Back
+        </Button>
+        <Button onClick={() => window.location.reload()}>Refresh</Button>
+      </div>
+    </main>
+  );
+}
+
 
   const planned = plannedMinutes ?? 0;
   const executed = executedMinutes ?? 0;
