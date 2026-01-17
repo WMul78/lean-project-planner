@@ -17,7 +17,7 @@ export default function WorkspaceSwitcher() {
   const [loading, setLoading] = useState(true);
   const [switching, setSwitching] = useState(false);
 
-  // NEW: create + rename UI
+  // create + rename UI
   const [showManage, setShowManage] = useState(false);
   const [creating, setCreating] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -39,7 +39,6 @@ export default function WorkspaceSwitcher() {
       const act = await getActiveWorkspace();
       setActive(act as any);
 
-      // zet rename input alvast op huidige naam
       setRenameWsName((act as any)?.name ?? "");
     } finally {
       setLoading(false);
@@ -55,20 +54,13 @@ export default function WorkspaceSwitcher() {
 
     setSwitching(true);
     try {
-      // 1) Persist: active workspace in profile
       await setActiveWorkspace(id);
 
-      // 2) Update local UI instantly
       const next = list.find((w) => w.workspaceId === id) ?? null;
       setActive(next);
-
-      // 3) update rename input
       setRenameWsName(next?.name ?? "");
 
-      // 4) Tell the rest of the app to reload data
       window.dispatchEvent(new Event("workspace-changed"));
-
-      // 5) Ensure we are on projects overview (optional)
       router.push("/projects");
     } catch (e: any) {
       console.error("Switch workspace failed:", e);
@@ -85,16 +77,13 @@ export default function WorkspaceSwitcher() {
 
     setCreating(true);
     try {
-      // RPC uit stap 2
       const { data: newId, error } = await supabase.rpc("create_workspace", { p_name: name });
       if (error) throw error;
 
       setNewWsName("");
 
-      // refresh lijst + active (RPC zet active_workspace_id al)
       await load();
 
-      // Zorg dat UI meteen de nieuwe active pakt als jouw appContext nog niet refreshed is
       if (newId) {
         await setActiveWorkspace(newId as any);
       }
@@ -118,17 +107,10 @@ export default function WorkspaceSwitcher() {
 
     setRenaming(true);
     try {
-      const { error } = await supabase
-        .from("workspaces")
-        .update({ name })
-        .eq("id", active.workspaceId);
-
+      const { error } = await supabase.from("workspaces").update({ name }).eq("id", active.workspaceId);
       if (error) throw error;
 
-      // update local list (sneller dan alles reloaden)
-      setList((prev) =>
-        prev.map((w) => (w.workspaceId === active.workspaceId ? { ...w, name } : w))
-      );
+      setList((prev) => prev.map((w) => (w.workspaceId === active.workspaceId ? { ...w, name } : w)));
       setActive((prev) => (prev ? { ...prev, name } : prev));
 
       window.dispatchEvent(new Event("workspace-changed"));
@@ -155,59 +137,61 @@ export default function WorkspaceSwitcher() {
   }
 
   return (
-    <div className="grid gap-2">
-      {/* Rij 1: switcher + beheer toggle */}
-      <div className="flex items-center gap-2">
-        <select
-          className="border rounded-md px-2 py-1 text-sm disabled:opacity-50"
-          value={active.workspaceId}
-          onChange={(e) => onChange(e.target.value)}
-          disabled={switching}
-        >
-          {list.map((w) => (
-            <option key={w.workspaceId} value={w.workspaceId}>
-              {w.name ?? w.workspaceId} ({w.role})
-            </option>
-          ))}
-        </select>
+    <div className="grid gap-2 w-full">
+      {/* Row 1: switcher + manage toggle */}
+      <div className="flex items-center gap-2 w-full flex-wrap">
+        <div className="flex-1 min-w-0">
+          <select
+            className="w-full border rounded-md px-2 py-2 text-sm disabled:opacity-50"
+            value={active.workspaceId}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={switching}
+          >
+            {list.map((w) => (
+              <option key={w.workspaceId} value={w.workspaceId}>
+                {w.name ?? w.workspaceId} ({w.role})
+              </option>
+            ))}
+          </select>
+        </div>
 
         <Button
-        variant="outline"
-        onClick={() => setShowManage((v) => !v)}
-        aria-label="Workspace actions"
-        className="px-3"
+          variant="outline"
+          onClick={() => setShowManage((v) => !v)}
+          aria-label="Workspace actions"
+          className="px-3 py-2 shrink-0"
         >
           ⋯
         </Button>
 
-        {switching ? <span className="text-xs text-gray-500">wisselen…</span> : null}
+        {switching ? <span className="text-xs text-gray-500 shrink-0">wisselen…</span> : null}
       </div>
 
-      {/* Rij 2: beheer panel */}
+      {/* Row 2: manage panel */}
       {showManage ? (
-        <div className="border rounded-lg p-3 bg-gray-50 grid gap-3">
-          {/* Nieuwe workspace */}
+        <div className="border rounded-lg p-3 bg-gray-50 grid gap-3 w-full">
+          {/* Create */}
           <div className="grid gap-1">
             <div className="text-xs text-gray-600 font-medium">Nieuwe workspace</div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <input
-                className="flex-1 border rounded-md px-3 py-2 text-sm"
+                className="flex-1 min-w-0 border rounded-md px-3 py-2 text-sm"
                 placeholder="Naam…"
                 value={newWsName}
                 onChange={(e) => setNewWsName(e.target.value)}
               />
-              <Button onClick={createWorkspace} disabled={creating || newWsName.trim().length === 0}>
+              <Button onClick={createWorkspace} disabled={creating || newWsName.trim().length === 0} className="shrink-0">
                 {creating ? "Aanmaken…" : "Aanmaken"}
               </Button>
             </div>
           </div>
 
-          {/* Hernoemen */}
+          {/* Rename */}
           <div className="grid gap-1">
             <div className="text-xs text-gray-600 font-medium">Huidige workspace naam</div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <input
-                className="flex-1 border rounded-md px-3 py-2 text-sm"
+                className="flex-1 min-w-0 border rounded-md px-3 py-2 text-sm"
                 placeholder="Nieuwe naam…"
                 value={renameWsName}
                 onChange={(e) => setRenameWsName(e.target.value)}
@@ -217,6 +201,7 @@ export default function WorkspaceSwitcher() {
                 variant="outline"
                 onClick={renameWorkspace}
                 disabled={!canRename || renaming || renameWsName.trim().length === 0}
+                className="shrink-0"
               >
                 {renaming ? "Opslaan…" : "Opslaan"}
               </Button>

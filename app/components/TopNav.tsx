@@ -15,7 +15,7 @@ const navItems = [
   { label: "Kanban", to: "/kanban" },
   { label: "Hours", to: "/hours" },
   { label: "Gantt", to: "/gantt" },
-  { label: "Today", to: "/today" },
+  // ✅ Today removed
 ];
 
 function initialFromEmail(email: string | null | undefined) {
@@ -41,18 +41,18 @@ export default function TopNav() {
 
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // ✅ RESTORED: user menu dropdown
+  // user menu dropdown
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
 
-  // ✅ NEW: workspace popover (fix “too high / outside viewport”)
+  // workspace popover
   const [wsOpen, setWsOpen] = useState(false);
   const wsRef = useRef<HTMLDivElement | null>(null);
 
   const mobilePanelRef = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(async () => {
-    // ✅ Optie A: no getUser() here → use getSession()
+    // ✅ Option A: no getUser() → use getSession()
     const { data: sess } = await supabase.auth.getSession();
     const session = sess.session;
 
@@ -81,8 +81,7 @@ export default function TopNav() {
     const t = await getActiveWorkspaceTier();
     setTier(t as Tier);
 
-    // billingStatus: als je dit elders al laadt, laat dat zo.
-    // Anders kun je eventueel later via workspace_subscriptions ophalen.
+    // billingStatus: optional, keep existing logic if you load it elsewhere
   }, []);
 
   useEffect(() => {
@@ -146,7 +145,17 @@ export default function TopNav() {
         <div className="flex items-center gap-3 min-w-0">
           <button
             type="button"
-            onClick={() => router.push("/projects")}
+            onClick={() => {
+              // ✅ Mobile: toggle menu under logo
+              if (typeof window !== "undefined" && window.innerWidth < 640) {
+                setMobileOpen((v) => !v);
+                setUserMenuOpen(false);
+                setWsOpen(false);
+                return;
+              }
+              // Desktop: go projects
+              router.push("/projects");
+            }}
             className="font-semibold text-gray-900 truncate"
             aria-label="Go to projects"
           >
@@ -182,7 +191,7 @@ export default function TopNav() {
             />
           </div>
 
-          {/* ✅ Workspace popover trigger (desktop) */}
+          {/* Workspace popover trigger (desktop) */}
           <div className="hidden md:block relative" ref={wsRef}>
             <Button
               variant="outline"
@@ -204,19 +213,16 @@ export default function TopNav() {
                   "w-[320px] max-w-[92vw]",
                   "rounded-2xl border bg-white shadow-lg",
                   "p-3",
-                  // ✅ keep within viewport
                   "max-h-[70vh] overflow-auto",
                 ].join(" ")}
               >
-                <div className="text-xs text-gray-500 mb-2">
-                  Switch workspace
-                </div>
+                <div className="text-xs text-gray-500 mb-2">Switch workspace</div>
                 <WorkspaceSwitcher />
               </div>
             ) : null}
           </div>
 
-          {/* ✅ User avatar dropdown (restored) */}
+          {/* User avatar dropdown (bigger) */}
           <div className="relative" ref={userMenuRef}>
             <button
               type="button"
@@ -224,7 +230,7 @@ export default function TopNav() {
                 setUserMenuOpen((v) => !v);
                 setWsOpen(false);
               }}
-              className="h-9 w-9 rounded-full bg-gray-900 text-white text-sm font-semibold flex items-center justify-center"
+              className="h-11 w-11 rounded-full bg-gray-900 text-white text-base font-semibold flex items-center justify-center"
               aria-label="User menu"
             >
               {me}
@@ -266,24 +272,11 @@ export default function TopNav() {
             ) : null}
           </div>
 
-          {/* Mobile menu toggle */}
-          <div className="sm:hidden">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setMobileOpen((v) => !v);
-                setUserMenuOpen(false);
-                setWsOpen(false);
-              }}
-              className="px-3 py-2"
-            >
-              ⋯
-            </Button>
-          </div>
+          {/* ✅ Mobile 3-dots removed */}
         </div>
       </div>
 
-      {/* MOBILE PANEL */}
+      {/* MOBILE PANEL (opens under logo) */}
       {mobileOpen ? (
         <div className="sm:hidden border-t bg-white" ref={mobilePanelRef}>
           <div className="px-4 py-3 grid gap-2">
@@ -303,7 +296,6 @@ export default function TopNav() {
               </button>
             ))}
 
-            {/* WorkspaceSwitcher on mobile directly, but NOT clipped */}
             <div className="mt-2 rounded-2xl border p-3">
               <div className="text-xs text-gray-500 mb-2">Workspace</div>
               <WorkspaceSwitcher />
