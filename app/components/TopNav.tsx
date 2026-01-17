@@ -254,7 +254,16 @@ export default function TopNav() {
                   className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
                   onClick={() => {
                     setUserMenuOpen(false);
-                    router.push("/settings/billing");
+                    router.push("/pricing");
+                  }}
+                >
+                    Users
+                </button>
+                <button
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    router.push("/invites");
                   }}
                 >
                   Billing
