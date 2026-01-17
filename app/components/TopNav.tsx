@@ -1,336 +1,324 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
 import Button from "@/app/components/Button";
 import WorkspaceSwitcher from "@/app/components/WorkspaceSwitcher";
-import PlanPill from "@/app/components/PlanPill"; // als jij PlanPill hebt, anders: pas aan naar jouw pill component
+import PlanPill from "@/app/components/PlanPill";
+import { supabase } from "@/lib/supabaseClient";
+import { getActiveWorkspace, getActiveWorkspaceTier, WorkspaceRole } from "@/app/lib/appContext";
 
-type PlanTier = "free" | "core" | "pro";
+type Tier = "free" | "core" | "pro";
 
-type WsMembershipRow = {
-  workspace_id: string;
-  role: string;
-  workspaces?: { name?: string | null } | null;
-};
+const navItems = [
+  { label: "Projects", to: "/projects" },
+  { label: "Kanban", to: "/kanban" },
+  { label: "Hours", to: "/hours" },
+  { label: "Gantt", to: "/gantt" },
+  { label: "Today", to: "/today" },
+];
 
-function safeTier(v: any): PlanTier {
-  return v === "core" || v === "pro" ? v : "free";
+function initialFromEmail(email: string | null | undefined) {
+  const e = (email ?? "").trim();
+  if (!e) return "U";
+  return e[0].toUpperCase();
 }
 
 export default function TopNav() {
   const router = useRouter();
   const pathname = usePathname();
 
-  // Hide TopNav on public/auth pages
-  const hideNav = useMemo(() => {
-    if (!pathname) return false;
-    return (
-      pathname === "/" ||
-      pathname.startsWith("/login") ||
-      pathname.startsWith("/auth") ||
-      pathname.startsWith("/pricing")
-    );
-  }, [pathname]);
+  const hideNav = pathname === "/" || pathname?.startsWith("/login");
+
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [email, setEmail] = useState<string | null>(null);
+
+  const [workspaceRole, setWorkspaceRole] = useState<WorkspaceRole>("member");
+  const [workspaceName, setWorkspaceName] = useState<string | null>(null);
+
+  const [tier, setTier] = useState<Tier>("free");
+  const [billingStatus, setBillingStatus] = useState<string | null>(null);
 
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // ✅ RESTORED: user menu dropdown
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // ✅ NEW: workspace popover (fix “too high / outside viewport”)
+  const [wsOpen, setWsOpen] = useState(false);
+  const wsRef = useRef<HTMLDivElement | null>(null);
+
   const mobilePanelRef = useRef<HTMLDivElement | null>(null);
 
-  // Auth/session
-  const [loggedIn, setLoggedIn] = useState(false);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    // ✅ Optie A: no getUser() here → use getSession()
+    const { data: sess } = await supabase.auth.getSession();
+    const session = sess.session;
 
-  // Workspace/plan context (async, non-blocking)
-  const [workspaceName, setWorkspaceName] = useState<string | null>(null);
-  const [tier, setTier] = useState<PlanTier>("free");
-  const [billingStatus, setBillingStatus] = useState<string>("inactive");
-
-  const navItems = useMemo(
-    () => [
-      { label: "Projects", to: "/projects" },
-      { label: "Kanban", to: "/kanban" },
-      { label: "Hours", to: "/hours" },
-      { label: "Gantt", to: "/gantt" },
-    ],
-    []
-  );
-
-  const loadSessionFast = useCallback(async () => {
-    // ✅ Option A: use getSession() only (no getUser())
-    const { data } = await supabase.auth.getSession();
-    const sess = data.session;
-
-    if (!sess?.user) {
+    if (!session) {
       setLoggedIn(false);
-      setUserEmail(null);
-      setUserId(null);
+      setEmail(null);
+      setWorkspaceRole("member");
       setWorkspaceName(null);
       setTier("free");
-      setBillingStatus("inactive");
+      setBillingStatus(null);
       return;
     }
 
     setLoggedIn(true);
-    setUserEmail(sess.user.email ?? null);
-    setUserId(sess.user.id);
+    setEmail(session.user.email ?? null);
+
+    const ws = await getActiveWorkspace();
+    if (ws) {
+      setWorkspaceRole(ws.role);
+      setWorkspaceName(ws.name ?? null);
+    } else {
+      setWorkspaceRole("member");
+      setWorkspaceName(null);
+    }
+
+    const t = await getActiveWorkspaceTier();
+    setTier(t as Tier);
+
+    // billingStatus: als je dit elders al laadt, laat dat zo.
+    // Anders kun je eventueel later via workspace_subscriptions ophalen.
   }, []);
 
-  const loadWorkspaceContext = useCallback(
-    async (uid: string) => {
-      // 1) active_workspace_id from profile
-      const { data: profile, error: profErr } = await supabase
-        .from("profiles")
-        .select("active_workspace_id")
-        .eq("id", uid)
-        .maybeSingle();
-
-      if (profErr) {
-        console.warn("TopNav: profile load failed:", profErr);
-        setWorkspaceName(null);
-        setTier("free");
-        setBillingStatus("inactive");
-        return;
-      }
-
-      // 2) memberships + workspace name (via embed)
-      const { data: mems, error: memErr } = await supabase
-        .from("workspace_members")
-        .select("workspace_id,role,workspaces(name)")
-        .eq("user_id", uid);
-
-      if (memErr) {
-        console.warn("TopNav: workspace_members load failed:", memErr);
-        setWorkspaceName(null);
-        setTier("free");
-        setBillingStatus("inactive");
-        return;
-      }
-
-      const list = (mems ?? []) as WsMembershipRow[];
-      if (list.length === 0) {
-        setWorkspaceName(null);
-        setTier("free");
-        setBillingStatus("inactive");
-        return;
-      }
-
-      const activeId = profile?.active_workspace_id ?? null;
-      const active =
-        (activeId ? list.find((m) => m.workspace_id === activeId) : null) ?? list[0];
-
-      const activeWorkspaceId = active.workspace_id;
-      const name = (active.workspaces?.name ?? "").trim();
-      setWorkspaceName(name || null);
-
-      // 3) tier via RPC
-      const { data: tierData, error: tierErr } = await supabase.rpc(
-        "workspace_effective_tier",
-        { p_workspace_id: activeWorkspaceId }
-      );
-
-      if (tierErr) {
-        console.warn("TopNav: workspace_effective_tier error:", tierErr);
-        setTier("free");
-      } else {
-        setTier(safeTier(tierData));
-      }
-
-      // 4) subscription status (for pill details)
-      const { data: subRow, error: subErr } = await supabase
-        .from("workspace_subscriptions")
-        .select("status,tier")
-        .eq("workspace_id", activeWorkspaceId)
-        .maybeSingle();
-
-      if (subErr) {
-        console.warn("TopNav: workspace_subscriptions load failed:", subErr);
-        setBillingStatus("inactive");
-      } else {
-        setBillingStatus(String(subRow?.status ?? "inactive"));
-        // tier in subRow might be null for free workspaces; keep RPC tier as truth
-      }
-    },
-    []
-  );
-
   useEffect(() => {
-    // Render nav immediately; load async context after mount
-    loadSessionFast();
-    const { data: subAuth } = supabase.auth.onAuthStateChange(() => {
-      loadSessionFast();
-    });
+    load();
+    const { data: sub } = supabase.auth.onAuthStateChange(() => load());
+    const handler = () => load();
+    window.addEventListener("workspace-changed", handler);
 
     return () => {
-      subAuth.subscription.unsubscribe();
+      sub.subscription.unsubscribe();
+      window.removeEventListener("workspace-changed", handler);
     };
-  }, [loadSessionFast]);
+  }, [load]);
 
-  // When we have userId, load workspace context (non-blocking)
+  // Close menus on outside click / escape
   useEffect(() => {
-    if (!userId) return;
-    loadWorkspaceContext(userId);
-  }, [userId, loadWorkspaceContext]);
+    if (!userMenuOpen && !mobileOpen && !wsOpen) return;
 
-  // Close mobile on outside click
-  useEffect(() => {
-    function onDocMouseDown(e: MouseEvent) {
-      if (!mobileOpen) return;
-      const el = mobilePanelRef.current;
-      if (!el) return;
-      if (!el.contains(e.target as Node)) setMobileOpen(false);
-    }
-    document.addEventListener("mousedown", onDocMouseDown);
-    return () => document.removeEventListener("mousedown", onDocMouseDown);
-  }, [mobileOpen]);
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setUserMenuOpen(false);
+        setMobileOpen(false);
+        setWsOpen(false);
+      }
+    };
 
-  // Close mobile on route change
-  useEffect(() => {
-    setMobileOpen(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname]);
+    const onMouseDown = (e: MouseEvent) => {
+      const t = e.target as Node;
 
-  if (hideNav) return null;
+      if (userMenuRef.current && userMenuRef.current.contains(t)) return;
+      if (wsRef.current && wsRef.current.contains(t)) return;
+      if (mobilePanelRef.current && mobilePanelRef.current.contains(t)) return;
+
+      setUserMenuOpen(false);
+      setWsOpen(false);
+      setMobileOpen(false);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("mousedown", onMouseDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("mousedown", onMouseDown);
+    };
+  }, [userMenuOpen, mobileOpen, wsOpen]);
+
+  const me = useMemo(() => initialFromEmail(email), [email]);
+
+  async function signOut() {
+    await supabase.auth.signOut();
+    router.push("/login");
+  }
+
+  if (hideNav || !loggedIn) return null;
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 h-[72px] flex items-center justify-between gap-3">
-        {/* Logo: on mobile toggles menu, on desktop navigates */}
-        <button
-          type="button"
-          onClick={() => {
-            // Mobile: open panel
-            if (typeof window !== "undefined" && window.innerWidth < 640) {
-              setMobileOpen((v) => !v);
-              return;
-            }
-            // Desktop: go projects
-            router.push("/projects");
-          }}
-          className="flex items-center gap-2 min-w-0"
-          aria-label="Improvica"
-        >
-          <div className="h-9 w-9 rounded-xl border border-gray-200 bg-white flex items-center justify-center font-semibold text-gray-900">
-            I
-          </div>
-          <div className="hidden sm:block min-w-0">
-            <div className="font-semibold text-gray-900 leading-tight truncate">
-              Improvica
-            </div>
-            <div className="text-xs text-gray-500 leading-tight truncate">
-              Lean Project Planner
-            </div>
-          </div>
-        </button>
+    <header className="fixed top-0 left-0 right-0 z-40 border-b bg-white/95 backdrop-blur">
+      <div className="mx-auto max-w-7xl px-4 py-3 flex items-center justify-between gap-3">
+        {/* LEFT: Brand + Desktop nav */}
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={() => router.push("/projects")}
+            className="font-semibold text-gray-900 truncate"
+            aria-label="Go to projects"
+          >
+            <span className="hidden sm:inline">Improvica</span>
+            <span className="sm:hidden inline-flex h-9 w-9 items-center justify-center rounded-full bg-blue-600 text-white text-sm font-bold">
+              I
+            </span>
+          </button>
 
-        {/* Desktop center: workspace switcher */}
-        {loggedIn ? (
-          <div className="hidden sm:flex items-center gap-3 min-w-0 flex-1 justify-center">
-            <div className="max-w-[360px] w-full">
-              <WorkspaceSwitcher />
-            </div>
-          </div>
-        ) : (
-          <div className="hidden sm:block flex-1" />
-        )}
-
-        {/* Right side */}
-        <div className="flex items-center gap-2">
-          {loggedIn ? (
-            <>
-              {/* Desktop nav buttons */}
-              <div className="hidden sm:flex items-center gap-2">
-                {navItems.map((it) => (
-                  <Button
-                    key={it.to}
-                    variant="outline"
-                    onClick={() => router.push(it.to)}
-                  >
-                    {it.label}
-                  </Button>
-                ))}
-              </div>
-
-              {/* Plan pill (always visible) */}
-              <div className="hidden sm:block">
-                <PlanPill
-                  tier={tier}
-                  billingStatus={billingStatus}
-                  workspaceName={workspaceName ?? undefined}
-                  onClick={() => router.push("/pricing")}
-                />
-              </div>
-
-              {/* User bubble */}
-              <Link
-                href="/account"
-                className="h-10 w-10 rounded-full border border-gray-200 bg-white flex items-center justify-center text-sm font-semibold text-gray-800"
-                aria-label="Account"
+          <div className="hidden sm:flex items-center gap-2">
+            {navItems.map((it) => (
+              <Button
+                key={it.to}
+                variant="outline"
+                onClick={() => router.push(it.to)}
+                className={pathname === it.to ? "border-gray-400" : undefined}
               >
-                {(userEmail?.[0] ?? "U").toUpperCase()}
-              </Link>
-            </>
-          ) : (
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => router.push("/login")}>
-                Login
+                {it.label}
               </Button>
-              <Button onClick={() => router.push("/login?mode=signup&next=/projects")}>
-                Sign up
-              </Button>
-            </div>
-          )}
+            ))}
+          </div>
+        </div>
+
+        {/* RIGHT */}
+        <div className="flex items-center gap-2">
+          {/* Plan pill (desktop) */}
+          <div className="hidden sm:flex items-center">
+            <PlanPill
+              tier={tier}
+              billingStatus={billingStatus}
+              workspaceName={workspaceName}
+              onClick={() => router.push("/pricing")}
+            />
+          </div>
+
+          {/* ✅ Workspace popover trigger (desktop) */}
+          <div className="hidden md:block relative" ref={wsRef}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setWsOpen((v) => !v);
+                setUserMenuOpen(false);
+              }}
+              className="px-3 py-2"
+            >
+              <span className="max-w-[140px] truncate">
+                {workspaceName ? workspaceName : "Workspace"}
+              </span>
+            </Button>
+
+            {wsOpen ? (
+              <div
+                className={[
+                  "absolute right-0 top-full mt-2 z-50",
+                  "w-[320px] max-w-[92vw]",
+                  "rounded-2xl border bg-white shadow-lg",
+                  "p-3",
+                  // ✅ keep within viewport
+                  "max-h-[70vh] overflow-auto",
+                ].join(" ")}
+              >
+                <div className="text-xs text-gray-500 mb-2">
+                  Switch workspace
+                </div>
+                <WorkspaceSwitcher />
+              </div>
+            ) : null}
+          </div>
+
+          {/* ✅ User avatar dropdown (restored) */}
+          <div className="relative" ref={userMenuRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setUserMenuOpen((v) => !v);
+                setWsOpen(false);
+              }}
+              className="h-9 w-9 rounded-full bg-gray-900 text-white text-sm font-semibold flex items-center justify-center"
+              aria-label="User menu"
+            >
+              {me}
+            </button>
+
+            {userMenuOpen ? (
+              <div className="absolute right-0 top-full mt-2 w-56 rounded-2xl border bg-white shadow-lg overflow-hidden z-50">
+                <div className="px-3 py-2 text-xs text-gray-500 border-b">
+                  {email ?? "Signed in"}
+                </div>
+                <button
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    router.push("/account");
+                  }}
+                >
+                  Account
+                </button>
+                <button
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    router.push("/settings/billing");
+                  }}
+                >
+                  Billing
+                </button>
+                <button
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-red-50 text-red-600"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    signOut();
+                  }}
+                >
+                  Logout
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Mobile menu toggle */}
+          <div className="sm:hidden">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setMobileOpen((v) => !v);
+                setUserMenuOpen(false);
+                setWsOpen(false);
+              }}
+              className="px-3 py-2"
+            >
+              ⋯
+            </Button>
+          </div>
         </div>
       </div>
 
-      {/* Mobile panel (opens by clicking logo) */}
-      {mobileOpen && loggedIn ? (
-        <div className="sm:hidden px-4 pb-4">
-          <div
-            ref={mobilePanelRef}
-            className="mt-2 rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden"
-          >
-            <div className="p-3 border-b border-gray-200 bg-white">
-              <div className="text-xs text-gray-500">Workspace</div>
-              <div className="mt-2 max-w-[340px]">
-                <WorkspaceSwitcher />
-              </div>
+      {/* MOBILE PANEL */}
+      {mobileOpen ? (
+        <div className="sm:hidden border-t bg-white" ref={mobilePanelRef}>
+          <div className="px-4 py-3 grid gap-2">
+            {navItems.map((it) => (
+              <button
+                key={it.to}
+                className={[
+                  "text-left px-3 py-2 rounded-xl border",
+                  pathname === it.to ? "bg-gray-50 border-gray-300" : "bg-white border-gray-200",
+                ].join(" ")}
+                onClick={() => {
+                  setMobileOpen(false);
+                  router.push(it.to);
+                }}
+              >
+                {it.label}
+              </button>
+            ))}
+
+            {/* WorkspaceSwitcher on mobile directly, but NOT clipped */}
+            <div className="mt-2 rounded-2xl border p-3">
+              <div className="text-xs text-gray-500 mb-2">Workspace</div>
+              <WorkspaceSwitcher />
             </div>
 
-            <div className="p-3 border-b border-gray-200 bg-gray-50">
-              <div className="text-xs text-gray-500">Navigation</div>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                {navItems.map((it) => (
-                  <Button
-                    key={it.to}
-                    variant="outline"
-                    onClick={() => {
-                      setMobileOpen(false);
-                      router.push(it.to);
-                    }}
-                    className="w-full"
-                  >
-                    {it.label}
-                  </Button>
-                ))}
-              </div>
-            </div>
-
-            <div className="p-3">
-              <div className="text-xs text-gray-500">Plan</div>
-              <div className="mt-2">
-                <PlanPill
-                  tier={tier}
-                  billingStatus={billingStatus}
-                  workspaceName={workspaceName ?? undefined}
-                  onClick={() => {
-                    setMobileOpen(false);
-                    router.push("/pricing");
-                  }}
-                />
-              </div>
+            <div className="mt-1">
+              <PlanPill
+                tier={tier}
+                billingStatus={billingStatus}
+                workspaceName={workspaceName}
+                onClick={() => {
+                  setMobileOpen(false);
+                  router.push("/pricing");
+                }}
+              />
             </div>
           </div>
         </div>
