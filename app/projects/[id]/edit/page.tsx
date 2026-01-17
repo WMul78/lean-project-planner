@@ -8,7 +8,7 @@ import { getActiveWorkspace, getActiveWorkspaceTier, requireUser, WorkspaceRole 
 
 type Priority = "low" | "medium" | "high" | "very_high";
 type ProjectType = "standard" | "pdca" | "dmaic";
-type ProjectStatus = "proposed" | "active" | "done" | "archived";
+type ProjectStatus = "proposed" | "active" | "done" | "archived"; // later maybe "on_hold"
 
 type ProjectRow = {
   id: string;
@@ -94,9 +94,13 @@ export default function EditProjectPage() {
   const [phase, setPhase] = useState("");
   const [locationLink, setLocationLink] = useState("");
 
-  // ---- Stakeholders
+  // ---------------------------
+  // NEW: Stakeholders
+  // ---------------------------
   const [wsMembers, setWsMembers] = useState<WsMemberOption[]>([]);
   const [stakeholderIds, setStakeholderIds] = useState<string[]>([]);
+
+  const isStakeholder = useMemo(() => workspaceRole === "stakeholder", [workspaceRole]);
 
   const canEdit = useMemo(() => {
     if (!userId || !project) return false;
@@ -115,8 +119,6 @@ export default function EditProjectPage() {
 
     return false;
   }, [workspaceRole, project, userId, projectMemberRole]);
-
-  const isStakeholder = useMemo(() => workspaceRole === "stakeholder", [workspaceRole]);
 
   async function loadStakeholders(workspaceId: string) {
     // 1) workspace members (options)
@@ -172,11 +174,9 @@ export default function EditProjectPage() {
     const ws = await getActiveWorkspace();
     if (ws) setWorkspaceRole(ws.role);
 
-    // Load effective tier (free/core/pro)
     const t = await getActiveWorkspaceTier();
     setTier(t);
 
-    // Project
     const { data: proj, error: projErr } = await supabase
       .from("projects")
       .select("id,workspace_id,name,description,status,owner_id,created_by,deadline,estimated_minutes,priority,project_type,phase,location_link")
@@ -222,7 +222,6 @@ export default function EditProjectPage() {
       const n = count ?? 0;
       setActiveCount(n);
 
-      // If this project is already active, allow keeping it active even when at cap.
       const ok = t !== "free" || n < limit || pr.status === "active";
       setCanActivateNow(ok);
 
@@ -246,7 +245,7 @@ export default function EditProjectPage() {
     setPhase(pr.phase ?? "");
     setLocationLink(pr.location_link ?? "");
 
-    // stakeholders (only meaningful for non-stakeholders usually, but OK to load)
+    // NEW: stakeholders load
     await loadStakeholders(pr.workspace_id);
 
     setLoading(false);
@@ -306,15 +305,12 @@ export default function EditProjectPage() {
       return;
     }
 
-    // phase clamp
     const nextPhase = projectType === "standard" ? null : phase || null;
-
-    // estimate
     const estMin = hoursTextToMinutes(estimatedHours);
 
     setSaving(true);
 
-    // 1) update project
+    // 1) update project (unchanged)
     const { error: upErr } = await supabase
       .from("projects")
       .update({
@@ -327,7 +323,7 @@ export default function EditProjectPage() {
         project_type: projectType,
         phase: nextPhase,
         location_link: locationLink.trim() || null,
-        updated_at: new Date().toISOString(), // exists in schema
+        updated_at: new Date().toISOString(),
       } as any)
       .eq("id", project.id);
 
@@ -338,8 +334,7 @@ export default function EditProjectPage() {
       return;
     }
 
-    // 2) set stakeholders via RPC
-    // - only allow if not stakeholder (you can keep this; or allow proposal owners too)
+    // 2) NEW: save stakeholders (only for non-stakeholders; keep current behavior)
     if (!isStakeholder) {
       const { error: stErr } = await supabase.rpc("set_project_stakeholders", {
         p_project_id: project.id,
@@ -390,9 +385,7 @@ export default function EditProjectPage() {
           <h1 className="text-2xl font-semibold mt-3">Edit project</h1>
 
           {limitMsg ? (
-            <div className="mt-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md p-3">
-              {limitMsg}
-            </div>
+            <div className="mt-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md p-3">{limitMsg}</div>
           ) : null}
         </div>
       </header>
@@ -405,11 +398,7 @@ export default function EditProjectPage() {
 
         <div className="grid gap-1">
           <label className="text-sm font-medium">Description</label>
-          <textarea
-            className="border rounded-md px-3 py-2 min-h-[90px]"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
+          <textarea className="border rounded-md px-3 py-2 min-h-[90px]" value={description} onChange={(e) => setDescription(e.target.value)} />
         </div>
 
         <div className="grid sm:grid-cols-2 gap-4">
@@ -491,12 +480,14 @@ export default function EditProjectPage() {
           />
         </div>
 
-        {/* Stakeholders (only show if user is allowed to manage project members) */}
+        {/* ---------------------------
+            NEW: Stakeholders multiselect
+           --------------------------- */}
         {!isStakeholder ? (
           <div className="grid gap-2">
             <label className="text-sm font-medium">Stakeholders</label>
             <div className="text-xs text-gray-500">
-              Select one or more workspace members to give access to this project (read + chat).
+              Select workspace members to grant access to this project (including chat).
             </div>
 
             <div className="border rounded-lg p-3 grid gap-2 max-h-64 overflow-auto">
@@ -526,7 +517,7 @@ export default function EditProjectPage() {
         ) : null}
 
         <div className="flex gap-2 pt-2">
-          <Button variant="primary" type="submit" disabled={saving || !canEdit}>
+          <Button variant="primary" type="submit" disabled={saving}>
             {saving ? "Saving…" : "Save"}
           </Button>
 

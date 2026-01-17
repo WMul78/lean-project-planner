@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Button from "@/app/components/Button";
 import ProgressBar from "@/app/components/ProgressBar";
@@ -42,7 +42,7 @@ type Project = {
   project_type: ProjectType | null;
   phase: string | null;
   location_link: string | null;
-  workspace_id?: string | null; // not always selected in older code; we add it in select
+  workspace_id?: string | null; // we select this
 };
 
 type TodoAuto = {
@@ -52,8 +52,9 @@ type TodoAuto = {
   inserted_at: string;
   assigned_to: string | null;
   estimated_minutes: number | null;
-  executed_minutes: number;
-  auto_status: "proposed" | "active" | "done";
+  is_done: boolean;
+  executed_minutes: number; // from view
+  auto_status: "proposed" | "active" | "done"; // from view
   phase: string | null;
   sort_order: number | null;
 };
@@ -87,7 +88,7 @@ function clampPhase(projectType: ProjectType | null | undefined, phase: string |
   return allowed.has(phase) ? phase : null;
 }
 
-// Simple badges (keeps existing styling patterns)
+// Keep badges compatible with existing app style
 function badgeClassForStatus(s: ProjectStatus) {
   switch (s) {
     case "proposed":
@@ -121,6 +122,7 @@ export default function ProjectDetailPage() {
   const [projectMemberRole, setProjectMemberRole] = useState<string | null>(null);
 
   const [project, setProject] = useState<Project | null>(null);
+
   const [todos, setTodos] = useState<TodoAuto[]>([]);
   const todosRef = useRef<TodoAuto[]>([]);
   useEffect(() => {
@@ -136,19 +138,12 @@ export default function ProjectDetailPage() {
   // UI prefs
   const [hideDoneTasks, setHideDoneTasks] = useState<boolean>(true);
 
-  // drag & drop state
+  // drag & drop state (keep original behavior)
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
-  // ---- Chat state
-  const [messages, setMessages] = useState<ProjectMessage[]>([]);
-  const [msgLoading, setMsgLoading] = useState(false);
-  const [newMsg, setNewMsg] = useState("");
-  const [lastReadAt, setLastReadAt] = useState<string | null>(null);
-
   const canEditProject = useMemo(() => workspaceRole === "owner" || workspaceRole === "admin", [workspaceRole]);
 
-  // Members can edit tasks if they are project member (or owner/admin via workspace)
   const canEditTodos = useMemo(() => {
     if (workspaceRole === "owner" || workspaceRole === "admin") return true;
     return projectMemberRole === "member" || projectMemberRole === "owner" || projectMemberRole === "admin";
@@ -173,9 +168,24 @@ export default function ProjectDetailPage() {
     return arr;
   }, [filteredTodos]);
 
-  const canShowPhaseOnTodos = useMemo(() => {
-    return project?.project_type && project.project_type !== "standard";
-  }, [project?.project_type]);
+  // ---------------------------
+  // NEW: Chat state
+  // ---------------------------
+  const [messages, setMessages] = useState<ProjectMessage[]>([]);
+  const [msgLoading, setMsgLoading] = useState(false);
+  const [newMsg, setNewMsg] = useState("");
+  const [lastReadAt, setLastReadAt] = useState<string | null>(null);
+
+  const labelForUser = useCallback(
+    (uid: string) => {
+      const m = members.find((x) => x.id === uid);
+      if (!m) return uid.slice(0, 8);
+      const name = (m.full_name ?? "").trim();
+      if (name) return name;
+      return m.email ?? uid.slice(0, 8);
+    },
+    [members]
+  );
 
   const unreadCount = useMemo(() => {
     if (!lastReadAt) return 0;
@@ -183,6 +193,9 @@ export default function ProjectDetailPage() {
     return messages.filter((m) => new Date(m.inserted_at).getTime() > lr).length;
   }, [messages, lastReadAt]);
 
+  // ---------------------------
+  // Loaders (keep existing, add chat)
+  // ---------------------------
   async function loadProject() {
     const user = await requireUser(router);
     if (!user) return;
@@ -213,7 +226,7 @@ export default function ProjectDetailPage() {
 
     setProject(pr);
 
-    // Project membership role (for member collaboration)
+    // Project membership role
     const { data: pm } = await supabase
       .from("project_members")
       .select("role")
@@ -224,7 +237,6 @@ export default function ProjectDetailPage() {
   }
 
   async function loadMembersForWorkspace(workspaceId: string) {
-    // Used for nicer labels in UI (optional)
     const { data, error } = await supabase
       .from("workspace_members")
       .select("user_id, profiles(full_name,email)")
@@ -247,11 +259,10 @@ export default function ProjectDetailPage() {
   }
 
   async function loadTodos() {
-    // Prefer the view that calculates auto status based on hours
     const { data, error } = await supabase
       .from("todo_status_auto")
-      // IMPORTANT: requires view to include phase + sort_order, otherwise remove these fields from select/type
-      .select("id,project_id,title,inserted_at,assigned_to,estimated_minutes,executed_minutes,auto_status,phase,sort_order")
+      // Keep original fields (incl. is_done/phase/sort_order)
+      .select("id,project_id,title,inserted_at,assigned_to,estimated_minutes,is_done,executed_minutes,auto_status,phase,sort_order")
       .eq("project_id", projectId);
 
     if (error) {
@@ -260,10 +271,10 @@ export default function ProjectDetailPage() {
       return;
     }
 
-    const arr = ((data as any) ?? []) as TodoAuto[];
-    // validate phase against project type (client safety)
-    const pt = project?.project_type ?? "standard";
-    for (const t of arr) t.phase = clampPhase(pt, t.phase);
+    const arr = (((data as any) ?? []) as TodoAuto[]).map((t) => ({
+      ...t,
+      phase: clampPhase(project?.project_type ?? "standard", (t as any).phase),
+    }));
 
     setTodos(arr);
   }
@@ -275,7 +286,7 @@ export default function ProjectDetailPage() {
       .eq("project_id", pid)
       .maybeSingle();
 
-    if (planErr) console.error("Load planned totals error:", planErr);
+    if (planErr) console.warn("planned totals error:", planErr);
     setPlannedMinutes((plan as any)?.planned_minutes ?? 0);
 
     const { data: exec, error: execErr } = await supabase
@@ -284,7 +295,7 @@ export default function ProjectDetailPage() {
       .eq("project_id", pid)
       .maybeSingle();
 
-    if (execErr) console.error("Load executed totals error:", execErr);
+    if (execErr) console.warn("executed totals error:", execErr);
     setExecutedMinutes((exec as any)?.executed_minutes ?? 0);
   }
 
@@ -292,10 +303,95 @@ export default function ProjectDetailPage() {
     await loadProject();
     await loadTodos();
     await loadTotals(projectId);
-    // chat load happens separately (needs project.workspace_id)
   }
 
-  // ---- Todos actions
+  // ---------------------------
+  // NEW: Chat loaders/actions
+  // ---------------------------
+  async function loadChat(pid: string) {
+    if (!userId) return;
+    setMsgLoading(true);
+
+    const { data, error } = await supabase
+      .from("project_messages")
+      .select("id,project_id,workspace_id,user_id,body,inserted_at")
+      .eq("project_id", pid)
+      .order("inserted_at", { ascending: true })
+      .limit(200);
+
+    if (error) {
+      console.warn("Load chat messages failed:", error);
+      setMessages([]);
+      setMsgLoading(false);
+      return;
+    }
+
+    setMessages(((data as any) ?? []) as ProjectMessage[]);
+
+    const { data: rr, error: rrErr } = await supabase
+      .from("project_message_reads")
+      .select("last_read_at")
+      .eq("project_id", pid)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (rrErr) {
+      setLastReadAt(null);
+    } else {
+      setLastReadAt((rr as any)?.last_read_at ?? null);
+    }
+
+    setMsgLoading(false);
+  }
+
+  async function markChatRead(pid: string) {
+    if (!userId) return;
+
+    const nowIso = new Date().toISOString();
+    const { error } = await supabase.from("project_message_reads").upsert({
+      project_id: pid,
+      user_id: userId,
+      last_read_at: nowIso,
+    });
+
+    if (error) {
+      console.warn("Mark read failed:", error);
+      return;
+    }
+
+    setLastReadAt(nowIso);
+  }
+
+  async function sendMessage() {
+    if (!project?.workspace_id) return;
+    if (!userId) return;
+
+    const body = newMsg.trim();
+    if (!body) return;
+
+    setNewMsg("");
+
+    const { error } = await supabase.from("project_messages").insert({
+      project_id: projectId,
+      workspace_id: project.workspace_id,
+      user_id: userId,
+      body,
+    });
+
+    if (error) {
+      console.error("Send message error:", error);
+      alert(error.message);
+      setNewMsg(body);
+      return;
+    }
+
+    // Make my own send count as read
+    await markChatRead(projectId);
+  }
+
+  // ---------------------------
+  // Existing todo actions (unchanged)
+  // ---------------------------
   async function addTodo(e: React.FormEvent) {
     e.preventDefault();
     if (!canEditTodos) return;
@@ -305,18 +401,11 @@ export default function ProjectDetailPage() {
 
     setNewTodoTitle("");
 
-    const payload: any = {
+    const { error } = await supabase.from("todos").insert({
       project_id: projectId,
       title,
       is_done: false,
-    };
-
-    // If project has type != standard, we can default phase
-    if (project?.project_type && project.project_type !== "standard") {
-      payload.phase = project.phase ?? null;
-    }
-
-    const { error } = await supabase.from("todos").insert(payload);
+    });
 
     if (error) {
       console.error("Add todo error:", error);
@@ -360,6 +449,7 @@ export default function ProjectDetailPage() {
 
   async function onDrop(targetId: string) {
     if (!canEditTodos) return;
+
     if (!draggingId || draggingId === targetId) {
       setDraggingId(null);
       setDragOverId(null);
@@ -374,14 +464,12 @@ export default function ProjectDetailPage() {
     const [moved] = current.splice(fromIdx, 1);
     current.splice(toIdx, 0, moved);
 
-    // optimistic sort_order (simple stable approach)
     const optimistic = current.map((t, idx) => ({ ...t, sort_order: idx }));
     setTodos(optimistic);
 
     setDraggingId(null);
     setDragOverId(null);
 
-    // Persist: set sort_order for all items in the reordered list
     const payload = optimistic.map((t) => ({ id: t.id, sort_order: t.sort_order }));
     const { error } = await supabase.rpc("reorder_todos", {
       p_project_id: projectId,
@@ -391,130 +479,36 @@ export default function ProjectDetailPage() {
     if (error) {
       console.error(error);
       alert(error.message);
-      await refreshAll(); // revert to server truth
+      await refreshAll();
     }
   }
 
-  // ---- Chat helpers
-  const labelForUser = useCallback(
-    (uid: string) => {
-      const m = members.find((x) => x.id === uid);
-      if (!m) return uid.slice(0, 8);
-      const name = (m.full_name ?? "").trim();
-      if (name) return name;
-      return m.email ?? uid.slice(0, 8);
-    },
-    [members]
-  );
-
-  async function loadChat(pid: string) {
-    if (!userId) return;
-    setMsgLoading(true);
-
-    // 1) messages
-    const { data, error } = await supabase
-      .from("project_messages")
-      .select("id,project_id,workspace_id,user_id,body,inserted_at")
-      .eq("project_id", pid)
-      .order("inserted_at", { ascending: true })
-      .limit(200);
-
-    if (error) {
-      console.warn("Load chat messages failed:", error);
-      setMessages([]);
-      setMsgLoading(false);
-      return;
-    }
-
-    setMessages(((data as any) ?? []) as ProjectMessage[]);
-
-    // 2) last read
-    const { data: rr, error: rrErr } = await supabase
-      .from("project_message_reads")
-      .select("last_read_at")
-      .eq("project_id", pid)
-      .eq("user_id", userId)
-      .maybeSingle();
-
-    if (rrErr) {
-      // ok if table not present yet / rls blocks; keep null
-      setLastReadAt(null);
-    } else {
-      setLastReadAt((rr as any)?.last_read_at ?? null);
-    }
-
-    setMsgLoading(false);
-  }
-
-  async function markChatRead(pid: string) {
-    if (!userId) return;
-    const { error } = await supabase
-      .from("project_message_reads")
-      .upsert({
-        project_id: pid,
-        user_id: userId,
-        last_read_at: new Date().toISOString(),
-      });
-
-    if (error) {
-      console.warn("Mark read failed:", error);
-      return;
-    }
-
-    setLastReadAt(new Date().toISOString());
-  }
-
-  async function sendMessage() {
-    if (!project?.workspace_id) return;
-    if (!userId) return;
-
-    const body = newMsg.trim();
-    if (!body) return;
-
-    setNewMsg("");
-
-    const { error } = await supabase.from("project_messages").insert({
-      project_id: projectId,
-      workspace_id: project.workspace_id,
-      user_id: userId,
-      body,
-    });
-
-    if (error) {
-      console.error("Send message error:", error);
-      alert(error.message);
-      setNewMsg(body);
-      return;
-    }
-
-    // optimistic update is handled by realtime, but keep it snappy:
-    await markChatRead(projectId);
-  }
-
-  // Base load
+  // ---------------------------
+  // Initial load
+  // ---------------------------
   useEffect(() => {
     (async () => {
       await loadProject();
       await loadTotals(projectId);
-      // wait until project is loaded for workspace_id
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  // Once project is available: load related data
   useEffect(() => {
     if (!project?.id) return;
 
     (async () => {
       if (project.workspace_id) await loadMembersForWorkspace(project.workspace_id);
       await loadTodos();
+
+      // NEW: chat
       await loadChat(project.id);
       await markChatRead(project.id);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id]);
 
-  // Realtime chat subscription
+  // NEW: realtime subscription for chat
   useEffect(() => {
     if (!projectId) return;
 
@@ -530,13 +524,13 @@ export default function ProjectDetailPage() {
         },
         (payload) => {
           const msg = payload.new as any as ProjectMessage;
+
           setMessages((cur) => {
-            // dedupe (rare but safe)
             if (cur.some((x) => x.id === msg.id)) return cur;
             return [...cur, msg];
           });
 
-          // If it's my own message, auto mark as read
+          // If message is mine, keep read marker fresh
           if (userId && msg.user_id === userId) {
             setLastReadAt(new Date().toISOString());
           }
@@ -564,6 +558,8 @@ export default function ProjectDetailPage() {
   const statusClass = `${badgeBase} ${badgeClassForStatus(project.status)}`;
   const prioClass = `${badgeBase} ${badgeClassForPriority(project.priority)}`;
 
+  const canShowPhaseOnTodos = project.project_type && project.project_type !== "standard";
+
   return (
     <main className="p-6 max-w-3xl mx-auto">
       <header className="flex items-start justify-between gap-3">
@@ -581,6 +577,8 @@ export default function ProjectDetailPage() {
             {project.deadline ? <span className={metaBadgeClass()}>deadline: {project.deadline}</span> : null}
             {project.location_link ? <span className={metaBadgeClass()}>link</span> : null}
             <span className={metaBadgeClass()}>role: {workspaceRole}</span>
+
+            {/* NEW: unread badge */}
             {unreadCount > 0 ? <span className={metaBadgeClass()}>unread: {unreadCount}</span> : null}
           </div>
 
@@ -613,10 +611,7 @@ export default function ProjectDetailPage() {
           {percent === null ? (
             <div className="text-sm text-gray-500">No estimate yet (planned = 0)</div>
           ) : (
-            <ProgressBar
-              value={percent}
-              label={`${minutesToHoursText(executed)} / ${minutesToHoursText(planned)} (${percent}%)`}
-            />
+            <ProgressBar value={percent} label={`${minutesToHoursText(executed)} / ${minutesToHoursText(planned)} (${percent}%)`} />
           )}
         </div>
       </section>
@@ -658,6 +653,7 @@ export default function ProjectDetailPage() {
           ) : (
             sortedTodos.map((t) => {
               const pctTodo = calcPct(t.executed_minutes ?? 0, t.estimated_minutes ?? 0);
+
               const isDragging = draggingId === t.id;
               const isOver = dragOverId === t.id;
 
@@ -704,11 +700,7 @@ export default function ProjectDetailPage() {
                     </div>
 
                     {canEditTodos ? (
-                      <Button
-                        variant="danger"
-                        className="text-xs px-2 py-1 shrink-0"
-                        onClick={() => removeTodo(t.id)}
-                      >
+                      <Button variant="danger" className="text-xs px-2 py-1 shrink-0" onClick={() => removeTodo(t.id)}>
                         Delete
                       </Button>
                     ) : null}
@@ -720,22 +712,17 @@ export default function ProjectDetailPage() {
         </div>
       </section>
 
-      {/* ---- Chat */}
+      {/* ---------------------------
+          NEW: Chat UI section
+         --------------------------- */}
       <section className="mt-6 rounded-lg border bg-white p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="font-semibold">Project chat</div>
-            <div className="text-xs text-gray-500">
-              Stakeholders can read and post (based on your RLS). Realtime updates enabled.
-            </div>
+            <div className="text-xs text-gray-500">Realtime messages for all project stakeholders.</div>
           </div>
 
-          <Button
-            variant="outline"
-            className="text-xs px-3 py-2"
-            onClick={() => markChatRead(projectId)}
-            disabled={!userId}
-          >
+          <Button variant="outline" className="text-xs px-3 py-2" onClick={() => markChatRead(projectId)} disabled={!userId}>
             Mark read
           </Button>
         </div>
@@ -781,10 +768,6 @@ export default function ProjectDetailPage() {
             Send
           </Button>
         </div>
-
-        {unreadCount > 0 ? (
-          <div className="mt-2 text-xs text-gray-500">Unread since last read: {unreadCount}</div>
-        ) : null}
       </section>
     </main>
   );
