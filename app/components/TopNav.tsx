@@ -257,7 +257,7 @@ export default function TopNav() {
                     router.push("/pricing");
                   }}
                 >
-                    Users
+                    Billing
                 </button>
                 <button
                   className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
@@ -266,7 +266,7 @@ export default function TopNav() {
                     router.push("/invites");
                   }}
                 >
-                  Billing
+                  Users
                 </button>
                 <button
                   className="w-full text-left px-3 py-2 text-sm hover:bg-red-50 text-red-600"
