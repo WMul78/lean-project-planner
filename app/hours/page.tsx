@@ -477,7 +477,7 @@ export default function HoursPlannerPage() {
 
       {/* Mobile simplified */}
       <section className="mt-6 md:hidden">
-        <div className="border rounded-lg bg-white p-4">
+        <div className="border rounded-lg bg-white p-4 overflow-hidden">
           <div className="text-sm text-gray-700">
             Day: <span className="font-medium">{mobileDayISO}</span>{" "}
             {mobileDayISO === todayISO ? <span className="text-gray-900">• Today</span> : null}
@@ -489,14 +489,14 @@ export default function HoursPlannerPage() {
               <div className="text-sm text-gray-500">No tasks available.</div>
             ) : (
               grouped.map((grp) => (
-                <div key={grp.projectId} className="border rounded-lg p-3">
+                <div key={grp.projectId} className="border rounded-lg p-3 overflow-hidden">
                   <button
-                    type="button"
-                    className="font-semibold text-gray-900 hover:underline"
-                    onClick={() => router.push(`/projects/${grp.projectId}`)}
+                  type="button"
+                  className="font-semibold text-gray-900 hover:underline break-words whitespace-normal line-clamp-2 text-left w-full"
+                  onClick={() => router.push(`/projects/${grp.projectId}`)}
                   >
-                    {grp.projectName}
-                  </button>
+                  {grp.projectName}
+               </button>
 
                   <div className="mt-2 grid gap-2">
                     {grp.items.map((t) => {
@@ -504,23 +504,25 @@ export default function HoursPlannerPage() {
                       const val = minutesToHoursInput(cells[key]?.minutes ?? null);
 
                       return (
-                        <div key={t.id} className="flex items-center gap-2">
-                          <div className="min-w-0 flex-1">
-                            <div className="text-sm text-gray-900 truncate">{t.title}</div>
-                            <div className="text-xs text-gray-500">
-                              {t.estimated_minutes ? `Est: ${minutesToHoursText(t.estimated_minutes)}` : "No estimate"} •{" "}
-                              {t.auto_status}
-                            </div>
-                          </div>
-
-                          <input
-                            className="w-[86px] border rounded-md px-2 py-1 text-sm"
-                            placeholder="h"
-                            value={val}
-                            onChange={(e) => setCell(t, mobileDayISO, e.target.value)}
-                            disabled={savingKey === key}
-                          />
+                        <div key={t.id} className="flex items-center gap-2 min-w-0">
+                     <div className="min-w-0 flex-1 overflow-hidden">
+                        <div className="text-sm text-gray-900 break-words whitespace-normal line-clamp-2">
+                          {t.title}
                         </div>
+                        <div className="text-xs text-gray-500">
+                        {t.estimated_minutes ? `Est: ${minutesToHoursText(t.estimated_minutes)}` : "No estimate"} • {t.auto_status}
+                       </div>
+                      </div>
+
+                      <input
+                      className="w-[86px] shrink-0 border rounded-md px-2 py-1 text-sm"
+                        placeholder="h"
+                        value={val}
+                        onChange={(e) => setCell(t, mobileDayISO, e.target.value)}
+                        disabled={savingKey === key}
+                      />
+                    </div>
+
                       );
                     })}
                   </div>
