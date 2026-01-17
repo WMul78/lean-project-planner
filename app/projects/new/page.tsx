@@ -71,14 +71,16 @@ export default function ProjectNewPage() {
   const isStakeholder = useMemo(() => role === "stakeholder", [role]);
 
   useEffect(() => {
-    async function init() {
-      setLoading(true);
+  let cancelled = false;
 
+  async function init() {
+    setLoading(true);
+
+    try {
       const user = await requireUser(router);
-      if (!user) {
-        setLoading(false);
-        return;
-      }
+      if (!user) return;
+      if (cancelled) return;
+
       setUserId(user.id);
 
       const ws = await getActiveWorkspace();
@@ -87,20 +89,24 @@ export default function ProjectNewPage() {
         router.push("/projects");
         return;
       }
+      if (cancelled) return;
 
       setWorkspaceId(ws.workspaceId);
       setRole(ws.role);
 
       // Load effective tier (free/core/pro)
       const t = await getActiveWorkspaceTier();
+      if (cancelled) return;
       setTier(t);
 
-      // Precheck active project count (only needed for free UX, but harmless for all)
+      // Precheck active project count (free UX)
       const { count, error: cntErr } = await supabase
         .from("projects")
         .select("id", { count: "exact", head: true })
         .eq("workspace_id", ws.workspaceId)
         .eq("status", "active");
+
+      if (cancelled) return;
 
       if (cntErr) {
         console.warn("Active projects count error:", cntErr);
@@ -128,16 +134,22 @@ export default function ProjectNewPage() {
       }
 
       // Default status:
-      // - Stakeholder: proposed
-      // - Others: active (RLS enforces cap; UI will downgrade if needed)
       const canCreateActiveDefault = ws.role !== "stakeholder";
       setStatus(canCreateActiveDefault ? "active" : "proposed");
-
-      setLoading(false);
+    } catch (e: any) {
+      console.error("Project new init failed:", e);
+      alert(e?.message ?? "Failed to initialize project creation.");
+    } finally {
+      if (!cancelled) setLoading(false);
     }
+  }
 
-    init();
-  }, [router]);
+  init();
+  return () => {
+    cancelled = true;
+  };
+}, [router]);
+
 
   // When project type changes: reset/validate phase
   useEffect(() => {

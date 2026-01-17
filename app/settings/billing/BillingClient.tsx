@@ -37,15 +37,17 @@ export default function BillingClient() {
   }, [sp]);
 
   async function load() {
-    setLoading(true);
+  setLoading(true);
 
+  try {
     const ws = await getActiveWorkspace();
     if (!ws?.workspaceId) {
       setWorkspaceId(null);
+      setWorkspaceName(null);
       setSub(null);
-      setLoading(false);
       return;
     }
+
     setWorkspaceId(ws.workspaceId);
     setWorkspaceName((ws as any)?.name ?? null);
 
@@ -55,10 +57,21 @@ export default function BillingClient() {
       .eq("workspace_id", ws.workspaceId)
       .maybeSingle();
 
-    if (error) console.error(error);
+    if (error) {
+      console.error(error);
+      setSub(null);
+      return;
+    }
+
     setSub((data as any) ?? null);
+  } catch (e: any) {
+    console.error("Billing load failed:", e);
+    setSub(null);
+  } finally {
     setLoading(false);
   }
+}
+
 
   useEffect(() => {
     load();
