@@ -1,14 +1,14 @@
 // app/lib/appContext.ts
 import { supabase } from "@/lib/supabaseClient";
 
-
 // Returns 'free' | 'core' | 'pro'
 export async function getActiveWorkspaceTier(): Promise<"free" | "core" | "pro"> {
   const ws = await getActiveWorkspace();
   if (!ws?.workspaceId) return "free";
 
-  const { data, error } = await supabase
-    .rpc("workspace_effective_tier", { p_workspace_id: ws.workspaceId });
+  const { data, error } = await supabase.rpc("workspace_effective_tier", {
+    p_workspace_id: ws.workspaceId,
+  });
 
   if (error) {
     console.warn("workspace_effective_tier error:", error);
@@ -20,28 +20,33 @@ export async function getActiveWorkspaceTier(): Promise<"free" | "core" | "pro">
   return "free";
 }
 
-
-
 export type WorkspaceRole = "owner" | "admin" | "member" | "stakeholder";
 
+async function getSessionUser() {
+  // ✅ Fast (no network): session stored locally and refreshed by supabase client
+  const { data } = await supabase.auth.getSession();
+  return data.session?.user ?? null;
+}
+
 export async function requireUser(router?: { push: (p: string) => void }) {
-  const { data } = await supabase.auth.getUser();
-  if (!data.user) {
+  // ✅ Replaces getUser() (network) with getSession() (fast)
+  const user = await getSessionUser();
+  if (!user) {
     router?.push("/login");
     return null;
   }
-  return data.user;
+  return user;
 }
 
 export async function getWorkspaceList() {
-  const { data: userData } = await supabase.auth.getUser();
-  const user = userData.user;
+  // ✅ Replaces getUser() with getSession()
+  const user = await getSessionUser();
   if (!user) return [];
 
   const { data, error } = await supabase
     .from("workspace_members")
     .select("workspace_id, role, workspaces(name)")
-    .eq("user_id", user.id) // <-- essentieel
+    .eq("user_id", user.id)
     .order("created_at", { ascending: true });
 
   if (error) throw error;
@@ -59,17 +64,20 @@ export async function getWorkspaceList() {
   return Array.from(map.values());
 }
 
-
 export async function getActiveWorkspace() {
-  const { data: userData } = await supabase.auth.getUser();
-  const user = userData.user;
+  // ✅ Replaces getUser() with getSession()
+  const user = await getSessionUser();
   if (!user) return null;
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profErr } = await supabase
     .from("profiles")
     .select("active_workspace_id")
     .eq("id", user.id)
     .maybeSingle();
+
+  if (profErr) {
+    console.warn("getActiveWorkspace profile error:", profErr);
+  }
 
   const list = await getWorkspaceList();
   if (list.length === 0) return null;
@@ -78,7 +86,6 @@ export async function getActiveWorkspace() {
     ? list.find((w) => w.workspaceId === profile.active_workspace_id)
     : null;
 
-  // ✅ Fix 2: zet dit hier
   if (profile?.active_workspace_id && !byProfile) {
     console.warn(
       "active_workspace_id not in membership list",
@@ -90,10 +97,9 @@ export async function getActiveWorkspace() {
   return byProfile ?? list[0];
 }
 
-
 export async function setActiveWorkspace(workspaceId: string) {
-  const { data: userData } = await supabase.auth.getUser();
-  const user = userData.user;
+  // ✅ Replaces getUser() with getSession()
+  const user = await getSessionUser();
   if (!user) throw new Error("Not logged in");
 
   const { error } = await supabase
@@ -103,5 +109,3 @@ export async function setActiveWorkspace(workspaceId: string) {
 
   if (error) throw error;
 }
-
-
