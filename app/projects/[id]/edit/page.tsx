@@ -123,23 +123,24 @@ export default function EditProjectPage() {
   async function loadStakeholders(workspaceId: string) {
     // 1) workspace members (options)
     const { data: mem, error: memErr } = await supabase
-      .from("workspace_members")
-      .select("user_id, profiles(full_name,email)")
-      .eq("workspace_id", workspaceId)
-      .order("created_at", { ascending: true });
+  .from("workspace_members")
+  .select("user_id, profiles:profiles(full_name,email)")
+  .eq("workspace_id", workspaceId)
+  .order("created_at", { ascending: true });
+
 
     if (memErr) {
       console.warn("Load workspace members failed:", memErr);
       setWsMembers([]);
     } else {
       const opts: WsMemberOption[] = ((mem as any[]) ?? []).map((m) => {
-        const label =
-          (m.profiles?.full_name && String(m.profiles.full_name).trim()) ||
-          (m.profiles?.email ? String(m.profiles.email) : null) ||
-          String(m.user_id).slice(0, 8);
-        return { id: String(m.user_id), label };
-      });
-      setWsMembers(opts);
+  const label =
+    (m.profiles?.full_name && String(m.profiles.full_name).trim()) ||
+    (m.profiles?.email ? String(m.profiles.email) : null) ||
+    String(m.user_id).slice(0, 8);
+  return { id: String(m.user_id), label };
+});
+setWsMembers(opts);
     }
 
     // 2) current stakeholders on this project
@@ -167,17 +168,14 @@ export default function EditProjectPage() {
   try {
     const user = await requireUser(router);
     if (!user) return;
-
     setUserId(user.id);
 
     const ws = await getActiveWorkspace();
     if (ws) setWorkspaceRole(ws.role);
 
-    // Load effective tier (free/core/pro)
     const t = await getActiveWorkspaceTier();
     setTier(t);
 
-    // Project
     const { data: proj, error: projErr } = await supabase
       .from("projects")
       .select(
@@ -186,16 +184,11 @@ export default function EditProjectPage() {
       .eq("id", projectId)
       .single();
 
-    if (projErr) {
-      alert(projErr.message);
-      router.push(`/projects/${projectId}`);
-      return;
-    }
+    if (projErr) throw projErr;
 
     const pr = proj as ProjectRow;
     setProject(pr);
 
-    // Project membership role (for member collaboration)
     const { data: pm, error: pmErr } = await supabase
       .from("project_members")
       .select("role")
@@ -203,10 +196,10 @@ export default function EditProjectPage() {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    if (pmErr) console.warn("Load project member role failed:", pmErr);
+    if (pmErr) console.warn("project_members role load failed:", pmErr);
     setProjectMemberRole((pm as any)?.role ?? null);
 
-    // Precheck active count (exclude current project id)
+    // Active projects count (existing behavior)
     const limit = 2;
     setActiveLimit(limit);
 
@@ -242,19 +235,23 @@ export default function EditProjectPage() {
     setName(pr.name ?? "");
     setDescription(pr.description ?? "");
     setDeadline(pr.deadline ?? "");
-    setEstimatedHours(minutesToHoursText(pr.estimated_minutes ?? null));
-    setPriority(pr.priority ?? "medium");
-    setStatus(pr.status ?? "active");
-    setProjectType(pr.project_type ?? "standard");
+    setEstimatedHours(minutesToHoursText(pr.estimated_minutes));
+    setPriority((pr.priority ?? "medium") as Priority);
+    setStatus((pr.status ?? "active") as ProjectStatus);
+    setProjectType((pr.project_type ?? "standard") as ProjectType);
     setPhase(pr.phase ?? "");
     setLocationLink(pr.location_link ?? "");
-  } catch (e: any) {
-    console.error("Project edit load failed:", e);
-    alert(e?.message ?? "Failed to load project.");
+
+    // NEW: stakeholders (do not block the whole page if it fails)
+    await loadStakeholders(pr.workspace_id);
+  } catch (err: any) {
+    console.error("Edit project load() failed:", err);
+    alert(err?.message ?? "Failed to load project edit page. Check console for details.");
   } finally {
     setLoading(false);
   }
 }
+
 
 
   useEffect(() => {
