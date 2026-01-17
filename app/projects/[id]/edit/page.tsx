@@ -8,7 +8,7 @@ import { getActiveWorkspace, getActiveWorkspaceTier, requireUser, WorkspaceRole 
 
 type Priority = "low" | "medium" | "high" | "very_high";
 type ProjectType = "standard" | "pdca" | "dmaic";
-type ProjectStatus = "proposed" | "active" | "done" | "archived"; // later maybe "on_hold"
+type ProjectStatus = "proposed" | "active" | "done" | "archived";
 
 type ProjectRow = {
   id: string;
@@ -27,6 +27,8 @@ type ProjectRow = {
   phase: string | null;
   location_link: string | null;
 };
+
+type WsMemberOption = { id: string; label: string };
 
 const PHASES: Record<ProjectType, { value: string; label: string }[]> = {
   standard: [],
@@ -59,40 +61,42 @@ function hoursTextToMinutes(txt: string) {
   return Math.round(n * 60);
 }
 
-export default function ProjectEditPage() {
-  const router = useRouter();
+export default function EditProjectPage() {
   const params = useParams<{ id: string }>();
   const projectId = params.id;
-
-  const [workspaceRole, setWorkspaceRole] = useState<WorkspaceRole>("member");
-  const [userId, setUserId] = useState<string | null>(null);
-  const [projectMemberRole, setProjectMemberRole] = useState<string | null>(null);
+  const router = useRouter();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [project, setProject] = useState<ProjectRow | null>(null);
-
-  // Workspace tier (free/core/pro)
+  const [workspaceRole, setWorkspaceRole] = useState<WorkspaceRole>("member");
   const [tier, setTier] = useState<"free" | "core" | "pro">("free");
 
-  // Free limit precheck (active projects)
-  const [activeCount, setActiveCount] = useState<number>(0); // excluding current project
+  const [userId, setUserId] = useState<string | null>(null);
+  const [projectMemberRole, setProjectMemberRole] = useState<string | null>(null);
+
+  const [project, setProject] = useState<ProjectRow | null>(null);
+
+  // active projects limit gating (existing behavior)
   const [activeLimit, setActiveLimit] = useState<number>(2);
+  const [activeCount, setActiveCount] = useState<number>(0);
   const [canActivateNow, setCanActivateNow] = useState<boolean>(true);
   const [limitMsg, setLimitMsg] = useState<string | null>(null);
 
-  // form state
+  // Form fields
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-
-  const [deadline, setDeadline] = useState<string>(""); // YYYY-MM-DD or ""
-  const [estimatedHours, setEstimatedHours] = useState<string>(""); // UI in hours
+  const [deadline, setDeadline] = useState("");
+  const [estimatedHours, setEstimatedHours] = useState("");
   const [priority, setPriority] = useState<Priority>("medium");
   const [status, setStatus] = useState<ProjectStatus>("active");
   const [projectType, setProjectType] = useState<ProjectType>("standard");
-  const [phase, setPhase] = useState<string>("");
-  const [locationLink, setLocationLink] = useState<string>("");
+  const [phase, setPhase] = useState("");
+  const [locationLink, setLocationLink] = useState("");
+
+  // ---- Stakeholders
+  const [wsMembers, setWsMembers] = useState<WsMemberOption[]>([]);
+  const [stakeholderIds, setStakeholderIds] = useState<string[]>([]);
 
   const canEdit = useMemo(() => {
     if (!userId || !project) return false;
@@ -114,6 +118,47 @@ export default function ProjectEditPage() {
 
   const isStakeholder = useMemo(() => workspaceRole === "stakeholder", [workspaceRole]);
 
+  async function loadStakeholders(workspaceId: string) {
+    // 1) workspace members (options)
+    const { data: mem, error: memErr } = await supabase
+      .from("workspace_members")
+      .select("user_id, profiles(full_name,email)")
+      .eq("workspace_id", workspaceId)
+      .order("created_at", { ascending: true });
+
+    if (memErr) {
+      console.warn("Load workspace members failed:", memErr);
+      setWsMembers([]);
+    } else {
+      const opts: WsMemberOption[] = ((mem as any[]) ?? []).map((m) => {
+        const label =
+          (m.profiles?.full_name && String(m.profiles.full_name).trim()) ||
+          (m.profiles?.email ? String(m.profiles.email) : null) ||
+          String(m.user_id).slice(0, 8);
+        return { id: String(m.user_id), label };
+      });
+      setWsMembers(opts);
+    }
+
+    // 2) current stakeholders on this project
+    const { data: pm, error: pmErr } = await supabase
+      .from("project_members")
+      .select("user_id, role")
+      .eq("project_id", projectId);
+
+    if (pmErr) {
+      console.warn("Load project members failed:", pmErr);
+      setStakeholderIds([]);
+      return;
+    }
+
+    const ids = ((pm as any[]) ?? [])
+      .filter((r) => String(r.role) === "stakeholder")
+      .map((r) => String(r.user_id));
+
+    setStakeholderIds(ids);
+  }
+
   async function load() {
     setLoading(true);
 
@@ -134,9 +179,7 @@ export default function ProjectEditPage() {
     // Project
     const { data: proj, error: projErr } = await supabase
       .from("projects")
-      .select(
-        "id,workspace_id,name,description,status,owner_id,created_by,deadline,estimated_minutes,priority,project_type,phase,location_link"
-      )
+      .select("id,workspace_id,name,description,status,owner_id,created_by,deadline,estimated_minutes,priority,project_type,phase,location_link")
       .eq("id", projectId)
       .single();
 
@@ -197,11 +240,14 @@ export default function ProjectEditPage() {
     setDescription(pr.description ?? "");
     setDeadline(pr.deadline ?? "");
     setEstimatedHours(minutesToHoursText(pr.estimated_minutes));
-    setPriority(pr.priority ?? "medium");
-    setStatus(pr.status ?? "active");
-    setProjectType(pr.project_type ?? "standard");
+    setPriority((pr.priority ?? "medium") as Priority);
+    setStatus((pr.status ?? "active") as ProjectStatus);
+    setProjectType((pr.project_type ?? "standard") as ProjectType);
     setPhase(pr.phase ?? "");
     setLocationLink(pr.location_link ?? "");
+
+    // stakeholders (only meaningful for non-stakeholders usually, but OK to load)
+    await loadStakeholders(pr.workspace_id);
 
     setLoading(false);
   }
@@ -237,86 +283,78 @@ export default function ProjectEditPage() {
   const statusOptions: { value: ProjectStatus; label: string; disabled?: boolean }[] = useMemo(() => {
     if (isStakeholder) return [{ value: "proposed", label: "proposed" }];
 
-    // Free: proposed + active only (active disabled if cap reached and this project isn't already active)
-    if (tier === "free") {
-      const disableActive = !canActivateNow && project?.status !== "active";
-      return [
-        { value: "proposed", label: "proposed" },
-        { value: "active", label: "active", disabled: disableActive },
-      ];
-    }
-
-    // Core/Pro: all statuses
     return [
       { value: "proposed", label: "proposed" },
-      { value: "active", label: "active" },
+      { value: "active", label: "active", disabled: tier === "free" && !canActivateNow },
       { value: "done", label: "done" },
       { value: "archived", label: "archived" },
     ];
-  }, [isStakeholder, tier, canActivateNow, project?.status]);
+  }, [isStakeholder, tier, canActivateNow]);
 
-  async function onSubmit(e: React.FormEvent) {
+  async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!project) return;
-    if (!canEdit) return alert("You don't have permission to edit this project.");
+    if (!canEdit) {
+      alert("You don’t have permission to edit this project.");
+      return;
+    }
     if (saving) return;
 
     const cleanName = name.trim();
-    if (!cleanName) return alert("Please enter a title.");
-
-    // Friendly pre-check to avoid ugly RLS error
-    const isSwitchingToActive = project.status !== "active" && status === "active";
-    if (tier === "free" && !isStakeholder && isSwitchingToActive && !canActivateNow) {
-      alert(`Free plan limit reached (${activeCount}/${activeLimit} active projects). Please upgrade or keep it as proposed.`);
+    if (!cleanName) {
+      alert("Name is required.");
       return;
     }
 
-    // Basic validation for location link
-    const loc = locationLink.trim();
-    if (loc && loc.length > 500) return alert("Location link is too long.");
+    // phase clamp
+    const nextPhase = projectType === "standard" ? null : phase || null;
 
-    // phase: if standard => null
-    const nextPhase = projectType === "standard" ? null : phase.trim() ? phase.trim() : null;
-
-    // deadline: "" => null
-    const nextDeadline = deadline ? deadline : null;
-
-    const nextEstimatedMinutes = hoursTextToMinutes(estimatedHours); // null if empty/invalid
+    // estimate
+    const estMin = hoursTextToMinutes(estimatedHours);
 
     setSaving(true);
 
-    // Stakeholder stays forced proposed
-    const nextStatus: ProjectStatus = isStakeholder ? "proposed" : status;
+    // 1) update project
+    const { error: upErr } = await supabase
+      .from("projects")
+      .update({
+        name: cleanName,
+        description: description.trim() || null,
+        deadline: deadline ? deadline : null,
+        estimated_minutes: estMin,
+        priority,
+        status,
+        project_type: projectType,
+        phase: nextPhase,
+        location_link: locationLink.trim() || null,
+        updated_at: new Date().toISOString(), // exists in schema
+      } as any)
+      .eq("id", project.id);
 
-    const payload = {
-      name: cleanName,
-      description: description.trim() || null,
-      deadline: nextDeadline,
-      estimated_minutes: nextEstimatedMinutes,
-      priority,
-      status: nextStatus,
-      project_type: projectType,
-      phase: nextPhase,
-      location_link: loc || null,
-    };
-
-    const { error } = await supabase.from("projects").update(payload).eq("id", project.id);
-
-    setSaving(false);
-
-    if (error) {
-      console.error("Update project error:", error);
-
-      const msg = (error.message ?? "Update failed").toLowerCase();
-      if (msg.includes("limit") || msg.includes("can_create_active_project")) {
-        alert(`Free plan limit reached (${activeCount}/${activeLimit} active projects). Please upgrade or keep it as proposed.`);
-        return;
-      }
-
-      alert(error.message);
+    if (upErr) {
+      console.error("Save project error:", upErr);
+      alert(upErr.message);
+      setSaving(false);
       return;
     }
 
+    // 2) set stakeholders via RPC
+    // - only allow if not stakeholder (you can keep this; or allow proposal owners too)
+    if (!isStakeholder) {
+      const { error: stErr } = await supabase.rpc("set_project_stakeholders", {
+        p_project_id: project.id,
+        p_user_ids: stakeholderIds,
+      });
+
+      if (stErr) {
+        console.error("Save stakeholders error:", stErr);
+        alert(stErr.message);
+        setSaving(false);
+        return;
+      }
+    }
+
+    setSaving(false);
     router.push(`/projects/${project.id}`);
   }
 
@@ -341,157 +379,99 @@ export default function ProjectEditPage() {
     );
   }
 
-  const showLimitBanner =
-    tier === "free" &&
-    !isStakeholder &&
-    project.status !== "active" &&
-    !canActivateNow &&
-    !!limitMsg;
-
   return (
     <main className="p-6 max-w-3xl mx-auto">
-      <div className="flex justify-between items-center gap-3">
-        <Button variant="outline" onClick={() => router.push(`/projects/${project.id}`)}>
-          ← Back
-        </Button>
-
-        <div className="text-sm text-gray-500">
-          Workspace role: {workspaceRole}
-          {projectMemberRole ? ` • Project role: ${projectMemberRole}` : ""}
-          {tier ? ` • Plan: ${tier}` : ""}
-        </div>
-      </div>
-
-      <h1 className="mt-4 text-2xl font-semibold">Edit project</h1>
-
-      {showLimitBanner ? (
-        <div className="mt-4 border rounded-lg p-4 bg-amber-50 text-amber-900">
-          <div className="font-medium">Active project limit reached</div>
-          <div className="mt-1 text-sm">{limitMsg}</div>
-
-          <div className="mt-3 flex gap-2 flex-wrap">
-            <Button variant="primary" type="button" onClick={() => router.push("/pricing")} disabled={saving}>
-              Upgrade
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      <form onSubmit={onSubmit} className="mt-6 grid gap-4 rounded-lg border bg-white p-4">
-        {/* Title */}
+      <header className="flex items-start justify-between gap-3">
         <div>
-          <label className="text-sm font-medium">Title</label>
-          <input
-            className="mt-1 w-full border rounded-md px-3 py-2"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            disabled={saving || !canEdit}
-            placeholder="Project title"
-          />
+          <Button variant="outline" onClick={() => router.push(`/projects/${projectId}`)}>
+            ← Back
+          </Button>
+
+          <h1 className="text-2xl font-semibold mt-3">Edit project</h1>
+
+          {limitMsg ? (
+            <div className="mt-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md p-3">
+              {limitMsg}
+            </div>
+          ) : null}
+        </div>
+      </header>
+
+      <form onSubmit={save} className="mt-6 grid gap-4 bg-white border rounded-lg p-6">
+        <div className="grid gap-1">
+          <label className="text-sm font-medium">Name</label>
+          <input className="border rounded-md px-3 py-2" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
 
-        {/* Description */}
-        <div>
+        <div className="grid gap-1">
           <label className="text-sm font-medium">Description</label>
           <textarea
-            className="mt-1 w-full border rounded-md px-3 py-2 min-h-[90px]"
+            className="border rounded-md px-3 py-2 min-h-[90px]"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            disabled={saving || !canEdit}
-            placeholder="Optional description"
           />
         </div>
 
-        {/* Status / Priority */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <label className="text-sm font-medium">Status</label>
-            <select
-              className="mt-1 w-full border rounded-md px-3 py-2"
-              value={status}
-              onChange={(e) => setStatus(e.target.value as ProjectStatus)}
-              disabled={saving || !canEdit}
-            >
-              {statusOptions.map((o) => (
-                <option key={o.value} value={o.value} disabled={o.disabled}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-            {tier === "free" ? (
-              <div className="text-xs text-gray-500 mt-1">
-                Free plan: max {activeLimit} active projects.
-              </div>
-            ) : null}
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div className="grid gap-1">
+            <label className="text-sm font-medium">Deadline</label>
+            <input className="border rounded-md px-3 py-2" type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
           </div>
 
-          <div>
+          <div className="grid gap-1">
+            <label className="text-sm font-medium">Estimated hours</label>
+            <input
+              className="border rounded-md px-3 py-2"
+              value={estimatedHours}
+              onChange={(e) => setEstimatedHours(e.target.value)}
+              placeholder="e.g. 2.5"
+            />
+          </div>
+        </div>
+
+        <div className="grid sm:grid-cols-3 gap-4">
+          <div className="grid gap-1">
             <label className="text-sm font-medium">Priority</label>
-            <select
-              className="mt-1 w-full border rounded-md px-3 py-2"
-              value={priority}
-              onChange={(e) => setPriority(e.target.value as Priority)}
-              disabled={saving || !canEdit}
-            >
+            <select className="border rounded-md px-3 py-2" value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>
               <option value="low">low</option>
               <option value="medium">medium</option>
               <option value="high">high</option>
               <option value="very_high">very_high</option>
             </select>
           </div>
-        </div>
 
-        {/* Deadline / Estimate */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <label className="text-sm font-medium">Deadline</label>
-            <input
-              type="date"
-              className="mt-1 w-full border rounded-md px-3 py-2"
-              value={deadline}
-              onChange={(e) => setDeadline(e.target.value)}
-              disabled={saving || !canEdit}
-            />
+          <div className="grid gap-1">
+            <label className="text-sm font-medium">Status</label>
+            <select className="border rounded-md px-3 py-2" value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)}>
+              {statusOptions.map((opt) => (
+                <option key={opt.value} value={opt.value} disabled={opt.disabled}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+
+            {tier === "free" && !canActivateNow && !isStakeholder ? (
+              <div className="text-xs text-amber-700 mt-1">
+                You reached the free limit for active projects. Choose <b>proposed</b> or upgrade.
+              </div>
+            ) : null}
           </div>
 
-          <div>
-            <label className="text-sm font-medium">Estimated hours</label>
-            <input
-              className="mt-1 w-full border rounded-md px-3 py-2"
-              value={estimatedHours}
-              onChange={(e) => setEstimatedHours(e.target.value)}
-              disabled={saving || !canEdit}
-              placeholder="e.g. 12.5"
-            />
-            <div className="text-xs text-gray-500 mt-1">Enter hours (decimals allowed).</div>
-          </div>
-        </div>
-
-        {/* Type / Phase */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <label className="text-sm font-medium">Project type</label>
-            <select
-              className="mt-1 w-full border rounded-md px-3 py-2"
-              value={projectType}
-              onChange={(e) => setProjectType(e.target.value as ProjectType)}
-              disabled={saving || !canEdit}
-            >
+          <div className="grid gap-1">
+            <label className="text-sm font-medium">Type</label>
+            <select className="border rounded-md px-3 py-2" value={projectType} onChange={(e) => setProjectType(e.target.value as ProjectType)}>
               <option value="standard">standard</option>
               <option value="pdca">pdca</option>
               <option value="dmaic">dmaic</option>
             </select>
           </div>
+        </div>
 
-          <div>
+        {projectType !== "standard" ? (
+          <div className="grid gap-1">
             <label className="text-sm font-medium">Phase</label>
-            <select
-              className="mt-1 w-full border rounded-md px-3 py-2"
-              value={phase}
-              onChange={(e) => setPhase(e.target.value)}
-              disabled={saving || !canEdit || projectType === "standard"}
-            >
-              <option value="">{projectType === "standard" ? "—" : "Select phase"}</option>
+            <select className="border rounded-md px-3 py-2" value={phase} onChange={(e) => setPhase(e.target.value)}>
+              <option value="">Select…</option>
               {PHASES[projectType].map((p) => (
                 <option key={p.value} value={p.value}>
                   {p.label}
@@ -499,45 +479,67 @@ export default function ProjectEditPage() {
               ))}
             </select>
           </div>
-        </div>
+        ) : null}
 
-        {/* Location link */}
-        <div>
+        <div className="grid gap-1">
           <label className="text-sm font-medium">Location link</label>
           <input
-            className="mt-1 w-full border rounded-md px-3 py-2"
+            className="border rounded-md px-3 py-2"
             value={locationLink}
             onChange={(e) => setLocationLink(e.target.value)}
-            placeholder="e.g. https://... or a file path (later)"
-            disabled={saving || !canEdit}
+            placeholder="e.g. c:\\projects\\..."
           />
-          <div className="text-xs text-gray-500">
-            MVP: free text. Later you can validate URL vs file path.
-          </div>
         </div>
 
-        {/* Actions */}
+        {/* Stakeholders (only show if user is allowed to manage project members) */}
+        {!isStakeholder ? (
+          <div className="grid gap-2">
+            <label className="text-sm font-medium">Stakeholders</label>
+            <div className="text-xs text-gray-500">
+              Select one or more workspace members to give access to this project (read + chat).
+            </div>
+
+            <div className="border rounded-lg p-3 grid gap-2 max-h-64 overflow-auto">
+              {wsMembers.length === 0 ? (
+                <div className="text-sm text-gray-500">No workspace members found.</div>
+              ) : (
+                wsMembers.map((m) => {
+                  const checked = stakeholderIds.includes(m.id);
+                  return (
+                    <label key={m.id} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          setStakeholderIds((cur) =>
+                            e.target.checked ? Array.from(new Set([...cur, m.id])) : cur.filter((x) => x !== m.id)
+                          );
+                        }}
+                      />
+                      <span className="truncate">{m.label}</span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        ) : null}
+
         <div className="flex gap-2 pt-2">
-          <Button type="submit" disabled={saving || !canEdit}>
+          <Button variant="primary" type="submit" disabled={saving || !canEdit}>
             {saving ? "Saving…" : "Save"}
           </Button>
-          <Button
-            variant="outline"
-            type="button"
-            onClick={() => router.push(`/projects/${project.id}`)}
-            disabled={saving}
-          >
+
+          <Button variant="outline" type="button" onClick={() => router.push("/projects")} disabled={saving}>
             Cancel
           </Button>
         </div>
 
-        {/* Debug (optioneel) */}
         <div className="text-xs text-gray-500 pt-2">
           Plan: <span className="font-medium">{tier}</span> • Active projects:{" "}
           <span className="font-medium">
             {activeCount}/{activeLimit}
-          </span>{" "}
-          (excluding this project)
+          </span>
         </div>
       </form>
     </main>

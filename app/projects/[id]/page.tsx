@@ -1,18 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Button from "@/app/components/Button";
 import ProgressBar from "@/app/components/ProgressBar";
 import { supabase } from "@/lib/supabaseClient";
 import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appContext";
-import { badgeBase, badgeClassForStatus, badgeClassForPriority, metaBadgeClass } from "@/app/lib/badges";
+import { badgeBase, metaBadgeClass } from "@/app/lib/badges";
 
 type Priority = "low" | "medium" | "high" | "very_high";
 type ProjectType = "standard" | "pdca" | "dmaic";
 type ProjectStatus = "proposed" | "active" | "done" | "archived";
 
-const PHASES: Record<Exclude<ProjectType, "standard">, { value: string; label: string }[]> = {
+const PHASES: Record<ProjectType, { value: string; label: string }[]> = {
+  standard: [],
   pdca: [
     { value: "plan", label: "Plan" },
     { value: "do", label: "Do" },
@@ -41,6 +42,7 @@ type Project = {
   project_type: ProjectType | null;
   phase: string | null;
   location_link: string | null;
+  workspace_id?: string | null; // not always selected in older code; we add it in select
 };
 
 type TodoAuto = {
@@ -50,33 +52,27 @@ type TodoAuto = {
   inserted_at: string;
   assigned_to: string | null;
   estimated_minutes: number | null;
-  executed_minutes: number; // from view todo_executed_totals / todo_status_auto
-  auto_status: "proposed" | "active" | "done"; // from view
-  // NEW (requires view/table update)
+  executed_minutes: number;
+  auto_status: "proposed" | "active" | "done";
   phase: string | null;
   sort_order: number | null;
 };
 
 type Member = { id: string; full_name: string; email: string | null };
 
+type ProjectMessage = {
+  id: string;
+  project_id: string;
+  workspace_id: string;
+  user_id: string;
+  body: string;
+  inserted_at: string;
+};
+
 function minutesToHoursText(min: number | null | undefined) {
   const m = min ?? 0;
   const h = Math.round((m / 60) * 10) / 10;
   return `${h}h`;
-}
-
-function minutesToHoursInput(min: number | null | undefined) {
-  if (!min) return "";
-  const h = Math.round((min / 60) * 10) / 10;
-  return String(h);
-}
-
-function hoursInputToMinutes(txt: string) {
-  const clean = txt.replace(",", ".").trim();
-  if (!clean) return null;
-  const n = Number(clean);
-  if (Number.isNaN(n) || n < 0) return null;
-  return Math.round(n * 60);
 }
 
 function calcPct(executed: number, planned: number) {
@@ -89,6 +85,30 @@ function clampPhase(projectType: ProjectType | null | undefined, phase: string |
   if (!phase) return null;
   const allowed = new Set(PHASES[projectType].map((p) => p.value));
   return allowed.has(phase) ? phase : null;
+}
+
+// Simple badges (keeps existing styling patterns)
+function badgeClassForStatus(s: ProjectStatus) {
+  switch (s) {
+    case "proposed":
+      return "bg-amber-50 text-amber-900 border border-amber-200";
+    case "active":
+      return "bg-emerald-50 text-emerald-900 border border-emerald-200";
+    case "done":
+      return "bg-blue-50 text-blue-900 border border-blue-200";
+    case "archived":
+      return "bg-gray-50 text-gray-700 border border-gray-200";
+    default:
+      return "bg-gray-50 text-gray-700 border border-gray-200";
+  }
+}
+
+function badgeClassForPriority(p: Priority | null | undefined) {
+  const v = p ?? "medium";
+  if (v === "very_high") return "bg-rose-50 text-rose-900 border border-rose-200";
+  if (v === "high") return "bg-orange-50 text-orange-900 border border-orange-200";
+  if (v === "medium") return "bg-amber-50 text-amber-900 border border-amber-200";
+  return "bg-gray-50 text-gray-700 border border-gray-200";
 }
 
 export default function ProjectDetailPage() {
@@ -120,6 +140,12 @@ export default function ProjectDetailPage() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
+  // ---- Chat state
+  const [messages, setMessages] = useState<ProjectMessage[]>([]);
+  const [msgLoading, setMsgLoading] = useState(false);
+  const [newMsg, setNewMsg] = useState("");
+  const [lastReadAt, setLastReadAt] = useState<string | null>(null);
+
   const canEditProject = useMemo(() => workspaceRole === "owner" || workspaceRole === "admin", [workspaceRole]);
 
   // Members can edit tasks if they are project member (or owner/admin via workspace)
@@ -147,6 +173,16 @@ export default function ProjectDetailPage() {
     return arr;
   }, [filteredTodos]);
 
+  const canShowPhaseOnTodos = useMemo(() => {
+    return project?.project_type && project.project_type !== "standard";
+  }, [project?.project_type]);
+
+  const unreadCount = useMemo(() => {
+    if (!lastReadAt) return 0;
+    const lr = new Date(lastReadAt).getTime();
+    return messages.filter((m) => new Date(m.inserted_at).getTime() > lr).length;
+  }, [messages, lastReadAt]);
+
   async function loadProject() {
     const user = await requireUser(router);
     if (!user) return;
@@ -162,7 +198,7 @@ export default function ProjectDetailPage() {
 
     const { data: proj, error: projErr } = await supabase
       .from("projects")
-      .select("id,name,description,status,owner_id,created_by,deadline,priority,project_type,phase,location_link")
+      .select("id,workspace_id,name,description,status,owner_id,created_by,deadline,priority,project_type,phase,location_link")
       .eq("id", projectId)
       .single();
 
@@ -172,9 +208,12 @@ export default function ProjectDetailPage() {
       return;
     }
 
-    setProject(proj as Project);
+    const pr = proj as Project;
+    pr.phase = clampPhase(pr.project_type, pr.phase);
 
-    // Project membership role (for members collaboration)
+    setProject(pr);
+
+    // Project membership role (for member collaboration)
     const { data: pm } = await supabase
       .from("project_members")
       .select("role")
@@ -184,8 +223,31 @@ export default function ProjectDetailPage() {
     setProjectMemberRole((pm as any)?.role ?? null);
   }
 
+  async function loadMembersForWorkspace(workspaceId: string) {
+    // Used for nicer labels in UI (optional)
+    const { data, error } = await supabase
+      .from("workspace_members")
+      .select("user_id, profiles(full_name,email)")
+      .eq("workspace_id", workspaceId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.warn("Load workspace members failed:", error);
+      setMembers([]);
+      return;
+    }
+
+    const mapped: Member[] = ((data as any[]) ?? []).map((r) => ({
+      id: r.user_id,
+      full_name: r.profiles?.full_name ?? "",
+      email: r.profiles?.email ?? null,
+    }));
+
+    setMembers(mapped);
+  }
+
   async function loadTodos() {
-    // Prefer the view that calculates auto status based on hours (as you already do in Kanban) :contentReference[oaicite:5]{index=5}
+    // Prefer the view that calculates auto status based on hours
     const { data, error } = await supabase
       .from("todo_status_auto")
       // IMPORTANT: requires view to include phase + sort_order, otherwise remove these fields from select/type
@@ -198,7 +260,12 @@ export default function ProjectDetailPage() {
       return;
     }
 
-    setTodos(((data as any) ?? []) as TodoAuto[]);
+    const arr = ((data as any) ?? []) as TodoAuto[];
+    // validate phase against project type (client safety)
+    const pt = project?.project_type ?? "standard";
+    for (const t of arr) t.phase = clampPhase(pt, t.phase);
+
+    setTodos(arr);
   }
 
   async function loadTotals(pid: string) {
@@ -221,162 +288,105 @@ export default function ProjectDetailPage() {
     setExecutedMinutes((exec as any)?.executed_minutes ?? 0);
   }
 
-  async function loadWorkspaceMembers() {
-    const ws = await getActiveWorkspace();
-    if (!ws?.workspaceId) return;
-
-    const { data, error } = await supabase
-      .from("workspace_members")
-      .select("user_id, profiles:profiles(full_name,email)")
-      .eq("workspace_id", ws.workspaceId);
-
-    if (error) {
-      console.error("Load members error:", error);
-      setMembers([]);
-      return;
-    }
-
-    setMembers(
-      ((data as any[]) ?? []).map((r) => ({
-        id: r.user_id,
-        full_name: r.profiles?.full_name || r.user_id.slice(0, 8),
-        email: r.profiles?.email ?? null,
-      }))
-    );
-  }
-
   async function refreshAll() {
     await loadProject();
     await loadTodos();
-    await loadWorkspaceMembers();
-    if (projectId) await loadTotals(projectId);
+    await loadTotals(projectId);
+    // chat load happens separately (needs project.workspace_id)
   }
 
-  useEffect(() => {
-    (async () => {
-      await loadProject();
-      await loadTodos();
-      await loadWorkspaceMembers();
-      await loadTotals(projectId);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ---- Todos CRUD ----
+  // ---- Todos actions
   async function addTodo(e: React.FormEvent) {
     e.preventDefault();
     if (!canEditTodos) return;
-    if (!project) return;
 
-    const clean = newTodoTitle.trim();
-    if (!clean) return;
-
-    // compute next sort_order client-side (safe enough for MVP)
-    const current = todosRef.current.filter((t) => t.project_id === projectId);
-    const maxSort = current.reduce((mx, t) => Math.max(mx, t.sort_order ?? 0), 0);
-
-    const defaultPhase = project.project_type && project.project_type !== "standard" ? clampPhase(project.project_type, project.phase) : null;
-
-    const { error } = await supabase.from("todos").insert({
-      title: clean,
-      project_id: projectId,
-      assigned_to: null,
-      estimated_minutes: null,
-      sort_order: maxSort + 1,
-      phase: defaultPhase,
-    });
-
-    if (error) return alert("No permission or error: " + error.message);
+    const title = newTodoTitle.trim();
+    if (!title) return;
 
     setNewTodoTitle("");
-    await refreshAll();
+
+    const payload: any = {
+      project_id: projectId,
+      title,
+      is_done: false,
+    };
+
+    // If project has type != standard, we can default phase
+    if (project?.project_type && project.project_type !== "standard") {
+      payload.phase = project.phase ?? null;
+    }
+
+    const { error } = await supabase.from("todos").insert(payload);
+
+    if (error) {
+      console.error("Add todo error:", error);
+      alert(error.message);
+      setNewTodoTitle(title);
+      return;
+    }
+
+    await loadTodos();
+    await loadTotals(projectId);
   }
 
   async function removeTodo(todoId: string) {
     if (!canEditTodos) return;
 
+    const ok = window.confirm("Delete this task?");
+    if (!ok) return;
+
     const { error } = await supabase.from("todos").delete().eq("id", todoId);
-    if (error) return alert("No permission or error: " + error.message);
 
-    await refreshAll();
+    if (error) {
+      console.error("Delete todo error:", error);
+      alert(error.message);
+      return;
+    }
+
+    await loadTodos();
+    await loadTotals(projectId);
   }
 
-  // ---- Todo field updates (estimate + assignee + phase) ----
-  async function updateTodoEstimate(todoId: string, hoursText: string) {
+  function onDragStart(id: string) {
     if (!canEditTodos) return;
-
-    const minutes = hoursInputToMinutes(hoursText);
-    const next = minutes === null ? null : minutes;
-
-    const { error } = await supabase.from("todos").update({ estimated_minutes: next }).eq("id", todoId);
-    if (error) return alert(error.message);
-
-    await refreshAll();
+    setDraggingId(id);
   }
 
-  async function updateTodoAssignee(todoId: string, nextUserId: string | null) {
+  function onDragOver(id: string) {
     if (!canEditTodos) return;
-
-    const { error } = await supabase.from("todos").update({ assigned_to: nextUserId }).eq("id", todoId);
-    if (error) return alert(error.message);
-
-    await refreshAll();
+    if (id === draggingId) return;
+    setDragOverId(id);
   }
 
-  async function updateTodoPhase(todoId: string, nextPhase: string | null) {
+  async function onDrop(targetId: string) {
     if (!canEditTodos) return;
+    if (!draggingId || draggingId === targetId) {
+      setDraggingId(null);
+      setDragOverId(null);
+      return;
+    }
 
-    const { error } = await supabase.from("todos").update({ phase: nextPhase }).eq("id", todoId);
-    if (error) return alert(error.message);
-
-    await refreshAll();
-  }
-
-  // ---- Drag & drop reorder (persist sort_order) ----
-  function onDragStart(todoId: string) {
-    if (!canEditTodos) return;
-    setDraggingId(todoId);
-  }
-
-  function onDragOver(todoId: string) {
-    if (!canEditTodos) return;
-    if (!draggingId || draggingId === todoId) return;
-    setDragOverId(todoId);
-  }
-
-  async function onDrop(todoId: string) {
-    if (!canEditTodos) return;
-    const fromId = draggingId;
-    const toId = todoId;
-    setDragOverId(null);
-    setDraggingId(null);
-
-    if (!fromId || fromId === toId) return;
-
-    const cur = sortedTodos; // already filtered + sorted list
-    const fromIdx = cur.findIndex((t) => t.id === fromId);
-    const toIdx = cur.findIndex((t) => t.id === toId);
+    const current = [...todosRef.current];
+    const fromIdx = current.findIndex((x) => x.id === draggingId);
+    const toIdx = current.findIndex((x) => x.id === targetId);
     if (fromIdx < 0 || toIdx < 0) return;
 
-    const next = [...cur];
-    const [moved] = next.splice(fromIdx, 1);
-    next.splice(toIdx, 0, moved);
+    const [moved] = current.splice(fromIdx, 1);
+    current.splice(toIdx, 0, moved);
 
-    // Optimistic UI: update local sort_order
-    const optimistic = next.map((t, idx) => ({ ...t, sort_order: idx + 1 }));
-    setTodos((prev) => {
-      // merge optimistic back into full list (including done tasks if hidden)
-      const map = new Map(optimistic.map((t) => [t.id, t]));
-      return prev.map((t) => map.get(t.id) ?? t);
-    });
+    // optimistic sort_order (simple stable approach)
+    const optimistic = current.map((t, idx) => ({ ...t, sort_order: idx }));
+    setTodos(optimistic);
+
+    setDraggingId(null);
+    setDragOverId(null);
 
     // Persist: set sort_order for all items in the reordered list
     const payload = optimistic.map((t) => ({ id: t.id, sort_order: t.sort_order }));
     const { error } = await supabase.rpc("reorder_todos", {
       p_project_id: projectId,
-      p_items: payload, // payload = [{ id, sort_order }, ...]
+      p_items: payload,
     });
-
 
     if (error) {
       console.error(error);
@@ -384,6 +394,160 @@ export default function ProjectDetailPage() {
       await refreshAll(); // revert to server truth
     }
   }
+
+  // ---- Chat helpers
+  const labelForUser = useCallback(
+    (uid: string) => {
+      const m = members.find((x) => x.id === uid);
+      if (!m) return uid.slice(0, 8);
+      const name = (m.full_name ?? "").trim();
+      if (name) return name;
+      return m.email ?? uid.slice(0, 8);
+    },
+    [members]
+  );
+
+  async function loadChat(pid: string) {
+    if (!userId) return;
+    setMsgLoading(true);
+
+    // 1) messages
+    const { data, error } = await supabase
+      .from("project_messages")
+      .select("id,project_id,workspace_id,user_id,body,inserted_at")
+      .eq("project_id", pid)
+      .order("inserted_at", { ascending: true })
+      .limit(200);
+
+    if (error) {
+      console.warn("Load chat messages failed:", error);
+      setMessages([]);
+      setMsgLoading(false);
+      return;
+    }
+
+    setMessages(((data as any) ?? []) as ProjectMessage[]);
+
+    // 2) last read
+    const { data: rr, error: rrErr } = await supabase
+      .from("project_message_reads")
+      .select("last_read_at")
+      .eq("project_id", pid)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (rrErr) {
+      // ok if table not present yet / rls blocks; keep null
+      setLastReadAt(null);
+    } else {
+      setLastReadAt((rr as any)?.last_read_at ?? null);
+    }
+
+    setMsgLoading(false);
+  }
+
+  async function markChatRead(pid: string) {
+    if (!userId) return;
+    const { error } = await supabase
+      .from("project_message_reads")
+      .upsert({
+        project_id: pid,
+        user_id: userId,
+        last_read_at: new Date().toISOString(),
+      });
+
+    if (error) {
+      console.warn("Mark read failed:", error);
+      return;
+    }
+
+    setLastReadAt(new Date().toISOString());
+  }
+
+  async function sendMessage() {
+    if (!project?.workspace_id) return;
+    if (!userId) return;
+
+    const body = newMsg.trim();
+    if (!body) return;
+
+    setNewMsg("");
+
+    const { error } = await supabase.from("project_messages").insert({
+      project_id: projectId,
+      workspace_id: project.workspace_id,
+      user_id: userId,
+      body,
+    });
+
+    if (error) {
+      console.error("Send message error:", error);
+      alert(error.message);
+      setNewMsg(body);
+      return;
+    }
+
+    // optimistic update is handled by realtime, but keep it snappy:
+    await markChatRead(projectId);
+  }
+
+  // Base load
+  useEffect(() => {
+    (async () => {
+      await loadProject();
+      await loadTotals(projectId);
+      // wait until project is loaded for workspace_id
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  // Once project is available: load related data
+  useEffect(() => {
+    if (!project?.id) return;
+
+    (async () => {
+      if (project.workspace_id) await loadMembersForWorkspace(project.workspace_id);
+      await loadTodos();
+      await loadChat(project.id);
+      await markChatRead(project.id);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id]);
+
+  // Realtime chat subscription
+  useEffect(() => {
+    if (!projectId) return;
+
+    const channel = supabase
+      .channel(`project-chat-${projectId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "project_messages",
+          filter: `project_id=eq.${projectId}`,
+        },
+        (payload) => {
+          const msg = payload.new as any as ProjectMessage;
+          setMessages((cur) => {
+            // dedupe (rare but safe)
+            if (cur.some((x) => x.id === msg.id)) return cur;
+            return [...cur, msg];
+          });
+
+          // If it's my own message, auto mark as read
+          if (userId && msg.user_id === userId) {
+            setLastReadAt(new Date().toISOString());
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [projectId, userId]);
 
   if (!project) {
     return (
@@ -399,8 +563,6 @@ export default function ProjectDetailPage() {
 
   const statusClass = `${badgeBase} ${badgeClassForStatus(project.status)}`;
   const prioClass = `${badgeBase} ${badgeClassForPriority(project.priority)}`;
-
-  const canShowPhaseOnTodos = project.project_type && project.project_type !== "standard";
 
   return (
     <main className="p-6 max-w-3xl mx-auto">
@@ -419,13 +581,18 @@ export default function ProjectDetailPage() {
             {project.deadline ? <span className={metaBadgeClass()}>deadline: {project.deadline}</span> : null}
             {project.location_link ? <span className={metaBadgeClass()}>link</span> : null}
             <span className={metaBadgeClass()}>role: {workspaceRole}</span>
+            {unreadCount > 0 ? <span className={metaBadgeClass()}>unread: {unreadCount}</span> : null}
           </div>
 
           {project.description ? <p className="mt-3 text-sm text-gray-700">{project.description}</p> : null}
         </div>
 
         <div className="flex flex-col gap-2 items-end">
-          <Button variant="outline" onClick={() => router.push(`/projects/${projectId}/edit`)} disabled={!canEditProject || isStakeholder}>
+          <Button
+            variant="outline"
+            onClick={() => router.push(`/projects/${projectId}/edit`)}
+            disabled={!canEditProject || isStakeholder}
+          >
             Edit project
           </Button>
         </div>
@@ -435,9 +602,7 @@ export default function ProjectDetailPage() {
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="font-semibold">Progress</div>
-            <div className="text-xs text-gray-500">
-              Status of tasks is automatically calculated based on hours logged up to today.
-            </div>
+            <div className="text-xs text-gray-500">Status of tasks is automatically calculated based on hours logged up to today.</div>
           </div>
           <div className="text-sm text-gray-700">
             {minutesToHoursText(executed)} / {minutesToHoursText(planned)}
@@ -448,7 +613,10 @@ export default function ProjectDetailPage() {
           {percent === null ? (
             <div className="text-sm text-gray-500">No estimate yet (planned = 0)</div>
           ) : (
-            <ProgressBar value={percent} label={`${minutesToHoursText(executed)} / ${minutesToHoursText(planned)} (${percent}%)`} />
+            <ProgressBar
+              value={percent}
+              label={`${minutesToHoursText(executed)} / ${minutesToHoursText(planned)} (${percent}%)`}
+            />
           )}
         </div>
       </section>
@@ -457,9 +625,7 @@ export default function ProjectDetailPage() {
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="font-semibold">Tasks</div>
-            <div className="text-xs text-gray-500">
-              Drag & drop to change order. “Done” is based on logged hours (100%).
-            </div>
+            <div className="text-xs text-gray-500">Drag & drop to change order. “Done” is based on logged hours (100%).</div>
           </div>
 
           <label className="text-sm flex items-center gap-2 select-none">
@@ -533,86 +699,92 @@ export default function ProjectDetailPage() {
                         ) : (
                           <span className={metaBadgeClass()}>no estimate</span>
                         )}
-                        {canShowPhaseOnTodos ? (
-                          <span className={metaBadgeClass()}>
-                            phase: {t.phase ?? "—"}
-                          </span>
-                        ) : null}
+                        {canShowPhaseOnTodos ? <span className={metaBadgeClass()}>phase: {t.phase ?? "—"}</span> : null}
                       </div>
                     </div>
 
                     {canEditTodos ? (
-                      <Button variant="danger" className="text-xs px-2 py-1 shrink-0" onClick={() => removeTodo(t.id)}>
+                      <Button
+                        variant="danger"
+                        className="text-xs px-2 py-1 shrink-0"
+                        onClick={() => removeTodo(t.id)}
+                      >
                         Delete
                       </Button>
                     ) : null}
                   </div>
-
-                  <div className="mt-3 grid gap-3 md:grid-cols-3">
-                    <div className="grid gap-1">
-                      <label className="text-xs text-gray-500">Estimate (hours)</label>
-                      <input
-                        className="border rounded-md px-2 py-1 text-sm"
-                        defaultValue={minutesToHoursInput(t.estimated_minutes)}
-                        placeholder="0"
-                        inputMode="decimal"
-                        disabled={!canEditTodos}
-                        onBlur={(e) => updateTodoEstimate(t.id, e.target.value)}
-                      />
-                    </div>
-
-                    <div className="grid gap-1">
-                      <label className="text-xs text-gray-500">Assignee</label>
-                      <select
-                        className="border rounded-md px-2 py-1 text-sm"
-                        value={t.assigned_to ?? ""}
-                        disabled={!canEditTodos}
-                        onChange={(e) => updateTodoAssignee(t.id, e.target.value || null)}
-                      >
-                        <option value="">— Unassigned —</option>
-                        {members.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.full_name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {canShowPhaseOnTodos ? (
-                      <div className="grid gap-1">
-                        <label className="text-xs text-gray-500">Phase</label>
-                        <select
-                          className="border rounded-md px-2 py-1 text-sm"
-                          value={t.phase ?? ""}
-                          disabled={!canEditTodos}
-                          onChange={(e) => updateTodoPhase(t.id, e.target.value || null)}
-                        >
-                          <option value="">— None —</option>
-                          {PHASES[project.project_type as Exclude<ProjectType, "standard">].map((p) => (
-                            <option key={p.value} value={p.value}>
-                              {p.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    ) : (
-                      <div className="hidden md:block" />
-                    )}
-                  </div>
-
-                  {t.estimated_minutes && pctTodo !== null ? (
-                    <div className="mt-3">
-                      <ProgressBar
-                        value={pctTodo}
-                        label={`${minutesToHoursText(t.executed_minutes)} / ${minutesToHoursText(t.estimated_minutes)} (${pctTodo}%)`}
-                      />
-                    </div>
-                  ) : null}
                 </div>
               );
             })
           )}
         </div>
+      </section>
+
+      {/* ---- Chat */}
+      <section className="mt-6 rounded-lg border bg-white p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="font-semibold">Project chat</div>
+            <div className="text-xs text-gray-500">
+              Stakeholders can read and post (based on your RLS). Realtime updates enabled.
+            </div>
+          </div>
+
+          <Button
+            variant="outline"
+            className="text-xs px-3 py-2"
+            onClick={() => markChatRead(projectId)}
+            disabled={!userId}
+          >
+            Mark read
+          </Button>
+        </div>
+
+        <div className="mt-4 border rounded-lg p-3 max-h-80 overflow-auto bg-white">
+          {msgLoading ? (
+            <div className="text-sm text-gray-500">Loading messages…</div>
+          ) : messages.length === 0 ? (
+            <div className="text-sm text-gray-500">No messages yet.</div>
+          ) : (
+            <ul className="grid gap-3">
+              {messages.map((m) => {
+                const mine = userId && m.user_id === userId;
+                return (
+                  <li key={m.id} className="text-sm">
+                    <div className="text-xs text-gray-500 flex flex-wrap gap-2">
+                      <span className={metaBadgeClass()}>{mine ? "you" : labelForUser(m.user_id)}</span>
+                      <span className={metaBadgeClass()}>{new Date(m.inserted_at).toLocaleString()}</span>
+                    </div>
+                    <div className="mt-1 whitespace-pre-wrap">{m.body}</div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        <div className="mt-3 flex gap-2">
+          <input
+            className="flex-1 border rounded-md px-3 py-2"
+            placeholder="Write a message…"
+            value={newMsg}
+            onChange={(e) => setNewMsg(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+              }
+            }}
+            disabled={!userId}
+          />
+          <Button onClick={sendMessage} disabled={!userId}>
+            Send
+          </Button>
+        </div>
+
+        {unreadCount > 0 ? (
+          <div className="mt-2 text-xs text-gray-500">Unread since last read: {unreadCount}</div>
+        ) : null}
       </section>
     </main>
   );
