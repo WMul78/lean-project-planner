@@ -110,19 +110,20 @@ export default function HoursPlannerPage() {
   }
 
   async function load() {
-    setLoading(true);
+  setLoading(true);
 
-    try {
-      const user = await requireUser(router);
-      if (!user) return;
+  try {
+    const user = await requireUser(router);
+    if (!user) return;
 
-      setUserId(user.id);
+    setUserId(user.id);
 
-      const ws = await getActiveWorkspace();
-      if (!ws?.workspaceId) {
-        alert("No workspace found.");
-        return;
-      }
+    const ws = await getActiveWorkspace();
+    if (!ws?.workspaceId) {
+      alert("No workspace found.");
+      router.push("/projects");
+      return;
+    }
 
       setWorkspaceId(ws.workspaceId);
       setWorkspaceRole(ws.role);
@@ -221,9 +222,13 @@ export default function HoursPlannerPage() {
         }
         setCells(m);
       }
-    } finally {
-      setLoading(false);
-    }
+    } catch (e: any) {
+    console.error("Hours load failed:", e);
+    alert(e?.message ?? "Failed to load hours.");
+  } finally {
+    setLoading(false);
+  }
+
   }
 
   useEffect(() => {
