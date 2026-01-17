@@ -52,27 +52,27 @@ export default function TopNav() {
   const mobilePanelRef = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(async () => {
-    // ✅ Option A: no getUser() → use getSession()
-    // ✅ More reliable than getSession() for UI auth state (prevents false "logged out")
-const { data: u, error: uErr } = await supabase.auth.getUser();
-if (uErr) console.warn("TopNav getUser error:", uErr);
+  try {
+    // ---- AUTH (robust) ----
+    const { data: u, error: uErr } = await supabase.auth.getUser();
+    if (uErr) console.warn("TopNav getUser error:", uErr);
 
-const user = u.user;
+    const user = u.user;
 
-if (!user) {
-  setLoggedIn(false);
-  setEmail(null);
-  setWorkspaceRole("member");
-  setWorkspaceName(null);
-  setTier("free");
-  setBillingStatus(null);
-  return;
-}
+    if (!user) {
+      setLoggedIn(false);
+      setEmail(null);
+      setWorkspaceRole("member");
+      setWorkspaceName(null);
+      setTier("free");
+      setBillingStatus(null);
+      return;
+    }
 
-setLoggedIn(true);
-setEmail(user.email ?? null);
+    setLoggedIn(true);
+    setEmail(user.email ?? null);
 
-
+    // ---- WORKSPACE ----
     const ws = await getActiveWorkspace();
     if (ws) {
       setWorkspaceRole(ws.role);
@@ -82,11 +82,22 @@ setEmail(user.email ?? null);
       setWorkspaceName(null);
     }
 
+    // ---- BILLING / TIER ----
     const t = await getActiveWorkspaceTier();
     setTier(t as Tier);
+  } catch (e) {
+    console.warn("TopNav load failed:", e);
 
-    // billingStatus: optional, keep existing logic if you load it elsewhere
-  }, []);
+    // Fail-safe: never break the nav UI
+    setLoggedIn(false);
+    setEmail(null);
+    setWorkspaceRole("member");
+    setWorkspaceName(null);
+    setTier("free");
+    setBillingStatus(null);
+  }
+}, []);
+
 
   useEffect(() => {
     load();
