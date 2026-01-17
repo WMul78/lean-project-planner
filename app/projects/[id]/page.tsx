@@ -101,6 +101,20 @@ function clampPhase(projectType: ProjectType | null | undefined, phase: string |
   return allowed.has(phase) ? phase : null;
 }
 
+function badgeClassForTodoStatus(s: TodoAuto["auto_status"]) {
+  switch (s) {
+    case "proposed":
+      return "bg-amber-50 text-amber-900 border-amber-200";
+    case "active":
+      return "bg-emerald-50 text-emerald-900 border-emerald-200";
+    case "done":
+      return "bg-gray-50 text-gray-700 border-gray-200";
+    default:
+      return "bg-gray-50 text-gray-700 border-gray-200";
+  }
+}
+
+
 const badgeBase = "inline-flex items-center px-2 py-1 rounded-full text-xs border";
 
 function badgeClassForStatus(s: ProjectStatus) {
@@ -212,44 +226,46 @@ export default function ProjectDetailPage() {
   // ---------------------------
   // Loaders
   // ---------------------------
-  async function loadProject() {
-    const user = await requireUser(router);
-    if (!user) return;
-    setUserId(user.id);
+  async function loadProject(): Promise<{ userId: string; workspaceId: string } | null> {
+  const user = await requireUser(router);
+  if (!user) return null;
+  setUserId(user.id);
 
-    const ws = await getActiveWorkspace();
-    if (!ws?.workspaceId) {
-      alert("No active workspace found.");
-      router.push("/projects");
-      return;
-    }
-    setWorkspaceRole(ws.role);
-
-    const { data: proj, error: projErr } = await supabase
-      .from("projects")
-      .select("id,workspace_id,name,description,status,owner_id,created_by,deadline,priority,project_type,phase,location_link")
-      .eq("id", projectId)
-      .single();
-
-    if (projErr) {
-      console.error("Load project failed:", projErr);
-      alert(projErr.message);
-      router.push("/projects");
-      return;
-    }
-
-    setProject(proj as Project);
-
-    // Project membership role (for members collaboration)
-    const { data: pm } = await supabase
-      .from("project_members")
-      .select("role")
-      .eq("project_id", projectId)
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    setProjectMemberRole((pm as any)?.role ?? null);
+  const ws = await getActiveWorkspace();
+  if (!ws?.workspaceId) {
+    alert("No active workspace found.");
+    router.push("/projects");
+    return null;
   }
+  setWorkspaceRole(ws.role);
+
+  const { data: proj, error: projErr } = await supabase
+    .from("projects")
+    .select("id,workspace_id,name,description,status,owner_id,created_by,deadline,priority,project_type,phase,location_link")
+    .eq("id", projectId)
+    .single();
+
+  if (projErr) {
+    console.error("Load project failed:", projErr);
+    alert(projErr.message);
+    router.push("/projects");
+    return null;
+  }
+
+  setProject(proj as Project);
+
+  const { data: pm } = await supabase
+    .from("project_members")
+    .select("role")
+    .eq("project_id", projectId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  setProjectMemberRole((pm as any)?.role ?? null);
+
+  return { userId: user.id, workspaceId: ws.workspaceId };
+}
+
 
   async function loadTodos() {
     const { data, error } = await supabase
@@ -323,8 +339,8 @@ export default function ProjectDetailPage() {
   // Chat
   // ---------------------------
   async function loadChat(pid: string) {
-    setMsgLoading(true);
-
+  setMsgLoading(true);
+  try {
     const { data, error } = await supabase
       .from("project_messages")
       .select("id,project_id,workspace_id,user_id,body,inserted_at")
@@ -334,72 +350,77 @@ export default function ProjectDetailPage() {
     if (error) {
       console.error("Load chat failed:", error);
       setMessages([]);
-      setMsgLoading(false);
       return;
     }
 
     setMessages(((data as any) ?? []) as ProjectMessage[]);
-
-    if (userId) {
-      const { data: rr, error: rrErr } = await supabase
-        .from("project_message_reads")
-        .select("last_read_at")
-        .eq("project_id", pid)
-        .eq("user_id", userId)
-        .maybeSingle();
-
-      if (!rrErr) setLastReadAt((rr as any)?.last_read_at ?? null);
-    }
-
+  } finally {
     setMsgLoading(false);
   }
+}
 
-  async function markChatRead(pid: string) {
-    if (!userId) return;
+async function markChatRead(pid: string, uid: string) {
+  const nowIso = new Date().toISOString();
+  const { error } = await supabase.from("project_message_reads").upsert({
+    project_id: pid,
+    user_id: uid,
+    last_read_at: nowIso,
+  });
 
-    const nowIso = new Date().toISOString();
-    const { error } = await supabase.from("project_message_reads").upsert({
-      project_id: pid,
-      user_id: userId,
-      last_read_at: nowIso,
-    });
-
-    if (error) {
-      console.warn("Mark read failed:", error);
-      return;
-    }
-
-    setLastReadAt(nowIso);
+  if (error) {
+    console.warn("Mark read failed:", error);
+    return;
   }
+
+  setLastReadAt(nowIso);
+}
+
 
   async function sendMessage() {
-    if (!project?.workspace_id) {
-      alert("Project workspace_id missing (required for chat insert).");
-      return;
-    }
-    if (!userId) return;
-
-    const body = newMsg.trim();
-    if (!body) return;
-
-    setNewMsg("");
-
-    const { error } = await supabase.from("project_messages").insert({
-      project_id: projectId,
-      workspace_id: project.workspace_id,
-      user_id: userId,
-      body,
-    });
-
-    if (error) {
-      console.error("Send message error:", error);
-      alert(error.message);
-      setNewMsg(body);
-      return;
-    }
-
-    await markChatRead(projectId);
+  if (!project?.workspace_id) {
+    alert("Project workspace_id missing (required for chat insert).");
+    return;
   }
+  if (!userId) return;
+
+  const body = newMsg.trim();
+  if (!body) return;
+
+  setNewMsg("");
+
+  // Optimistic UI: show immediately
+  const optimistic: ProjectMessage = {
+    id: `tmp-${Date.now()}`,
+    project_id: projectId,
+    workspace_id: project.workspace_id,
+    user_id: userId,
+    body,
+    inserted_at: new Date().toISOString(),
+  };
+  setMessages((cur) => [...cur, optimistic]);
+
+  const { error } = await supabase.from("project_messages").insert({
+    project_id: projectId,
+    workspace_id: project.workspace_id,
+    user_id: userId,
+    body,
+  });
+
+  if (error) {
+    console.error("Send message error:", error);
+    alert(error.message);
+
+    // rollback optimistic
+    setMessages((cur) => cur.filter((m) => m.id !== optimistic.id));
+    setNewMsg(body);
+    return;
+  }
+
+  // Always reload chat from DB so you see the real row (id/inserted_at)
+  await loadChat(projectId);
+  await markChatRead(projectId, userId);
+}
+
 
   // ---------------------------
   // Bootstrap: safe & cancellable
@@ -412,13 +433,15 @@ export default function ProjectDetailPage() {
       setPageError(null);
 
       try {
-        await loadProject();
+        const ctx = await loadProject();
+        if (!ctx) return;
+
         await loadTodos();
         await loadWorkspaceMembers();
         await loadTotals(projectId);
 
         await loadChat(projectId);
-        await markChatRead(projectId);
+        await markChatRead(projectId, ctx.userId);
       } catch (e: any) {
         console.error("Project detail bootstrap failed:", e);
         if (!cancelled) setPageError(e?.message ?? "Failed to load project details.");
@@ -739,7 +762,7 @@ export default function ProjectDetailPage() {
                     <div className="font-medium break-words">{t.title}</div>
 
                     <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-600">
-                      <span className={`${badgeBase} bg-white border-gray-200 text-gray-700`}>
+                      <span className={`${badgeBase} ${badgeClassForTodoStatus(t.auto_status)}`}>
                         {t.auto_status}
                       </span>
                       <span className={`${badgeBase} bg-white border-gray-200 text-gray-700`}>
@@ -837,7 +860,7 @@ export default function ProjectDetailPage() {
             variant="outline"
             onClick={async () => {
               await loadChat(projectId);
-              await markChatRead(projectId);
+              if (userId) await markChatRead(projectId, userId);
             }}
           >
             Refresh
@@ -870,7 +893,9 @@ export default function ProjectDetailPage() {
                 placeholder="Write a message…"
                 value={newMsg}
                 onChange={(e) => setNewMsg(e.target.value)}
-                onFocus={() => markChatRead(projectId)}
+                onFocus={() => {
+                  if (userId) markChatRead(projectId, userId);
+                }}
               />
               <Button
                 onClick={async () => {
