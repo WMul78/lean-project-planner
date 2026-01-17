@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Button from "@/app/components/Button";
 import ProgressBar from "@/app/components/ProgressBar";
@@ -42,7 +42,9 @@ type Project = {
   project_type: ProjectType | null;
   phase: string | null;
   location_link: string | null;
-  workspace_id?: string | null; // we select this
+
+  // Added for chat insert
+  workspace_id?: string | null;
 };
 
 type TodoAuto = {
@@ -52,7 +54,6 @@ type TodoAuto = {
   inserted_at: string;
   assigned_to: string | null;
   estimated_minutes: number | null;
-  is_done: boolean;
   executed_minutes: number; // from view
   auto_status: "proposed" | "active" | "done"; // from view
   phase: string | null;
@@ -61,6 +62,7 @@ type TodoAuto = {
 
 type Member = { id: string; full_name: string; email: string | null };
 
+// ---- NEW: Chat types ----
 type ProjectMessage = {
   id: string;
   project_id: string;
@@ -76,6 +78,20 @@ function minutesToHoursText(min: number | null | undefined) {
   return `${h}h`;
 }
 
+function minutesToHoursInput(min: number | null | undefined) {
+  if (!min) return "";
+  const h = Math.round((min / 60) * 10) / 10;
+  return String(h);
+}
+
+function hoursInputToMinutes(txt: string) {
+  const clean = txt.replace(",", ".").trim();
+  if (!clean) return null;
+  const n = Number(clean);
+  if (Number.isNaN(n) || n < 0) return null;
+  return Math.round(n * 60);
+}
+
 function calcPct(executed: number, planned: number) {
   if (!planned || planned <= 0) return null;
   return Math.min(100, Math.round((executed / planned) * 100));
@@ -88,7 +104,6 @@ function clampPhase(projectType: ProjectType | null | undefined, phase: string |
   return allowed.has(phase) ? phase : null;
 }
 
-// Keep badges compatible with existing app style
 function badgeClassForStatus(s: ProjectStatus) {
   switch (s) {
     case "proposed":
@@ -138,12 +153,13 @@ export default function ProjectDetailPage() {
   // UI prefs
   const [hideDoneTasks, setHideDoneTasks] = useState<boolean>(true);
 
-  // drag & drop state (keep original behavior)
+  // drag & drop state
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   const canEditProject = useMemo(() => workspaceRole === "owner" || workspaceRole === "admin", [workspaceRole]);
 
+  // Members can edit tasks if they are project member (or owner/admin via workspace)
   const canEditTodos = useMemo(() => {
     if (workspaceRole === "owner" || workspaceRole === "admin") return true;
     return projectMemberRole === "member" || projectMemberRole === "owner" || projectMemberRole === "admin";
@@ -193,9 +209,6 @@ export default function ProjectDetailPage() {
     return messages.filter((m) => new Date(m.inserted_at).getTime() > lr).length;
   }, [messages, lastReadAt]);
 
-  // ---------------------------
-  // Loaders (keep existing, add chat)
-  // ---------------------------
   async function loadProject() {
     const user = await requireUser(router);
     if (!user) return;
@@ -209,6 +222,7 @@ export default function ProjectDetailPage() {
     }
     setWorkspaceRole(ws.role);
 
+    // NOTE: workspace_id is included to support chat insert
     const { data: proj, error: projErr } = await supabase
       .from("projects")
       .select("id,workspace_id,name,description,status,owner_id,created_by,deadline,priority,project_type,phase,location_link")
@@ -221,48 +235,24 @@ export default function ProjectDetailPage() {
       return;
     }
 
-    const pr = proj as Project;
-    pr.phase = clampPhase(pr.project_type, pr.phase);
+    setProject(proj as Project);
 
-    setProject(pr);
-
-    // Project membership role
+    // Project membership role (for members collaboration)
     const { data: pm } = await supabase
       .from("project_members")
       .select("role")
       .eq("project_id", projectId)
       .eq("user_id", user.id)
       .maybeSingle();
+
     setProjectMemberRole((pm as any)?.role ?? null);
   }
 
-  async function loadMembersForWorkspace(workspaceId: string) {
-    const { data, error } = await supabase
-      .from("workspace_members")
-      .select("user_id, profiles(full_name,email)")
-      .eq("workspace_id", workspaceId)
-      .order("created_at", { ascending: true });
-
-    if (error) {
-      console.warn("Load workspace members failed:", error);
-      setMembers([]);
-      return;
-    }
-
-    const mapped: Member[] = ((data as any[]) ?? []).map((r) => ({
-      id: r.user_id,
-      full_name: r.profiles?.full_name ?? "",
-      email: r.profiles?.email ?? null,
-    }));
-
-    setMembers(mapped);
-  }
-
   async function loadTodos() {
+    // Prefer the view that calculates auto status based on hours (as in Kanban)
     const { data, error } = await supabase
       .from("todo_status_auto")
-      // Keep original fields (incl. is_done/phase/sort_order)
-      .select("id,project_id,title,inserted_at,assigned_to,estimated_minutes,is_done,executed_minutes,auto_status,phase,sort_order")
+      .select("id,project_id,title,inserted_at,assigned_to,estimated_minutes,executed_minutes,auto_status,phase,sort_order")
       .eq("project_id", projectId);
 
     if (error) {
@@ -271,12 +261,7 @@ export default function ProjectDetailPage() {
       return;
     }
 
-    const arr = (((data as any) ?? []) as TodoAuto[]).map((t) => ({
-      ...t,
-      phase: clampPhase(project?.project_type ?? "standard", (t as any).phase),
-    }));
-
-    setTodos(arr);
+    setTodos(((data as any) ?? []) as TodoAuto[]);
   }
 
   async function loadTotals(pid: string) {
@@ -286,7 +271,7 @@ export default function ProjectDetailPage() {
       .eq("project_id", pid)
       .maybeSingle();
 
-    if (planErr) console.warn("planned totals error:", planErr);
+    if (planErr) console.error("Load planned totals error:", planErr);
     setPlannedMinutes((plan as any)?.planned_minutes ?? 0);
 
     const { data: exec, error: execErr } = await supabase
@@ -295,21 +280,185 @@ export default function ProjectDetailPage() {
       .eq("project_id", pid)
       .maybeSingle();
 
-    if (execErr) console.warn("executed totals error:", execErr);
+    if (execErr) console.error("Load executed totals error:", execErr);
     setExecutedMinutes((exec as any)?.executed_minutes ?? 0);
+  }
+
+  async function loadWorkspaceMembers() {
+    const ws = await getActiveWorkspace();
+    if (!ws?.workspaceId) return;
+
+    const { data, error } = await supabase
+      .from("workspace_members")
+      .select("user_id, profiles:profiles(full_name,email)")
+      .eq("workspace_id", ws.workspaceId);
+
+    if (error) {
+      console.error("Load members error:", error);
+      setMembers([]);
+      return;
+    }
+
+    setMembers(
+      ((data as any[]) ?? []).map((r) => ({
+        id: r.user_id,
+        full_name: r.profiles?.full_name || r.user_id.slice(0, 8),
+        email: r.profiles?.email ?? null,
+      }))
+    );
   }
 
   async function refreshAll() {
     await loadProject();
     await loadTodos();
-    await loadTotals(projectId);
+    await loadWorkspaceMembers();
+    if (projectId) await loadTotals(projectId);
+  }
+
+  useEffect(() => {
+    (async () => {
+      await loadProject();
+      await loadTodos();
+      await loadWorkspaceMembers();
+      await loadTotals(projectId);
+
+      // NEW: load chat after we have userId + project
+      await loadChat(projectId);
+      await markChatRead(projectId);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ---- Todos CRUD ----
+  async function addTodo(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canEditTodos) return;
+    if (!project) return;
+
+    const clean = newTodoTitle.trim();
+    if (!clean) return;
+
+    // compute next sort_order client-side (safe enough for MVP)
+    const current = todosRef.current.filter((t) => t.project_id === projectId);
+    const maxSort = current.reduce((mx, t) => Math.max(mx, t.sort_order ?? 0), 0);
+
+    const defaultPhase =
+      project.project_type && project.project_type !== "standard"
+        ? clampPhase(project.project_type, project.phase)
+        : null;
+
+    const { error } = await supabase.from("todos").insert({
+      title: clean,
+      project_id: projectId,
+      assigned_to: null,
+      estimated_minutes: null,
+      sort_order: maxSort + 1,
+      phase: defaultPhase,
+    });
+
+    if (error) return alert("No permission or error: " + error.message);
+
+    setNewTodoTitle("");
+    await refreshAll();
+  }
+
+  async function removeTodo(todoId: string) {
+    if (!canEditTodos) return;
+
+    const { error } = await supabase.from("todos").delete().eq("id", todoId);
+    if (error) return alert("No permission or error: " + error.message);
+
+    await refreshAll();
+  }
+
+  // ---- Todo field updates (estimate + assignee + phase) ----
+  async function updateTodoEstimate(todoId: string, hoursText: string) {
+    if (!canEditTodos) return;
+
+    const minutes = hoursInputToMinutes(hoursText);
+    const next = minutes === null ? null : minutes;
+
+    const { error } = await supabase.from("todos").update({ estimated_minutes: next }).eq("id", todoId);
+    if (error) return alert(error.message);
+
+    await refreshAll();
+  }
+
+  async function updateTodoAssignee(todoId: string, nextUserId: string | null) {
+    if (!canEditTodos) return;
+
+    const { error } = await supabase.from("todos").update({ assigned_to: nextUserId }).eq("id", todoId);
+    if (error) return alert(error.message);
+
+    await refreshAll();
+  }
+
+  async function updateTodoPhase(todoId: string, nextPhase: string | null) {
+    if (!canEditTodos) return;
+
+    const { error } = await supabase.from("todos").update({ phase: nextPhase }).eq("id", todoId);
+    if (error) return alert(error.message);
+
+    await refreshAll();
+  }
+
+  // ---- Drag & drop reorder (persist sort_order) ----
+  function onDragStart(todoId: string) {
+    if (!canEditTodos) return;
+    setDraggingId(todoId);
+  }
+
+  function onDragOver(todoId: string) {
+    if (!canEditTodos) return;
+    if (!draggingId || draggingId === todoId) return;
+    setDragOverId(todoId);
+  }
+
+  async function onDrop(todoId: string) {
+    if (!canEditTodos) return;
+    const fromId = draggingId;
+    const toId = todoId;
+    setDragOverId(null);
+    setDraggingId(null);
+
+    if (!fromId || fromId === toId) return;
+
+    const cur = sortedTodos; // already filtered + sorted list
+    const fromIdx = cur.findIndex((t) => t.id === fromId);
+    const toIdx = cur.findIndex((t) => t.id === toId);
+    if (fromIdx < 0 || toIdx < 0) return;
+
+    const next = [...cur];
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, moved);
+
+    // Optimistic UI: update local sort_order
+    const optimistic = next.map((t, idx) => ({ ...t, sort_order: idx + 1 }));
+    setTodos((prev) => {
+      // merge optimistic back into full list (including done tasks if hidden)
+      const map = new Map(optimistic.map((t) => [t.id, t]));
+      return prev.map((t) => map.get(t.id) ?? t);
+    });
+
+    // Persist: set sort_order for all items in the reordered list
+    const payload = optimistic.map((t) => ({ id: t.id, sort_order: t.sort_order }));
+    const { error } = await supabase.rpc("reorder_todos", {
+      p_project_id: projectId,
+      p_items: payload,
+    });
+
+    if (error) {
+      console.error(error);
+      alert(error.message);
+      await refreshAll(); // revert to server truth
+    }
   }
 
   // ---------------------------
   // NEW: Chat loaders/actions
   // ---------------------------
   async function loadChat(pid: string) {
-    if (!userId) return;
+    if (!pid) return;
     setMsgLoading(true);
 
     const { data, error } = await supabase
@@ -328,17 +477,15 @@ export default function ProjectDetailPage() {
 
     setMessages(((data as any) ?? []) as ProjectMessage[]);
 
-    const { data: rr, error: rrErr } = await supabase
-      .from("project_message_reads")
-      .select("last_read_at")
-      .eq("project_id", pid)
-      .eq("user_id", userId)
-      .maybeSingle();
+    if (userId) {
+      const { data: rr, error: rrErr } = await supabase
+        .from("project_message_reads")
+        .select("last_read_at")
+        .eq("project_id", pid)
+        .eq("user_id", userId)
+        .maybeSingle();
 
-    if (rrErr) {
-      setLastReadAt(null);
-    } else {
-      setLastReadAt((rr as any)?.last_read_at ?? null);
+      if (!rrErr) setLastReadAt((rr as any)?.last_read_at ?? null);
     }
 
     setMsgLoading(false);
@@ -363,7 +510,10 @@ export default function ProjectDetailPage() {
   }
 
   async function sendMessage() {
-    if (!project?.workspace_id) return;
+    if (!project?.workspace_id) {
+      alert("Project workspace_id missing (required for chat insert).");
+      return;
+    }
     if (!userId) return;
 
     const body = newMsg.trim();
@@ -385,130 +535,10 @@ export default function ProjectDetailPage() {
       return;
     }
 
-    // Make my own send count as read
     await markChatRead(projectId);
   }
 
-  // ---------------------------
-  // Existing todo actions (unchanged)
-  // ---------------------------
-  async function addTodo(e: React.FormEvent) {
-    e.preventDefault();
-    if (!canEditTodos) return;
-
-    const title = newTodoTitle.trim();
-    if (!title) return;
-
-    setNewTodoTitle("");
-
-    const { error } = await supabase.from("todos").insert({
-      project_id: projectId,
-      title,
-      is_done: false,
-    });
-
-    if (error) {
-      console.error("Add todo error:", error);
-      alert(error.message);
-      setNewTodoTitle(title);
-      return;
-    }
-
-    await loadTodos();
-    await loadTotals(projectId);
-  }
-
-  async function removeTodo(todoId: string) {
-    if (!canEditTodos) return;
-
-    const ok = window.confirm("Delete this task?");
-    if (!ok) return;
-
-    const { error } = await supabase.from("todos").delete().eq("id", todoId);
-
-    if (error) {
-      console.error("Delete todo error:", error);
-      alert(error.message);
-      return;
-    }
-
-    await loadTodos();
-    await loadTotals(projectId);
-  }
-
-  function onDragStart(id: string) {
-    if (!canEditTodos) return;
-    setDraggingId(id);
-  }
-
-  function onDragOver(id: string) {
-    if (!canEditTodos) return;
-    if (id === draggingId) return;
-    setDragOverId(id);
-  }
-
-  async function onDrop(targetId: string) {
-    if (!canEditTodos) return;
-
-    if (!draggingId || draggingId === targetId) {
-      setDraggingId(null);
-      setDragOverId(null);
-      return;
-    }
-
-    const current = [...todosRef.current];
-    const fromIdx = current.findIndex((x) => x.id === draggingId);
-    const toIdx = current.findIndex((x) => x.id === targetId);
-    if (fromIdx < 0 || toIdx < 0) return;
-
-    const [moved] = current.splice(fromIdx, 1);
-    current.splice(toIdx, 0, moved);
-
-    const optimistic = current.map((t, idx) => ({ ...t, sort_order: idx }));
-    setTodos(optimistic);
-
-    setDraggingId(null);
-    setDragOverId(null);
-
-    const payload = optimistic.map((t) => ({ id: t.id, sort_order: t.sort_order }));
-    const { error } = await supabase.rpc("reorder_todos", {
-      p_project_id: projectId,
-      p_items: payload,
-    });
-
-    if (error) {
-      console.error(error);
-      alert(error.message);
-      await refreshAll();
-    }
-  }
-
-  // ---------------------------
-  // Initial load
-  // ---------------------------
-  useEffect(() => {
-    (async () => {
-      await loadProject();
-      await loadTotals(projectId);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
-
-  useEffect(() => {
-    if (!project?.id) return;
-
-    (async () => {
-      if (project.workspace_id) await loadMembersForWorkspace(project.workspace_id);
-      await loadTodos();
-
-      // NEW: chat
-      await loadChat(project.id);
-      await markChatRead(project.id);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.id]);
-
-  // NEW: realtime subscription for chat
+  // NEW: realtime subscription for chat (INSERT only)
   useEffect(() => {
     if (!projectId) return;
 
@@ -529,11 +559,6 @@ export default function ProjectDetailPage() {
             if (cur.some((x) => x.id === msg.id)) return cur;
             return [...cur, msg];
           });
-
-          // If message is mine, keep read marker fresh
-          if (userId && msg.user_id === userId) {
-            setLastReadAt(new Date().toISOString());
-          }
         }
       )
       .subscribe();
@@ -541,7 +566,7 @@ export default function ProjectDetailPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [projectId, userId]);
+  }, [projectId]);
 
   if (!project) {
     return (
@@ -600,7 +625,9 @@ export default function ProjectDetailPage() {
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="font-semibold">Progress</div>
-            <div className="text-xs text-gray-500">Status of tasks is automatically calculated based on hours logged up to today.</div>
+            <div className="text-xs text-gray-500">
+              Status of tasks is automatically calculated based on hours logged up to today.
+            </div>
           </div>
           <div className="text-sm text-gray-700">
             {minutesToHoursText(executed)} / {minutesToHoursText(planned)}
@@ -663,10 +690,12 @@ export default function ProjectDetailPage() {
                   draggable={canEditTodos}
                   onDragStart={() => onDragStart(t.id)}
                   onDragOver={(e) => {
+                    if (!canEditTodos) return;
                     e.preventDefault();
                     onDragOver(t.id);
                   }}
                   onDrop={(e) => {
+                    if (!canEditTodos) return;
                     e.preventDefault();
                     onDrop(t.id);
                   }}
@@ -683,10 +712,13 @@ export default function ProjectDetailPage() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="font-medium text-sm break-words whitespace-normal line-clamp-2 sm:line-clamp-1">{t.title}</div>
+                      <div className="font-medium text-sm break-words whitespace-normal line-clamp-2 sm:line-clamp-1">
+                        {t.title}
+                      </div>
 
                       <div className="mt-1 flex flex-wrap gap-2">
                         <span className={metaBadgeClass()}>status: {t.auto_status}</span>
+
                         {t.estimated_minutes ? (
                           <span className={metaBadgeClass()}>
                             {minutesToHoursText(t.executed_minutes)} / {minutesToHoursText(t.estimated_minutes)}{" "}
@@ -695,7 +727,10 @@ export default function ProjectDetailPage() {
                         ) : (
                           <span className={metaBadgeClass()}>no estimate</span>
                         )}
-                        {canShowPhaseOnTodos ? <span className={metaBadgeClass()}>phase: {t.phase ?? "—"}</span> : null}
+
+                        {canShowPhaseOnTodos ? (
+                          <span className={metaBadgeClass()}>phase: {t.phase ?? "—"}</span>
+                        ) : null}
                       </div>
                     </div>
 
@@ -705,6 +740,69 @@ export default function ProjectDetailPage() {
                       </Button>
                     ) : null}
                   </div>
+
+                  {/* ✅ Restored: task controls */}
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <div className="grid gap-1">
+                      <label className="text-xs text-gray-500">Estimate (hours)</label>
+                      <input
+                        className="border rounded-md px-2 py-1 text-sm"
+                        defaultValue={minutesToHoursInput(t.estimated_minutes)}
+                        placeholder="0"
+                        inputMode="decimal"
+                        disabled={!canEditTodos}
+                        onBlur={(e) => updateTodoEstimate(t.id, e.target.value)}
+                      />
+                    </div>
+
+                    <div className="grid gap-1">
+                      <label className="text-xs text-gray-500">Assignee</label>
+                      <select
+                        className="border rounded-md px-2 py-1 text-sm"
+                        value={t.assigned_to ?? ""}
+                        disabled={!canEditTodos}
+                        onChange={(e) => updateTodoAssignee(t.id, e.target.value || null)}
+                      >
+                        <option value="">— Unassigned —</option>
+                        {members.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.full_name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {canShowPhaseOnTodos ? (
+                      <div className="grid gap-1">
+                        <label className="text-xs text-gray-500">Phase</label>
+                        <select
+                          className="border rounded-md px-2 py-1 text-sm"
+                          value={t.phase ?? ""}
+                          disabled={!canEditTodos}
+                          onChange={(e) => updateTodoPhase(t.id, e.target.value || null)}
+                        >
+                          <option value="">— None —</option>
+                          {PHASES[project.project_type as Exclude<ProjectType, "standard">].map((p) => (
+                            <option key={p.value} value={p.value}>
+                              {p.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="hidden md:block" />
+                    )}
+                  </div>
+
+                  {/* ✅ Restored: per-task progressbar */}
+                  {t.estimated_minutes && pctTodo !== null ? (
+                    <div className="mt-3">
+                      <ProgressBar
+                        value={pctTodo}
+                        label={`${minutesToHoursText(t.executed_minutes)} / ${minutesToHoursText(t.estimated_minutes)} (${pctTodo}%)`}
+                      />
+                    </div>
+                  ) : null}
                 </div>
               );
             })
