@@ -53,21 +53,25 @@ export default function TopNav() {
 
   const load = useCallback(async () => {
     // ✅ Option A: no getUser() → use getSession()
-    const { data: sess } = await supabase.auth.getSession();
-    const session = sess.session;
+    // ✅ More reliable than getSession() for UI auth state (prevents false "logged out")
+const { data: u, error: uErr } = await supabase.auth.getUser();
+if (uErr) console.warn("TopNav getUser error:", uErr);
 
-    if (!session) {
-      setLoggedIn(false);
-      setEmail(null);
-      setWorkspaceRole("member");
-      setWorkspaceName(null);
-      setTier("free");
-      setBillingStatus(null);
-      return;
-    }
+const user = u.user;
 
-    setLoggedIn(true);
-    setEmail(session.user.email ?? null);
+if (!user) {
+  setLoggedIn(false);
+  setEmail(null);
+  setWorkspaceRole("member");
+  setWorkspaceName(null);
+  setTier("free");
+  setBillingStatus(null);
+  return;
+}
+
+setLoggedIn(true);
+setEmail(user.email ?? null);
+
 
     const ws = await getActiveWorkspace();
     if (ws) {

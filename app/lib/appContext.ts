@@ -23,13 +23,17 @@ export async function getActiveWorkspaceTier(): Promise<"free" | "core" | "pro">
 export type WorkspaceRole = "owner" | "admin" | "member" | "stakeholder";
 
 async function getSessionUser() {
-  // ✅ Fast (no network): session stored locally and refreshed by supabase client
-  const { data } = await supabase.auth.getSession();
-  return data.session?.user ?? null;
+  // 1) Fast path: local session
+  const { data: sess } = await supabase.auth.getSession();
+  if (sess.session?.user) return sess.session.user;
+
+  // 2) Fallback: ask Supabase (network) — fixes “session not yet hydrated” cases
+  const { data: u, error } = await supabase.auth.getUser();
+  if (error) return null;
+  return u.user ?? null;
 }
 
 export async function requireUser(router?: { push: (p: string) => void }) {
-  // ✅ Replaces getUser() (network) with getSession() (fast)
   const user = await getSessionUser();
   if (!user) {
     router?.push("/login");
