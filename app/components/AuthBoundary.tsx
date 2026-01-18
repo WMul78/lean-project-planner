@@ -35,14 +35,18 @@ export default function AuthBoundary() {
 
     // 2) Listen for auth changes: if signed out -> go login
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_OUT") {
-        // If already on public route, do nothing
-        if (isPublicRoute(pathname)) return;
+  if (event === "SIGNED_OUT") {
+    router.replace("/login");
+    router.refresh();
+    return;
+  }
 
-        router.replace("/login");
-        router.refresh();
-      }
-    });
+  if (event === "SIGNED_IN") {
+    // VERY IMPORTANT:
+    // forces all server + client components to re-evaluate
+    router.refresh();
+  }
+});
 
     return () => {
       cancelled = true;

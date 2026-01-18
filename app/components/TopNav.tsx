@@ -151,22 +151,12 @@ export default function TopNav() {
     await supabase.auth.signOut();
   } catch (e) {
     console.warn("signOut failed:", e);
+  } finally {
+    // Force FULL app reset (important for same-user relogin)
+    window.location.href = "/login?logged_out=1";
   }
-
-  // Hard reset storage for PWA edge cases
-  try {
-    const keys: string[] = [];
-    for (let i = 0; i < window.localStorage.length; i++) {
-      const k = window.localStorage.key(i);
-      if (k) keys.push(k);
-    }
-    for (const k of keys) {
-      if (k.startsWith("sb-")) window.localStorage.removeItem(k);
-    }
-  } catch {}
-
-  window.location.href = "/login";
 }
+
 
 
   if (hideNav || !loggedIn) return null;
