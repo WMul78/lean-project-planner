@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "@/app/components/Button";
 import { supabase } from "@/lib/supabaseClient";
+import { getSessionUser } from "@/app/lib/appContext";
 
 type Mode = "signin" | "signup";
 
@@ -29,11 +30,14 @@ export default function LoginClient({
     let cancelled = false;
 
     async function run() {
-      const { data } = await supabase.auth.getSession();
-      if (cancelled) return;
-
-      if (data.session) {
-        router.replace(nextPath);
+      const { data, error } = await supabase.auth.getUser();
+        if (!cancelled) {
+        if (error) {
+          // If token is stale, let user log in normally
+          console.warn("Login page getUser error:", error.message);
+          return;
+        }
+          if (data.user) router.replace(nextPath);
       }
     }
 

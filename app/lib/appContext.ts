@@ -22,25 +22,80 @@ export async function getActiveWorkspaceTier(): Promise<"free" | "core" | "pro">
 
 export type WorkspaceRole = "owner" | "admin" | "member" | "stakeholder";
 
-async function getSessionUser() {
-  // 1) Fast path: local session
-  const { data: sess } = await supabase.auth.getSession();
-  if (sess.session?.user) return sess.session.user;
+async function hardResetAuth() {
+  try {
+    await supabase.auth.signOut();
+  } catch {
+    // ignore
+  }
 
-  // 2) Fallback: ask Supabase (network) — fixes “session not yet hydrated” cases
-  const { data: u, error } = await supabase.auth.getUser();
-  if (error) return null;
-  return u.user ?? null;
+  // Extra cleanup for stubborn PWA/localStorage cases
+  try {
+    if (typeof window !== "undefined") {
+      const keys: string[] = [];
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const k = window.localStorage.key(i);
+        if (k) keys.push(k);
+      }
+      // Supabase keys often start with "sb-"
+      for (const k of keys) {
+        if (k.startsWith("sb-")) window.localStorage.removeItem(k);
+      }
+    }
+  } catch {
+    // ignore
+  }
 }
 
-export async function requireUser(router?: { push: (p: string) => void }) {
-  const user = await getSessionUser();
-  if (!user) {
-    router?.push("/login");
+function looksLikeAuthTokenProblem(msg: string) {
+  const m = msg.toLowerCase();
+  return (
+    m.includes("jwt") ||
+    m.includes("token") ||
+    m.includes("invalid") ||
+    m.includes("expired") ||
+    m.includes("not authenticated") ||
+    m.includes("refresh")
+  );
+}
+
+async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let t: any;
+  const timeout = new Promise<T>((_, rej) => {
+    t = setTimeout(() => rej(new Error(`Timeout: ${label}`)), ms);
+  });
+  try {
+    return await Promise.race([p, timeout]);
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+export async function getSessionUser() {
+  // 1) Fast path: local session (can be stale)
+  const sessRes = await withTimeout(supabase.auth.getSession(), 4000, "getSession()");
+  const sessionUser = sessRes.data.session?.user ?? null;
+  if (sessionUser) return sessionUser;
+
+  // 2) Fallback: ask Supabase (network)
+  try {
+    const uRes = await withTimeout(supabase.auth.getUser(), 5000, "getUser()");
+    return uRes.data.user ?? null;
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+
+    // If auth is corrupted/stale, hard reset so UI won’t hang in limbo
+    if (looksLikeAuthTokenProblem(msg)) {
+      console.warn("Auth looks stale/corrupt -> hard reset:", msg);
+      await hardResetAuth();
+      return null;
+    }
+
+    console.warn("getSessionUser failed:", msg);
     return null;
   }
-  return user;
 }
+
 
 export async function getWorkspaceList() {
   // ✅ Replaces getUser() with getSession()
@@ -112,4 +167,14 @@ export async function setActiveWorkspace(workspaceId: string) {
     .eq("id", user.id);
 
   if (error) throw error;
+}
+
+export async function requireUser(router?: { push: (p: string) => void; replace?: (p: string) => void }) {
+  const user = await getSessionUser();
+  if (!user) {
+    // Replace prevents weird history loops in PWA
+    router?.replace ? router.replace("/login") : router?.push("/login");
+    return null;
+  }
+  return user;
 }

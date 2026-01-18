@@ -147,9 +147,27 @@ export default function TopNav() {
   const me = useMemo(() => initialFromEmail(email), [email]);
 
   async function signOut() {
+  try {
     await supabase.auth.signOut();
-    router.push("/login");
+  } catch (e) {
+    console.warn("signOut failed:", e);
   }
+
+  // Hard reset storage for PWA edge cases
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (k) keys.push(k);
+    }
+    for (const k of keys) {
+      if (k.startsWith("sb-")) window.localStorage.removeItem(k);
+    }
+  } catch {}
+
+  window.location.href = "/login";
+}
+
 
   if (hideNav || !loggedIn) return null;
 
