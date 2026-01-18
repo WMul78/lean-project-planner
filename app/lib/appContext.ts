@@ -8,8 +8,9 @@ export type WorkspaceTier = "free" | "core" | "pro";
 export type WorkspaceListItem = {
   workspaceId: string;
   role: WorkspaceRole;
-  name?: string | null;
+  name?: string; // ✅ no null
 };
+
 
 type RouterLike = { push: (p: string) => void; replace?: (p: string) => void };
 
@@ -128,12 +129,13 @@ export async function getWorkspaceList(): Promise<WorkspaceListItem[]> {
 
   const rows = (data as any[]) ?? [];
   return rows
-    .filter((r) => !!r.workspace_id)
-    .map((r) => ({
-      workspaceId: String(r.workspace_id),
-      role: (String(r.role) as WorkspaceRole) ?? "member",
-      name: (r.workspaces?.name ?? null) as string | null,
-    }));
+  .filter((r) => !!r.workspace_id)
+  .map((r) => ({
+    workspaceId: String(r.workspace_id),
+    role: (String(r.role) as WorkspaceRole) ?? "member",
+    name: (r.workspaces?.name ?? undefined) as string | undefined, // ✅ null -> undefined
+  }));
+
 }
 
 /**
