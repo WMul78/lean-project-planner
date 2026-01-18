@@ -31,10 +31,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <AuthBoundary />
-        {children}
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        <AuthBoundary />
         <TopNav />
+
         {/* Add top padding to account for the fixed navigation bar */}
         <div className="pt-[72px]">{children}</div>
       </body>
