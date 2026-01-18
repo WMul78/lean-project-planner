@@ -8,10 +8,10 @@ export default function AuthCallbackPage() {
   const router = useRouter();
 
   useEffect(() => {
-    supabase.auth.getSession().then(() => {
-      router.replace("/projects");
-    });
-  }, [router]);
+  supabase.auth.getSession().then(() => {
+    window.location.replace("/projects");
+  });
+}, []);
 
   return <p>Confirming your account…</p>;
 }

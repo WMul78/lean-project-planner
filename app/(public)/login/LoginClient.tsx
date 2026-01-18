@@ -54,9 +54,20 @@ export default function LoginClient({
 
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
+if (error) throw error;
 
-      router.replace(nextPath);
+// Wait until Supabase has a user (session persisted). Avoids "same account relogin" race.
+const start = Date.now();
+while (true) {
+  const { data: u } = await supabase.auth.getUser();
+  if (u.user) break;
+  if (Date.now() - start > 2500) break;
+  await new Promise((r) => setTimeout(r, 150));
+}
+
+// Hard navigation = clean app bootstrap
+window.location.assign(nextPath);
+
     } catch (err: any) {
       alert(err?.message ?? "Login failed");
     } finally {
