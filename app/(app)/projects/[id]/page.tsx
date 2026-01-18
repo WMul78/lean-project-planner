@@ -451,11 +451,15 @@ async function loadChatReadState(pid: string, uid: string) {
 
       try {
         const ctx = await loadProject();
-        if (!ctx) {
-         // Critical: don’t leave the UI in a "Loading…" limbo
-          setPageError("No user/workspace context found. Please refresh or log in again.");
-          return;
-        }
+          if (!ctx) {
+           // Critical: don’t leave the UI in a "Loading…" limbo
+            if (!cancelled) {
+              setPageError("No user/workspace context found. Please refresh or log in again.");
+              setPageLoading(false); // <-- explicit
+           }
+            return; // <-- stop bootstrap
+          }
+
 
         await loadTodos();
         await loadWorkspaceMembers();
