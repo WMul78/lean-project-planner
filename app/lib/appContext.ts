@@ -72,28 +72,28 @@ async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise
 }
 
 export async function getSessionUser() {
-  // 1) Fast path: local session (can be stale)
-  const sessRes = await withTimeout(supabase.auth.getSession(), 4000, "getSession()");
-  const sessionUser = sessRes.data.session?.user ?? null;
-  if (sessionUser) return sessionUser;
+  // 1) Check if there is a local session at all
+  const { data: sess } = await supabase.auth.getSession();
+  const hasSession = !!sess.session;
 
-  // 2) Fallback: ask Supabase (network)
-  try {
-    const uRes = await withTimeout(supabase.auth.getUser(), 5000, "getUser()");
-    return uRes.data.user ?? null;
-  } catch (e: any) {
-    const msg = String(e?.message ?? e);
+  if (!hasSession) return null;
 
-    // If auth is corrupted/stale, hard reset so UI won’t hang in limbo
-    if (looksLikeAuthTokenProblem(msg)) {
-      console.warn("Auth looks stale/corrupt -> hard reset:", msg);
-      await hardResetAuth();
-      return null;
+  // 2) Verify session with getUser() (source of truth)
+  const { data: u, error } = await supabase.auth.getUser();
+
+  // If we have a session but no valid user, the auth state is stale/corrupt.
+  // Clean it up so the app doesn't get stuck in "loading" loops.
+  if (error || !u.user) {
+    console.warn("Stale session detected -> signing out", error?.message);
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // ignore
     }
-
-    console.warn("getSessionUser failed:", msg);
     return null;
   }
+
+  return u.user;
 }
 
 
@@ -172,9 +172,9 @@ export async function setActiveWorkspace(workspaceId: string) {
 export async function requireUser(router?: { push: (p: string) => void; replace?: (p: string) => void }) {
   const user = await getSessionUser();
   if (!user) {
-    // Replace prevents weird history loops in PWA
     router?.replace ? router.replace("/login") : router?.push("/login");
     return null;
   }
   return user;
 }
+
