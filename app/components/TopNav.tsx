@@ -148,33 +148,25 @@ export default function TopNav() {
 
   async function signOut() {
   try {
-    // 1) Ask Supabase to sign out
     await supabase.auth.signOut();
   } catch (e) {
     console.warn("signOut failed:", e);
-  } finally {
-    // 2) Extra hard cleanup for PWA / stale storage edge cases
-    try {
-      if (typeof window !== "undefined") {
-        const keys: string[] = [];
-        for (let i = 0; i < window.localStorage.length; i++) {
-          const k = window.localStorage.key(i);
-          if (k) keys.push(k);
-        }
-        for (const k of keys) {
-          if (k.startsWith("sb-")) window.localStorage.removeItem(k);
-        }
-      }
-    } catch {
-      // ignore
-    }
-
-    // 3) Hard navigation away from protected UI
-    // AuthBoundary will also catch SIGNED_OUT, but this guarantees no limbo UI
-    window.location.assign("/login");
   }
-}
 
+  // Hard reset storage for PWA edge cases
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (k) keys.push(k);
+    }
+    for (const k of keys) {
+      if (k.startsWith("sb-")) window.localStorage.removeItem(k);
+    }
+  } catch {}
+
+  window.location.href = "/login";
+}
 
 
   if (hideNav || !loggedIn) return null;
