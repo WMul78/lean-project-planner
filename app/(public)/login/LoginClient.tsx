@@ -47,22 +47,25 @@ export default function LoginClient({
     };
   }, [router, nextPath]);
 
-  async function handleSignIn(e: React.FormEvent) {
-    e.preventDefault();
-    setInfo(null);
-    setIsLoading(true);
+  // app/(public)/login/LoginClient.tsx
+async function handleSignIn(e: React.FormEvent) {
+  e.preventDefault();
+  setInfo(null);
+  setIsLoading(true);
 
-    try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
+  try {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
 
-      router.replace(nextPath);
-    } catch (err: any) {
-      alert(err?.message ?? "Login failed");
-    } finally {
-      setIsLoading(false);
-    }
+    // ✅ Force clean app mount (prevents "loading forever" after relogin)
+    window.location.href = nextPath;
+  } catch (err: any) {
+    alert(err?.message ?? "Login failed");
+  } finally {
+    setIsLoading(false);
   }
+}
+
 
   async function handleSignUp(e: React.FormEvent) {
     e.preventDefault();

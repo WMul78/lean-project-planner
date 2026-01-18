@@ -1,54 +1,20 @@
 // app/lib/appContext.ts
 import { supabase } from "@/lib/supabaseClient";
 
-// Returns 'free' | 'core' | 'pro'
-export async function getActiveWorkspaceTier(): Promise<"free" | "core" | "pro"> {
-  const ws = await getActiveWorkspace();
-  if (!ws?.workspaceId) return "free";
-
-  const { data, error } = await supabase.rpc("workspace_effective_tier", {
-    p_workspace_id: ws.workspaceId,
-  });
-
-  if (error) {
-    console.warn("workspace_effective_tier error:", error);
-    return "free";
-  }
-
-  const t = String(data ?? "free");
-  if (t === "core" || t === "pro") return t;
-  return "free";
-}
-
 export type WorkspaceRole = "owner" | "admin" | "member" | "stakeholder";
 
-async function hardResetAuth() {
-  try {
-    await supabase.auth.signOut();
-  } catch {
-    // ignore
-  }
+export type WorkspaceTier = "free" | "core" | "pro";
 
-  // Extra cleanup for stubborn PWA/localStorage cases
-  try {
-    if (typeof window !== "undefined") {
-      const keys: string[] = [];
-      for (let i = 0; i < window.localStorage.length; i++) {
-        const k = window.localStorage.key(i);
-        if (k) keys.push(k);
-      }
-      // Supabase keys often start with "sb-"
-      for (const k of keys) {
-        if (k.startsWith("sb-")) window.localStorage.removeItem(k);
-      }
-    }
-  } catch {
-    // ignore
-  }
-}
+export type WorkspaceListItem = {
+  workspaceId: string;
+  role: WorkspaceRole;
+  name?: string | null;
+};
+
+type RouterLike = { push: (p: string) => void; replace?: (p: string) => void };
 
 function looksLikeAuthTokenProblem(msg: string) {
-  const m = msg.toLowerCase();
+  const m = (msg || "").toLowerCase();
   return (
     m.includes("jwt") ||
     m.includes("token") ||
@@ -71,34 +37,81 @@ async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise
   }
 }
 
+/**
+ * Hard reset of auth state (fixes stubborn PWA/localStorage token desync).
+ * Exported so TopNav / logout actions can call it.
+ */
+export async function hardResetAuth() {
+  try {
+    await supabase.auth.signOut();
+  } catch {
+    // ignore
+  }
+
+  // Extra cleanup for stubborn PWA/localStorage cases
+  try {
+    if (typeof window !== "undefined") {
+      const keys: string[] = [];
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const k = window.localStorage.key(i);
+        if (k) keys.push(k);
+      }
+
+      // Supabase keys often start with "sb-"
+      for (const k of keys) {
+        if (k.startsWith("sb-")) window.localStorage.removeItem(k);
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Session-safe user getter.
+ * - Prefers getSession() first (fast)
+ * - Then validates by calling getUser()
+ * - If getUser() fails with token/jwt issues, it hard-resets auth and returns null
+ */
 export async function getSessionUser() {
-  // 1) Check if there is a local session at all
+  // 1) Quick session check
   const { data: sess } = await supabase.auth.getSession();
   const hasSession = !!sess.session;
 
   if (!hasSession) return null;
 
-  // 2) Verify session with getUser() (source of truth)
-  const { data: u, error } = await supabase.auth.getUser();
-
-  // If we have a session but no valid user, the auth state is stale/corrupt.
-  // Clean it up so the app doesn't get stuck in "loading" loops.
-  if (error || !u.user) {
-    console.warn("Stale session detected -> signing out", error?.message);
-    try {
-      await supabase.auth.signOut();
-    } catch {
-      // ignore
+  // 2) Validate session -> user (avoid stale token states)
+  try {
+    const res = await withTimeout(supabase.auth.getUser(), 8000, "supabase.auth.getUser");
+    return res.data.user ?? null;
+  } catch (e: any) {
+    const msg = String(e?.message ?? e ?? "");
+    if (looksLikeAuthTokenProblem(msg)) {
+      await hardResetAuth();
+      return null;
     }
+    // Unknown error: treat as logged out to prevent infinite loading states
+    console.warn("getSessionUser unexpected error:", e);
     return null;
   }
-
-  return u.user;
 }
 
+/**
+ * Require logged-in user (client pages)
+ */
+export async function requireUser(router?: RouterLike) {
+  const user = await getSessionUser();
+  if (!user) {
+    router?.replace ? router.replace("/login") : router?.push("/login");
+    return null;
+  }
+  return user;
+}
 
-export async function getWorkspaceList() {
-  // ✅ Replaces getUser() with getSession()
+/**
+ * List all workspaces the current user belongs to (for WorkspaceSwitcher).
+ */
+export async function getWorkspaceList(): Promise<WorkspaceListItem[]> {
   const user = await getSessionUser();
   if (!user) return [];
 
@@ -108,25 +121,32 @@ export async function getWorkspaceList() {
     .eq("user_id", user.id)
     .order("created_at", { ascending: true });
 
-  if (error) throw error;
-
-  // dedupe op workspaceId (voor de zekerheid)
-  const map = new Map<string, { workspaceId: string; role: WorkspaceRole; name?: string }>();
-  for (const m of (data ?? []) as any[]) {
-    map.set(m.workspace_id, {
-      workspaceId: m.workspace_id,
-      role: (m.role as WorkspaceRole) ?? "member",
-      name: m.workspaces?.name,
-    });
+  if (error) {
+    console.warn("getWorkspaceList error:", error);
+    return [];
   }
 
-  return Array.from(map.values());
+  const rows = (data as any[]) ?? [];
+  return rows
+    .filter((r) => !!r.workspace_id)
+    .map((r) => ({
+      workspaceId: String(r.workspace_id),
+      role: (String(r.role) as WorkspaceRole) ?? "member",
+      name: (r.workspaces?.name ?? null) as string | null,
+    }));
 }
 
-export async function getActiveWorkspace() {
-  // ✅ Replaces getUser() with getSession()
+/**
+ * Returns the active workspace for the user:
+ * - preference: profiles.active_workspace_id
+ * - fallback: first workspace in membership list
+ */
+export async function getActiveWorkspace(): Promise<WorkspaceListItem | null> {
   const user = await getSessionUser();
   if (!user) return null;
+
+  const list = await getWorkspaceList();
+  if (list.length === 0) return null;
 
   const { data: profile, error: profErr } = await supabase
     .from("profiles")
@@ -135,29 +155,30 @@ export async function getActiveWorkspace() {
     .maybeSingle();
 
   if (profErr) {
-    console.warn("getActiveWorkspace profile error:", profErr);
+    console.warn("getActiveWorkspace profile load error:", profErr);
+    return list[0] ?? null;
   }
 
-  const list = await getWorkspaceList();
-  if (list.length === 0) return null;
+  const activeId = (profile as any)?.active_workspace_id as string | null;
 
-  const byProfile = profile?.active_workspace_id
-    ? list.find((w) => w.workspaceId === profile.active_workspace_id)
-    : null;
+  const byProfile = activeId ? list.find((w) => w.workspaceId === activeId) : null;
 
-  if (profile?.active_workspace_id && !byProfile) {
+  if (activeId && !byProfile) {
     console.warn(
       "active_workspace_id not in membership list",
-      profile.active_workspace_id,
+      activeId,
       list.map((w) => w.workspaceId)
     );
   }
 
-  return byProfile ?? list[0];
+  return byProfile ?? list[0] ?? null;
 }
 
+/**
+ * Persist active workspace to profile.
+ * (WorkspaceSwitcher uses this)
+ */
 export async function setActiveWorkspace(workspaceId: string) {
-  // ✅ Replaces getUser() with getSession()
   const user = await getSessionUser();
   if (!user) throw new Error("Not logged in");
 
@@ -169,12 +190,24 @@ export async function setActiveWorkspace(workspaceId: string) {
   if (error) throw error;
 }
 
-export async function requireUser(router?: { push: (p: string) => void; replace?: (p: string) => void }) {
-  const user = await getSessionUser();
-  if (!user) {
-    router?.replace ? router.replace("/login") : router?.push("/login");
-    return null;
-  }
-  return user;
-}
+/**
+ * Effective tier for the active workspace (free/core/pro).
+ * Uses RPC: workspace_effective_tier(workspace_id)
+ */
+export async function getActiveWorkspaceTier(): Promise<WorkspaceTier> {
+  const ws = await getActiveWorkspace();
+  if (!ws?.workspaceId) return "free";
 
+  const { data, error } = await supabase.rpc("workspace_effective_tier", {
+    p_workspace_id: ws.workspaceId,
+  });
+
+  if (error) {
+    console.warn("workspace_effective_tier error:", error);
+    return "free";
+  }
+
+  const t = String(data ?? "free");
+  if (t === "core" || t === "pro") return t;
+  return "free";
+}

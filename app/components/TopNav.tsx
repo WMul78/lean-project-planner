@@ -7,6 +7,7 @@ import WorkspaceSwitcher from "@/app/components/WorkspaceSwitcher";
 import PlanPill from "@/app/components/PlanPill";
 import { supabase } from "@/lib/supabaseClient";
 import { getActiveWorkspace, getActiveWorkspaceTier, WorkspaceRole } from "@/app/lib/appContext";
+import { hardResetAuth } from "@/app/lib/appContext";
 
 type Tier = "free" | "core" | "pro";
 
@@ -148,11 +149,9 @@ export default function TopNav() {
 
   async function signOut() {
   try {
-    await supabase.auth.signOut();
-  } catch (e) {
-    console.warn("signOut failed:", e);
+    await hardResetAuth();
   } finally {
-    // Force FULL app reset (important for same-user relogin)
+    // Full reset is still good (clears in-memory React state)
     window.location.href = "/login?logged_out=1";
   }
 }
