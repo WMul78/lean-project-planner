@@ -6,7 +6,7 @@ import Button from "@/app/components/Button";
 import WorkspaceSwitcher from "@/app/components/WorkspaceSwitcher";
 import PlanPill from "@/app/components/PlanPill";
 import { supabase } from "@/lib/supabaseClient";
-import { getActiveWorkspace, getActiveWorkspaceTier, WorkspaceRole } from "@/app/lib/appContext";
+import { getActiveWorkspace, getActiveWorkspaceTier, getSessionUser, type WorkspaceRole } from "@/app/lib/appContext";
 import { hardResetAuth } from "@/app/lib/appContext";
 
 type Tier = "free" | "core" | "pro";
@@ -54,11 +54,7 @@ export default function TopNav() {
 
   const load = useCallback(async () => {
   try {
-    // ---- AUTH (robust) ----
-    const { data: u, error: uErr } = await supabase.auth.getUser();
-    if (uErr) console.warn("TopNav getUser error:", uErr);
-
-    const user = u.user;
+    const user = await getSessionUser();
 
     if (!user) {
       setLoggedIn(false);
@@ -73,7 +69,6 @@ export default function TopNav() {
     setLoggedIn(true);
     setEmail(user.email ?? null);
 
-    // ---- WORKSPACE ----
     const ws = await getActiveWorkspace();
     if (ws) {
       setWorkspaceRole(ws.role);
@@ -83,13 +78,10 @@ export default function TopNav() {
       setWorkspaceName(null);
     }
 
-    // ---- BILLING / TIER ----
     const t = await getActiveWorkspaceTier();
-    setTier(t as Tier);
+    setTier(t as any);
   } catch (e) {
     console.warn("TopNav load failed:", e);
-
-    // Fail-safe: never break the nav UI
     setLoggedIn(false);
     setEmail(null);
     setWorkspaceRole("member");
@@ -217,7 +209,7 @@ export default function TopNav() {
 
 
 
-         
+
 
           {/* User avatar dropdown (bigger) */}
           <div className="relative" ref={userMenuRef}>

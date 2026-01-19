@@ -5,23 +5,13 @@ import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getSessionUser } from "@/app/lib/appContext";
 
-/**
- * AuthBoundary
- * - Only mount this in protected layout: app/(app)/layout.tsx
- * - Redirects to /login when unauthenticated
- * - Reacts to auth state changes to avoid "stale app state" after relogin
- */
-
 // Public routes should NOT be forced to /login
 const PUBLIC_ROUTES = new Set<string>(["/", "/login", "/signup"]);
 
 function isPublicRoute(pathname: string) {
   if (PUBLIC_ROUTES.has(pathname)) return true;
-
-  // allow invite acceptance flows if you have them public
   if (pathname.startsWith("/invite")) return true;
   if (pathname.startsWith("/invites")) return true;
-
   return false;
 }
 
@@ -33,51 +23,38 @@ export default function AuthBoundary() {
     let cancelled = false;
 
     async function ensureAuthOnMount() {
-      // If this is a public route, never redirect
       if (isPublicRoute(pathname)) return;
 
       const user = await getSessionUser();
       if (cancelled) return;
 
       if (!user) {
-        router.replace("/login");
-        router.refresh();
+        // ✅ Hard redirect avoids App Router refresh loops
+        window.location.href = "/login?reason=unauthenticated";
       }
     }
 
     ensureAuthOnMount();
 
-  const { data } = supabase.auth.onAuthStateChange((event) => {
-  const ev = String(event);
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      const ev = String(event);
 
-  if (ev === "SIGNED_OUT") {
-    if (!isPublicRoute(pathname)) {
-      router.replace("/login");
-      router.refresh();
-    }
-    return;
-  }
+      if (ev === "SIGNED_OUT" || ev === "TOKEN_REFRESH_FAILED") {
+        if (!isPublicRoute(pathname)) {
+          window.location.href = "/login?reason=signed_out";
+        }
+        return;
+      }
 
-  if (ev === "SIGNED_IN" || ev === "USER_UPDATED") {
-    router.refresh();
-    return;
-  }
-
-  // In some versions this exists; treat it as signed out
-  if (ev === "TOKEN_REFRESH_FAILED") {
-    if (!isPublicRoute(pathname)) {
-      router.replace("/login");
-      router.refresh();
-    }
-  }
-});
-
+      // ✅ Do NOT refresh on SIGNED_IN / USER_UPDATED
+      // Pages already load their data, and refresh loops can break the app.
+    });
 
     return () => {
       cancelled = true;
       data.subscription.unsubscribe();
     };
-  }, [router, pathname]);
+  }, [pathname, router]);
 
   return null;
 }
