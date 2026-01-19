@@ -66,7 +66,7 @@ export default function ProjectsPage() {
 
 
 
-  
+
 const [workspaceRole, setWorkspaceRole] = useState<WorkspaceRole>("member");
   const [workspaceName, setWorkspaceName] = useState<string | null>(null);
 // workspace popover
@@ -86,121 +86,118 @@ const [workspaceRole, setWorkspaceRole] = useState<WorkspaceRole>("member");
   const loadSeq = useRef(0);
 
   const load = useCallback(async () => {
-    const seq = ++loadSeq.current;
-    setLoading(true);
-    setLoadError(null);
+  const seq = ++loadSeq.current;
 
+  // Always show spinner for the newest run
+  setLoading(true);
+  setLoadError(null);
+
+  try {
     const user = await requireUser(router);
-    if (!user) {
-      if (seq === loadSeq.current) setLoading(false);
-      return;
-    }
+    if (!user) return;
 
-    try {
-      const ws = await getActiveWorkspace();
-      if (!ws?.workspaceId) {
-        if (seq === loadSeq.current) {
-          setWorkspaceId(null);
-          setRole("member");
-          setProjects([]);
-          setOwners([]);
-          setPlannedByProject({});
-          setExecutedByProject({});
-          setLoadError("No active workspace found for this user.");
-          setLoading(false);
-        }
-        return;
-      }
-
-      if (seq === loadSeq.current) {
-        setWorkspaceId(ws.workspaceId);
-        setRole(ws.role);
-      }
-
-      // 1) Load owners (workspace members) for the owner filter dropdown.
-      const { data: members, error: memErr } = await supabase
-        .from("workspace_members")
-        .select("user_id, profiles(full_name,email)")
-        .eq("workspace_id", ws.workspaceId)
-        .order("created_at", { ascending: true });
-
-      if (seq !== loadSeq.current) return;
-
-      if (memErr) {
-        console.warn("Load workspace members failed:", memErr);
-        setOwners([]);
-      } else {
-        const opts: OwnerOption[] = ((members as any[]) ?? []).map((m) => {
-          const id = m.user_id as string;
-          const full = m.profiles?.full_name as string | null | undefined;
-          const email = m.profiles?.email as string | null | undefined;
-          const label = (full && full.trim()) || email || id.slice(0, 8);
-          return { id, label };
-        });
-        setOwners(opts);
-      }
-
-      // 2) Load projects
-      const { data: proj, error: projErr } = await supabase
-        .from("projects")
-        .select("id,name,description,inserted_at,status,owner_id,created_by,deadline,priority,project_type")
-        .eq("workspace_id", ws.workspaceId)
-        .order("inserted_at", { ascending: false });
-
-      if (seq !== loadSeq.current) return;
-
-      if (projErr) {
-        setProjects([]);
-        setPlannedByProject({});
-        setExecutedByProject({});
-        setLoadError(projErr.message);
-        setLoading(false);
-        return;
-      }
-
-      const list = ((proj as any) ?? []) as Project[];
-      setProjects(list);
-
-      const ids = list.map((p) => p.id);
-      if (ids.length === 0) {
-        setPlannedByProject({});
-        setExecutedByProject({});
-        setLoading(false);
-        return;
-      }
-
-      // 3) Load totals (planned + executed) via views
-      const [{ data: plan, error: planErr }, { data: exec, error: execErr }] = await Promise.all([
-        supabase.from("project_planned_totals").select("project_id, planned_minutes").in("project_id", ids),
-        supabase.from("project_executed_totals").select("project_id, executed_minutes").in("project_id", ids),
-      ]);
-
-      if (seq !== loadSeq.current) return;
-
-      if (planErr) console.warn("Load planned totals failed:", planErr);
-      if (execErr) console.warn("Load executed totals failed:", execErr);
-
-      const planMap: Record<string, number> = {};
-      for (const r of ((plan as any) ?? []) as TotalsRow[]) planMap[r.project_id] = (r.planned_minutes ?? 0) as number;
-
-      const execMap: Record<string, number> = {};
-      for (const r of ((exec as any) ?? []) as TotalsRow[]) execMap[r.project_id] = (r.executed_minutes ?? 0) as number;
-
-      setPlannedByProject(planMap);
-      setExecutedByProject(execMap);
-
-      setLoading(false);
-    } catch (e: any) {
-      if (seq !== loadSeq.current) return;
-      console.error("Projects page load failed:", e);
+    const ws = await getActiveWorkspace();
+    if (!ws?.workspaceId) {
+      setWorkspaceId(null);
+      setRole("member");
       setProjects([]);
       setOwners([]);
       setPlannedByProject({});
       setExecutedByProject({});
-      setLoadError(e?.message ?? "Failed to load workspace/projects.");
-      setLoading(false);
+      setLoadError("No active workspace found for this user.");
+      return;
     }
-  }, [router]);
+
+    // If a newer load started, stop work (but do NOT leave loading stuck; finally will handle that)
+    if (seq !== loadSeq.current) return;
+
+    setWorkspaceId(ws.workspaceId);
+    setRole(ws.role);
+
+    // 1) Owners
+    const { data: members, error: memErr } = await supabase
+      .from("workspace_members")
+      .select("user_id, profiles(full_name,email)")
+      .eq("workspace_id", ws.workspaceId)
+      .order("created_at", { ascending: true });
+
+    if (seq !== loadSeq.current) return;
+
+    if (memErr) {
+      console.warn("Load workspace members failed:", memErr);
+      setOwners([]);
+    } else {
+      const opts = ((members as any[]) ?? []).map((m) => {
+        const id = m.user_id as string;
+        const full = m.profiles?.full_name as string | null | undefined;
+        const email = m.profiles?.email as string | null | undefined;
+        const label = (full && full.trim()) || email || id.slice(0, 8);
+        return { id, label };
+      });
+      setOwners(opts);
+    }
+
+    // 2) Projects
+    const { data: proj, error: projErr } = await supabase
+      .from("projects")
+      .select("id,name,description,inserted_at,status,owner_id,created_by,deadline,priority,project_type")
+      .eq("workspace_id", ws.workspaceId)
+      .order("inserted_at", { ascending: false });
+
+    if (seq !== loadSeq.current) return;
+
+    if (projErr) {
+      setProjects([]);
+      setPlannedByProject({});
+      setExecutedByProject({});
+      setLoadError(projErr.message);
+      return;
+    }
+
+    const list = ((proj as any) ?? []) as Project[];
+    setProjects(list);
+
+    const ids = list.map((p) => p.id);
+    if (ids.length === 0) {
+      setPlannedByProject({});
+      setExecutedByProject({});
+      return;
+    }
+
+    // 3) Totals
+    const [{ data: plan, error: planErr }, { data: exec, error: execErr }] = await Promise.all([
+      supabase.from("project_planned_totals").select("project_id, planned_minutes").in("project_id", ids),
+      supabase.from("project_executed_totals").select("project_id, executed_minutes").in("project_id", ids),
+    ]);
+
+    if (seq !== loadSeq.current) return;
+
+    if (planErr) console.warn("Load planned totals failed:", planErr);
+    if (execErr) console.warn("Load executed totals failed:", execErr);
+
+    const planMap: Record<string, number> = {};
+    for (const r of ((plan as any) ?? []) as TotalsRow[]) planMap[r.project_id] = (r.planned_minutes ?? 0) as number;
+
+    const execMap: Record<string, number> = {};
+    for (const r of ((exec as any) ?? []) as TotalsRow[]) execMap[r.project_id] = (r.executed_minutes ?? 0) as number;
+
+    setPlannedByProject(planMap);
+    setExecutedByProject(execMap);
+  } catch (e: any) {
+    // Only show error if this is still the newest load
+    if (seq !== loadSeq.current) return;
+    console.error("Projects page load failed:", e);
+    setProjects([]);
+    setOwners([]);
+    setPlannedByProject({});
+    setExecutedByProject({});
+    setLoadError(e?.message ?? "Failed to load workspace/projects.");
+  } finally {
+    // ✅ The key fix: never leave the page stuck in loading
+    if (seq === loadSeq.current) setLoading(false);
+  }
+}, [router]);
+
 
   useEffect(() => {
     load();
