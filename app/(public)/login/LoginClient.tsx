@@ -27,25 +27,24 @@ export default function LoginClient({
 
   // If user is already logged in, go to next
   useEffect(() => {
-    let cancelled = false;
+  let cancelled = false;
 
-    async function run() {
-      const { data, error } = await supabase.auth.getUser();
-        if (!cancelled) {
-        if (error) {
-          // If token is stale, let user log in normally
-          console.warn("Login page getUser error:", error.message);
-          return;
-        }
-          if (data.user) router.replace(nextPath);
-      }
+  async function run() {
+    const user = await getSessionUser(); // ✅ robust helper
+    if (cancelled) return;
+
+    if (user) {
+      // ✅ do a hard navigation, not SPA replace
+      window.location.href = nextPath;
     }
+  }
 
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [router, nextPath]);
+  run();
+  return () => {
+    cancelled = true;
+  };
+}, [nextPath]);
+
 
   // app/(public)/login/LoginClient.tsx
 async function handleSignIn(e: React.FormEvent) {
