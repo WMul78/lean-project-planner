@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import Button from "@/app/components/Button";
 import { getSessionUser, hardResetAuth } from "@/app/lib/appContext";
+import WorkspaceSwitcher from "@/app/components/WorkspaceSwitcher";
 
 function NavLink({ href, label }: { href: string; label: string }) {
   const pathname = usePathname();
@@ -86,6 +87,11 @@ export default function TopNav() {
           <NavLink href="/hours" label="Hours" />
         </div>
 
+  <div className="hidden md:block relative">
+    <div className="rounded-xl border px-3 py-2">
+      <WorkspaceSwitcher />
+    </div>
+  </div>
         <div className="flex items-center gap-2">
           <div className="relative" ref={userMenuRef}>
             <button
