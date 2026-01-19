@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
+
 import Button from "@/app/components/Button";
 import WorkspaceSwitcher from "@/app/components/WorkspaceSwitcher";
 import PlanPill from "@/app/components/PlanPill";
+
 import { supabase } from "@/lib/supabaseClient";
 import {
   getActiveWorkspace,
@@ -33,6 +35,33 @@ function initialFromEmail(email: string | null | undefined) {
   return e[0].toUpperCase();
 }
 
+function useOutsideClose(
+  open: boolean,
+  ref: React.RefObject<HTMLElement | null>,
+  onClose: () => void
+) {
+
+  useEffect(() => {
+    if (!open) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    const onMouseDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (ref.current && ref.current.contains(t)) return;
+      onClose();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("mousedown", onMouseDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("mousedown", onMouseDown);
+    };
+  }, [open, ref, onClose]);
+}
+
 export default function TopNav() {
   const router = useRouter();
   const pathname = usePathname();
@@ -41,20 +70,27 @@ export default function TopNav() {
   const hideNav = pathname === "/" || pathname.startsWith("/login");
   if (hideNav) return null;
 
-  // --- user menu ---
+  // --- user state ---
   const [email, setEmail] = useState<string | null>(null);
+
+  // --- menus/panels ---
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [wsMenuOpen, setWsMenuOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   const userMenuRef = useRef<HTMLDivElement | null>(null);
+  const wsMenuRef = useRef<HTMLDivElement | null>(null);
+  const mobileMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useOutsideClose(userMenuOpen, userMenuRef, () => setUserMenuOpen(false));
+  useOutsideClose(wsMenuOpen, wsMenuRef, () => setWsMenuOpen(false));
+  useOutsideClose(mobileMenuOpen, mobileMenuRef, () => setMobileMenuOpen(false));
 
   // --- plan pill state ---
   const [workspaceName, setWorkspaceName] = useState<string | null>(null);
   const [tier, setTier] = useState<WorkspaceTier>("free");
   const [billingStatus, setBillingStatus] = useState<string | null>(null);
-
-  // Optional: keep role if you want to show it later (not used for PlanPill)
   const [workspaceRole, setWorkspaceRole] = useState<WorkspaceRole>("member");
-
-  // Prevent overlapping loads from racing each other
   const planLoadSeq = useRef(0);
 
   const refreshUser = useCallback(async () => {
@@ -68,7 +104,6 @@ export default function TopNav() {
     try {
       const u = await getSessionUser();
       if (!u) {
-        // logged out state
         if (seq === planLoadSeq.current) {
           setWorkspaceName(null);
           setTier("free");
@@ -94,12 +129,10 @@ export default function TopNav() {
       setWorkspaceName(ws.name ?? null);
       setWorkspaceRole(ws.role);
 
-      // Tier (RPC workspace_effective_tier)
       const t = await getActiveWorkspaceTier();
       if (seq !== planLoadSeq.current) return;
       setTier(t);
 
-      // Billing status (from workspace_subscriptions), safe optional
       const { data, error } = await supabase
         .from("workspace_subscriptions")
         .select("status")
@@ -109,14 +142,12 @@ export default function TopNav() {
       if (seq !== planLoadSeq.current) return;
 
       if (error) {
-        // Don’t break the nav if billing lookup fails
         console.warn("TopNav: load billing status failed:", error.message);
         setBillingStatus(null);
       } else {
         setBillingStatus((data as any)?.status ?? null);
       }
     } catch (e: any) {
-      // Fail-safe: never break the app because of the nav
       console.warn("TopNav: refreshPlan failed:", e?.message ?? e);
       if (seq === planLoadSeq.current) {
         setWorkspaceName(null);
@@ -127,39 +158,17 @@ export default function TopNav() {
     }
   }, []);
 
-  // Initial load: user + plan
   useEffect(() => {
     refreshUser();
     refreshPlan();
   }, [refreshUser, refreshPlan]);
 
-  // Re-load plan when workspace changes (WorkspaceSwitcher dispatches this)
+  // Refresh plan when workspace changes
   useEffect(() => {
     const handler = () => refreshPlan();
     window.addEventListener("workspace-changed", handler);
     return () => window.removeEventListener("workspace-changed", handler);
   }, [refreshPlan]);
-
-  // Close user menu on outside click / escape
-  useEffect(() => {
-    if (!userMenuOpen) return;
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setUserMenuOpen(false);
-    };
-    const onMouseDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (userMenuRef.current && userMenuRef.current.contains(t)) return;
-      setUserMenuOpen(false);
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("mousedown", onMouseDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("mousedown", onMouseDown);
-    };
-  }, [userMenuOpen]);
 
   const me = useMemo(() => initialFromEmail(email), [email]);
 
@@ -171,22 +180,42 @@ export default function TopNav() {
   return (
     <div className="w-full border-b bg-white fixed top-0 left-0 z-40">
       <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-        {/* Left navigation */}
-        <div className="flex items-center gap-2">
+        {/* Desktop left nav */}
+        <div className="hidden md:flex items-center gap-2">
           <NavLink href="/projects" label="Projects" />
           <NavLink href="/kanban" label="Kanban" />
           <NavLink href="/gantt" label="Gantt" />
           <NavLink href="/hours" label="Hours" />
         </div>
 
-        {/* Right side: workspace switcher + plan pill + user menu */}
+        {/* Mobile: simple brand / spacer */}
+        <div className="md:hidden flex items-center gap-2">
+          <span className="text-sm font-semibold text-slate-700">Lean Planner</span>
+        </div>
+
+        {/* Right side */}
         <div className="flex items-center gap-2">
-          {/* Workspace */}
-          <div className="hidden md:block rounded-xl border px-3 py-2">
-            <WorkspaceSwitcher />
+          {/* Desktop: workspace button + dropdown (prevents huge inline expansion) */}
+          <div className="hidden md:block relative" ref={wsMenuRef}>
+            <Button
+              variant="outline"
+              onClick={() => setWsMenuOpen((v) => !v)}
+              aria-expanded={wsMenuOpen}
+              aria-label="Workspace menu"
+            >
+              Workspace
+            </Button>
+
+            {wsMenuOpen ? (
+              <div className="absolute right-0 top-full mt-2 w-[420px] max-w-[90vw] rounded-2xl border bg-white shadow-lg z-50">
+                <div className="p-3 max-h-[70vh] overflow-auto">
+                  <WorkspaceSwitcher />
+                </div>
+              </div>
+            ) : null}
           </div>
 
-          {/* Plan pill */}
+          {/* Desktop: plan pill */}
           <div className="hidden md:block">
             <PlanPill
               tier={tier}
@@ -196,11 +225,29 @@ export default function TopNav() {
             />
           </div>
 
-          {/* User menu */}
+          {/* Mobile: optional mini plan pill (can keep or remove) */}
+          <div className="md:hidden">
+            <PlanPill
+              tier={tier}
+              billingStatus={billingStatus}
+              workspaceName={null}
+              onClick={() => router.push("/pricing")}
+            />
+          </div>
+
+          {/* User + Mobile menu button */}
           <div className="relative" ref={userMenuRef}>
             <button
               type="button"
-              onClick={() => setUserMenuOpen((v) => !v)}
+              onClick={() => {
+                // On mobile, open mobile panel under the avatar
+                if (window.innerWidth < 768) {
+                  setMobileMenuOpen((v) => !v);
+                  setUserMenuOpen(false);
+                } else {
+                  setUserMenuOpen((v) => !v);
+                }
+              }}
               className="h-11 w-11 rounded-full bg-gray-900 text-white text-base font-semibold flex items-center justify-center"
               aria-label="User menu"
               title={email ?? "User menu"}
@@ -208,6 +255,7 @@ export default function TopNav() {
               {me}
             </button>
 
+            {/* Desktop user menu */}
             {userMenuOpen ? (
               <div className="absolute right-0 top-full mt-2 w-56 rounded-2xl border bg-white shadow-lg overflow-hidden z-50">
                 <div className="px-3 py-2 text-xs text-gray-500 border-b">
@@ -246,14 +294,50 @@ export default function TopNav() {
               </div>
             ) : null}
           </div>
-
-          {/* Optional: quick logout button if you want (can remove) */}
-          <div className="hidden">
-            <Button variant="danger" onClick={handleLogout}>
-              Logout
-            </Button>
-          </div>
         </div>
+      </div>
+
+      {/* Mobile panel under avatar: nav + workspace switcher + settings/logout */}
+      <div className="md:hidden relative" ref={mobileMenuRef}>
+        {mobileMenuOpen ? (
+          <div className="border-t bg-white shadow-lg">
+            <div className="max-w-6xl mx-auto px-4 py-3 flex flex-col gap-3">
+              {/* Buttons under the round logo */}
+              <div className="flex flex-wrap gap-2">
+                <NavLink href="/projects" label="Projects" />
+                <NavLink href="/kanban" label="Kanban" />
+                <NavLink href="/gantt" label="Gantt" />
+                <NavLink href="/hours" label="Hours" />
+              </div>
+
+              {/* Workspace switcher on mobile */}
+              <div className="rounded-2xl border p-3">
+                <WorkspaceSwitcher />
+              </div>
+
+              {/* Settings / logout */}
+              <div className="flex items-center gap-2">
+                <Link href="/settings" className="inline-flex" onClick={() => setMobileMenuOpen(false)}>
+                  <Button variant="outline">Settings</Button>
+                </Link>
+                <Button
+                  variant="danger"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    handleLogout();
+                  }}
+                >
+                  Logout
+                </Button>
+              </div>
+
+              {/* Optional info */}
+              <div className="text-xs text-slate-500">
+                {email ?? ""} {workspaceName ? `• ${workspaceName} (${workspaceRole})` : ""}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
