@@ -303,10 +303,10 @@ export default function TopNav() {
                   className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
                   onClick={() => {
                     setUserMenuOpen(false);
-                    router.push("/invites");
+                    router.push("/admin/users");
                   }}
                 >
-                  Invites
+                  User Management
                 </button>
 
                 <button
