@@ -64,6 +64,20 @@ export default function ProjectsPage() {
 
   const [owners, setOwners] = useState<OwnerOption[]>([]);
 
+
+
+  
+const [workspaceRole, setWorkspaceRole] = useState<WorkspaceRole>("member");
+  const [workspaceName, setWorkspaceName] = useState<string | null>(null);
+// workspace popover
+  const [wsOpen, setWsOpen] = useState(false);
+  const wsRef = useRef<HTMLDivElement | null>(null);
+  // user menu dropdown
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
+
+
+
   // Filters
   const [filterOwner, setFilterOwner] = useState<string>("all"); // all | none | userId
   const [filterStatus, setFilterStatus] = useState<string>("open"); // open | all | proposed | active | done | archived
@@ -263,6 +277,40 @@ export default function ProjectsPage() {
           </Button>
         </div>
       </header>
+
+
+ {/* Workspace popover trigger (desktop) */}
+          <div className="hidden md:block relative" ref={wsRef}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setWsOpen((v) => !v);
+                setUserMenuOpen(false);
+              }}
+              className="px-3 py-2"
+            >
+              <span className="max-w-[140px] truncate">
+                {workspaceName ? workspaceName : "Workspace"}
+              </span>
+            </Button>
+
+            {wsOpen ? (
+              <div
+                className={[
+                  "absolute right-0 top-full mt-2 z-50",
+                  "w-[320px] max-w-[92vw]",
+                  "rounded-2xl border bg-white shadow-lg",
+                  "p-3",
+                  "max-h-[70vh] overflow-auto",
+                ].join(" ")}
+              >
+                <div className="text-xs text-gray-500 mb-2">Switch workspace</div>
+                <WorkspaceSwitcher />
+              </div>
+            ) : null}
+          </div>
+
+
 
       {/* Filters */}
       <section className="mt-6 border rounded-lg p-4 bg-white">

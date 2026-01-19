@@ -213,36 +213,11 @@ export default function TopNav() {
             />
           </div>
 
-          {/* Workspace popover trigger (desktop) */}
-          <div className="hidden md:block relative" ref={wsRef}>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setWsOpen((v) => !v);
-                setUserMenuOpen(false);
-              }}
-              className="px-3 py-2"
-            >
-              <span className="max-w-[140px] truncate">
-                {workspaceName ? workspaceName : "Workspace"}
-              </span>
-            </Button>
+         
 
-            {wsOpen ? (
-              <div
-                className={[
-                  "absolute right-0 top-full mt-2 z-50",
-                  "w-[320px] max-w-[92vw]",
-                  "rounded-2xl border bg-white shadow-lg",
-                  "p-3",
-                  "max-h-[70vh] overflow-auto",
-                ].join(" ")}
-              >
-                <div className="text-xs text-gray-500 mb-2">Switch workspace</div>
-                <WorkspaceSwitcher />
-              </div>
-            ) : null}
-          </div>
+
+
+         
 
           {/* User avatar dropdown (bigger) */}
           <div className="relative" ref={userMenuRef}>
