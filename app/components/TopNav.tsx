@@ -40,16 +40,17 @@ function useOutsideClose(
   ref: React.RefObject<HTMLElement | null>,
   onClose: () => void
 ) {
-
   useEffect(() => {
     if (!open) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
+
     const onMouseDown = (e: MouseEvent) => {
       const t = e.target as Node;
-      if (ref.current && ref.current.contains(t)) return;
+      if (!ref.current) return;
+      if (ref.current.contains(t)) return;
       onClose();
     };
 
@@ -73,18 +74,18 @@ export default function TopNav() {
   // --- user state ---
   const [email, setEmail] = useState<string | null>(null);
 
-  // --- menus/panels ---
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [wsMenuOpen, setWsMenuOpen] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // --- panels/menus ---
+  const [userMenuOpen, setUserMenuOpen] = useState(false); // avatar menu (desktop + mobile)
+  const [wsMenuOpen, setWsMenuOpen] = useState(false); // desktop workspace dropdown
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false); // panel under "I" logo
 
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const wsMenuRef = useRef<HTMLDivElement | null>(null);
-  const mobileMenuRef = useRef<HTMLDivElement | null>(null);
+  const mobilePanelRef = useRef<HTMLDivElement | null>(null);
 
   useOutsideClose(userMenuOpen, userMenuRef, () => setUserMenuOpen(false));
   useOutsideClose(wsMenuOpen, wsMenuRef, () => setWsMenuOpen(false));
-  useOutsideClose(mobileMenuOpen, mobileMenuRef, () => setMobileMenuOpen(false));
+  useOutsideClose(mobilePanelOpen, mobilePanelRef, () => setMobilePanelOpen(false));
 
   // --- plan pill state ---
   const [workspaceName, setWorkspaceName] = useState<string | null>(null);
@@ -163,7 +164,6 @@ export default function TopNav() {
     refreshPlan();
   }, [refreshUser, refreshPlan]);
 
-  // Refresh plan when workspace changes
   useEffect(() => {
     const handler = () => refreshPlan();
     window.addEventListener("workspace-changed", handler);
@@ -180,22 +180,58 @@ export default function TopNav() {
   return (
     <div className="w-full border-b bg-white fixed top-0 left-0 z-40">
       <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-        {/* Desktop left nav */}
-        <div className="hidden md:flex items-center gap-2">
-          <NavLink href="/projects" label="Projects" />
-          <NavLink href="/kanban" label="Kanban" />
-          <NavLink href="/gantt" label="Gantt" />
-          <NavLink href="/hours" label="Hours" />
+        {/* ===================== Desktop left ===================== */}
+        <div className="hidden md:flex items-center gap-3">
+          <Link href="/projects" className="font-semibold text-slate-800">
+            Improvica
+          </Link>
+
+          <div className="flex items-center gap-2">
+            <NavLink href="/projects" label="Projects" />
+            <NavLink href="/kanban" label="Kanban" />
+            <NavLink href="/gantt" label="Gantt" />
+            <NavLink href="/hours" label="Hours" />
+          </div>
         </div>
 
-        {/* Mobile: simple brand / spacer */}
-        <div className="md:hidden flex items-center gap-2">
-          <span className="text-sm font-semibold text-slate-700">Lean Planner</span>
+        {/* ===================== Mobile left: "I" logo ===================== */}
+        <div className="md:hidden relative" ref={mobilePanelRef}>
+          <button
+            type="button"
+            onClick={() => setMobilePanelOpen((v) => !v)}
+            className="h-11 w-11 rounded-full bg-gray-900 text-white text-base font-semibold flex items-center justify-center"
+            aria-label="Open navigation"
+            aria-expanded={mobilePanelOpen}
+          >
+            I
+          </button>
+
+          {/* Mobile panel under the I logo */}
+          {mobilePanelOpen ? (
+            <div className="absolute left-0 top-full mt-2 w-[92vw] max-w-[520px] rounded-2xl border bg-white shadow-lg z-50">
+              <div className="p-3 flex flex-col gap-3">
+                <div className="flex flex-wrap gap-2">
+                  <NavLink href="/projects" label="Projects" />
+                  <NavLink href="/kanban" label="Kanban" />
+                  <NavLink href="/gantt" label="Gantt" />
+                  <NavLink href="/hours" label="Hours" />
+                </div>
+
+                <div className="rounded-2xl border p-3">
+                  <WorkspaceSwitcher />
+                </div>
+
+                <div className="text-xs text-slate-500">
+                  {workspaceName ? `${workspaceName} (${workspaceRole})` : "No workspace selected"}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
 
-        {/* Right side */}
+        {/* ===================== Right side (desktop + mobile) ===================== */}
         <div className="flex items-center gap-2">
-          {/* Desktop: workspace button + dropdown (prevents huge inline expansion) */}
+          {/* Desktop workspace dropdown */}
           <div className="hidden md:block relative" ref={wsMenuRef}>
             <Button
               variant="outline"
@@ -215,7 +251,7 @@ export default function TopNav() {
             ) : null}
           </div>
 
-          {/* Desktop: plan pill */}
+          {/* Desktop plan pill */}
           <div className="hidden md:block">
             <PlanPill
               tier={tier}
@@ -225,7 +261,7 @@ export default function TopNav() {
             />
           </div>
 
-          {/* Mobile: optional mini plan pill (can keep or remove) */}
+          {/* Mobile: optionally show plan pill (small) */}
           <div className="md:hidden">
             <PlanPill
               tier={tier}
@@ -235,19 +271,11 @@ export default function TopNav() {
             />
           </div>
 
-          {/* User + Mobile menu button */}
+          {/* Avatar (settings menu) */}
           <div className="relative" ref={userMenuRef}>
             <button
               type="button"
-              onClick={() => {
-                // On mobile, open mobile panel under the avatar
-                if (window.innerWidth < 768) {
-                  setMobileMenuOpen((v) => !v);
-                  setUserMenuOpen(false);
-                } else {
-                  setUserMenuOpen((v) => !v);
-                }
-              }}
+              onClick={() => setUserMenuOpen((v) => !v)}
               className="h-11 w-11 rounded-full bg-gray-900 text-white text-base font-semibold flex items-center justify-center"
               aria-label="User menu"
               title={email ?? "User menu"}
@@ -255,9 +283,8 @@ export default function TopNav() {
               {me}
             </button>
 
-            {/* Desktop user menu */}
             {userMenuOpen ? (
-              <div className="absolute right-0 top-full mt-2 w-56 rounded-2xl border bg-white shadow-lg overflow-hidden z-50">
+              <div className="absolute right-0 top-full mt-2 w-64 rounded-2xl border bg-white shadow-lg overflow-hidden z-50">
                 <div className="px-3 py-2 text-xs text-gray-500 border-b">
                   {email ?? "Signed in"}
                 </div>
@@ -266,10 +293,20 @@ export default function TopNav() {
                   className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
                   onClick={() => {
                     setUserMenuOpen(false);
-                    router.push("/settings");
+                    router.push("/settings/account");
                   }}
                 >
-                  Settings
+                  Account
+                </button>
+
+                <button
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    router.push("/invites");
+                  }}
+                >
+                  Invites
                 </button>
 
                 <button
@@ -295,49 +332,6 @@ export default function TopNav() {
             ) : null}
           </div>
         </div>
-      </div>
-
-      {/* Mobile panel under avatar: nav + workspace switcher + settings/logout */}
-      <div className="md:hidden relative" ref={mobileMenuRef}>
-        {mobileMenuOpen ? (
-          <div className="border-t bg-white shadow-lg">
-            <div className="max-w-6xl mx-auto px-4 py-3 flex flex-col gap-3">
-              {/* Buttons under the round logo */}
-              <div className="flex flex-wrap gap-2">
-                <NavLink href="/projects" label="Projects" />
-                <NavLink href="/kanban" label="Kanban" />
-                <NavLink href="/gantt" label="Gantt" />
-                <NavLink href="/hours" label="Hours" />
-              </div>
-
-              {/* Workspace switcher on mobile */}
-              <div className="rounded-2xl border p-3">
-                <WorkspaceSwitcher />
-              </div>
-
-              {/* Settings / logout */}
-              <div className="flex items-center gap-2">
-                <Link href="/settings" className="inline-flex" onClick={() => setMobileMenuOpen(false)}>
-                  <Button variant="outline">Settings</Button>
-                </Link>
-                <Button
-                  variant="danger"
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    handleLogout();
-                  }}
-                >
-                  Logout
-                </Button>
-              </div>
-
-              {/* Optional info */}
-              <div className="text-xs text-slate-500">
-                {email ?? ""} {workspaceName ? `• ${workspaceName} (${workspaceRole})` : ""}
-              </div>
-            </div>
-          </div>
-        ) : null}
       </div>
     </div>
   );
