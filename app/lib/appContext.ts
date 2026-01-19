@@ -75,27 +75,49 @@ export async function hardResetAuth() {
  * - If getUser() fails with token/jwt issues, it hard-resets auth and returns null
  */
 export async function getSessionUser() {
-  // 1) Quick session check
-  const { data: sess } = await supabase.auth.getSession();
-  const hasSession = !!sess.session;
-
-  if (!hasSession) return null;
-
-  // 2) Validate session -> user (avoid stale token states)
-  try {
-    const res = await withTimeout(supabase.auth.getUser(), 8000, "supabase.auth.getUser");
-    return res.data.user ?? null;
-  } catch (e: any) {
-    const msg = String(e?.message ?? e ?? "");
-    if (looksLikeAuthTokenProblem(msg)) {
-      await hardResetAuth();
-      return null;
-    }
-    // Unknown error: treat as logged out to prevent infinite loading states
-    console.warn("getSessionUser unexpected error:", e);
+  // 1) Read current session once
+  const { data: sess, error: sessErr } = await supabase.auth.getSession();
+  if (sessErr) {
+    console.warn("getSessionUser: getSession error:", sessErr.message);
     return null;
   }
+
+  const session = sess.session;
+  if (!session) return null;
+
+  // 2) Validate by getUser(), but never let it block the UI
+  try {
+    const { data, error } = await withTimeout(
+      supabase.auth.getUser(),
+      8000,
+      "supabase.auth.getUser()"
+    );
+
+    // If Supabase explicitly returns an auth error -> cleanup
+    if (error || !data?.user) {
+      const msg = error?.message ?? "No user returned";
+      console.warn("getSessionUser: invalid user -> cleanup", msg);
+
+      if (looksLikeAuthTokenProblem(msg)) await hardResetAuth();
+      else {
+        try {
+          await supabase.auth.signOut();
+        } catch {}
+      }
+      return null;
+    }
+
+    return data.user;
+  } catch (e: any) {
+    // 3) Timeout / transient failure -> FALL BACK to session.user
+    console.warn(
+      "getSessionUser: getUser failed/timed out -> fallback to session.user",
+      e?.message ?? e
+    );
+    return session.user ?? null;
+  }
 }
+
 
 /**
  * Require logged-in user (client pages)
@@ -112,8 +134,8 @@ export async function requireUser(router?: RouterLike) {
 /**
  * List all workspaces the current user belongs to (for WorkspaceSwitcher).
  */
-export async function getWorkspaceList(): Promise<WorkspaceListItem[]> {
-  const user = await getSessionUser();
+export async function getWorkspaceList(userId?: string): Promise<WorkspaceListItem[]> {
+  const user = userId ? { id: userId } : await getSessionUser();
   if (!user) return [];
 
   const { data, error } = await supabase
@@ -129,14 +151,16 @@ export async function getWorkspaceList(): Promise<WorkspaceListItem[]> {
 
   const rows = (data as any[]) ?? [];
   return rows
-  .filter((r) => !!r.workspace_id)
-  .map((r) => ({
-    workspaceId: String(r.workspace_id),
-    role: (String(r.role) as WorkspaceRole) ?? "member",
-    name: (r.workspaces?.name ?? undefined) as string | undefined, // ✅ null -> undefined
-  }));
-
+    .filter((r) => !!r.workspace_id)
+    .map((r) => ({
+      workspaceId: String(r.workspace_id),
+      role: (String(r.role) as WorkspaceRole) ?? "member",
+      name: (r.workspaces?.name ?? undefined) as string | undefined,
+    }));
 }
+
+
+  
 
 /**
  * Returns the active workspace for the user:
@@ -147,7 +171,7 @@ export async function getActiveWorkspace(): Promise<WorkspaceListItem | null> {
   const user = await getSessionUser();
   if (!user) return null;
 
-  const list = await getWorkspaceList();
+  const list = await getWorkspaceList(user.id); // ✅ reuse same userId
   if (list.length === 0) return null;
 
   const { data: profile, error: profErr } = await supabase
@@ -162,19 +186,10 @@ export async function getActiveWorkspace(): Promise<WorkspaceListItem | null> {
   }
 
   const activeId = (profile as any)?.active_workspace_id as string | null;
-
   const byProfile = activeId ? list.find((w) => w.workspaceId === activeId) : null;
-
-  if (activeId && !byProfile) {
-    console.warn(
-      "active_workspace_id not in membership list",
-      activeId,
-      list.map((w) => w.workspaceId)
-    );
-  }
-
   return byProfile ?? list[0] ?? null;
 }
+
 
 /**
  * Persist active workspace to profile.
