@@ -38,19 +38,27 @@ export default function AccountPage() {
   const [hasDbSubscription, setHasDbSubscription] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
 
-  const pushStatusLabel = useMemo(() => {
+  const enabledOnThisDevice = useMemo(() => {
+    return (
+      pushSupported &&
+      permission === "granted" &&
+      hasBrowserSubscription &&
+      hasDbSubscription
+    );
+  }, [pushSupported, permission, hasBrowserSubscription, hasDbSubscription]);
+
+  const statusLabel = useMemo(() => {
     if (!pushSupported) return "Not supported on this device/browser";
     if (permission === "denied") return "Blocked in browser settings";
     if (permission === "default") return "Not enabled yet";
     // granted:
-    if (hasBrowserSubscription && hasDbSubscription) return "Enabled (this device)";
+    if (enabledOnThisDevice) return "Enabled (this device)";
     if (hasBrowserSubscription && !hasDbSubscription) return "Partially enabled (not saved)";
     if (!hasBrowserSubscription && hasDbSubscription) return "Saved, but not enabled on this device";
     return "Permission granted, but not enabled";
-  }, [pushSupported, permission, hasBrowserSubscription, hasDbSubscription]);
+  }, [pushSupported, permission, enabledOnThisDevice, hasBrowserSubscription, hasDbSubscription]);
 
-  const canEnable = pushSupported && permission !== "denied" && !hasBrowserSubscription;
-  const canDisable = pushSupported && hasBrowserSubscription;
+  const actionLabel = enabledOnThisDevice ? "Disable on this device" : "Enable on this device";
 
   useEffect(() => {
     async function load() {
@@ -134,7 +142,7 @@ export default function AccountPage() {
     const cleanName = fullName.trim();
     setSaving(true);
 
-    // If profiles.updated_at doesn't exist, remove updated_at from this update.
+    // NOTE: If profiles.updated_at does NOT exist, remove it like you did for projects.
     const { error } = await supabase
       .from("profiles")
       .update({
@@ -225,7 +233,11 @@ export default function AccountPage() {
       if (sub) await sub.unsubscribe();
 
       if (endpoint) {
-        await supabase.from("push_subscriptions").delete().eq("user_id", uid).eq("endpoint", endpoint);
+        await supabase
+          .from("push_subscriptions")
+          .delete()
+          .eq("user_id", uid)
+          .eq("endpoint", endpoint);
       } else {
         await supabase.from("push_subscriptions").delete().eq("user_id", uid);
       }
@@ -249,7 +261,7 @@ export default function AccountPage() {
       });
     } catch (e) {
       console.warn(e);
-      alert("Could not show notification. Check browser settings.");
+      alert("Could not show notification. Check browser/OS settings.");
     }
   }
 
@@ -315,30 +327,45 @@ export default function AccountPage() {
             <div>
               <div className="text-sm font-medium">Push notifications</div>
               <div className="text-xs text-gray-500">
-                Stakeholders can receive a notification when a new project chat message is posted.
+                Receive a notification when a new project chat message is posted (stakeholders only).
               </div>
             </div>
 
-            <div className="flex gap-2">
-              {canEnable ? (
-                <Button type="button" onClick={() => enablePush(profile.id)} disabled={pushBusy}>
-                  {pushBusy ? "Working…" : "Enable"}
-                </Button>
-              ) : (
-                <Button type="button" variant="outline" onClick={() => disablePush(profile.id)} disabled={!canDisable || pushBusy}>
-                  {pushBusy ? "Working…" : "Disable"}
-                </Button>
-              )}
-            </div>
+            <Button
+              type="button"
+              onClick={async () => {
+                if (pushBusy) return;
+                if (enabledOnThisDevice) await disablePush(profile.id);
+                else await enablePush(profile.id);
+              }}
+              disabled={!pushSupported || pushBusy || permission === "denied"}
+              variant={enabledOnThisDevice ? "secondary" : "outline"}
+            >
+              {pushBusy ? "Working…" : actionLabel}
+            </Button>
           </div>
 
           <div className="text-sm">
-            <div className="font-medium text-gray-900">Status: {pushStatusLabel}</div>
+            <div className="font-medium text-gray-900">
+              Status:{" "}
+              {enabledOnThisDevice ? (
+                <span className="text-emerald-700">Enabled</span>
+              ) : permission === "denied" ? (
+                <span className="text-rose-700">Blocked</span>
+              ) : !pushSupported ? (
+                <span className="text-gray-600">Not supported</span>
+              ) : (
+                <span className="text-gray-700">Disabled</span>
+              )}
+            </div>
+
             <div className="mt-1 text-xs text-gray-500">
-              Supported: <span className="font-medium">{pushSupported ? "yes" : "no"}</span> • Permission:{" "}
-              <span className="font-medium">{permission}</span> • This device subscribed:{" "}
-              <span className="font-medium">{hasBrowserSubscription ? "yes" : "no"}</span> • Saved in account:{" "}
-              <span className="font-medium">{hasDbSubscription ? "yes" : "no"}</span>
+              <span className="font-medium">Details:</span> {statusLabel}
+              <div className="mt-1">
+                Permission: <span className="font-medium">{permission}</span> • This device subscribed:{" "}
+                <span className="font-medium">{hasBrowserSubscription ? "yes" : "no"}</span> • Saved in account:{" "}
+                <span className="font-medium">{hasDbSubscription ? "yes" : "no"}</span>
+              </div>
             </div>
 
             {permission === "denied" ? (
@@ -350,7 +377,7 @@ export default function AccountPage() {
 
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={testLocalNotification} disabled={!pushSupported}>
-              Test notification (local)
+              Test notification
             </Button>
 
             <Button
@@ -364,8 +391,8 @@ export default function AccountPage() {
           </div>
 
           <div className="text-xs text-gray-500">
-            Note: “Permission granted” alone is not enough. You also need an active subscription on this device and a saved subscription in your
-            account.
+            Note: “Enabled” requires permission <span className="font-medium">and</span> an active subscription on this device{" "}
+            <span className="font-medium">and</span> a saved subscription in your account.
           </div>
         </div>
 
