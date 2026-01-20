@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "@/app/components/Button";
 import { supabase } from "@/lib/supabaseClient";
@@ -31,11 +31,26 @@ export default function AccountPage() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState<string | null>(null);
 
-  // ---- Push notification state ----
+  // Push status
   const [pushSupported, setPushSupported] = useState(false);
-  const [pushPermission, setPushPermission] = useState<NotificationPermission>("default");
-  const [pushEnabled, setPushEnabled] = useState(false);
-  const [pushWorking, setPushWorking] = useState(false);
+  const [permission, setPermission] = useState<NotificationPermission>("default");
+  const [hasBrowserSubscription, setHasBrowserSubscription] = useState(false);
+  const [hasDbSubscription, setHasDbSubscription] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+
+  const pushStatusLabel = useMemo(() => {
+    if (!pushSupported) return "Not supported on this device/browser";
+    if (permission === "denied") return "Blocked in browser settings";
+    if (permission === "default") return "Not enabled yet";
+    // granted:
+    if (hasBrowserSubscription && hasDbSubscription) return "Enabled (this device)";
+    if (hasBrowserSubscription && !hasDbSubscription) return "Partially enabled (not saved)";
+    if (!hasBrowserSubscription && hasDbSubscription) return "Saved, but not enabled on this device";
+    return "Permission granted, but not enabled";
+  }, [pushSupported, permission, hasBrowserSubscription, hasDbSubscription]);
+
+  const canEnable = pushSupported && permission !== "denied" && !hasBrowserSubscription;
+  const canDisable = pushSupported && hasBrowserSubscription;
 
   useEffect(() => {
     async function load() {
@@ -66,17 +81,17 @@ export default function AccountPage() {
       setProfile(p);
       setFullName(p.full_name ?? "");
 
-      // Push support checks
       const supported =
         typeof window !== "undefined" &&
         "serviceWorker" in navigator &&
         "PushManager" in window &&
         "Notification" in window;
+
       setPushSupported(supported);
-      setPushPermission(typeof Notification !== "undefined" ? Notification.permission : "default");
+      setPermission(typeof Notification !== "undefined" ? Notification.permission : "default");
 
       if (supported) {
-        await syncPushState(user.id);
+        await syncPushState(p.id);
       }
 
       setLoading(false);
@@ -85,17 +100,41 @@ export default function AccountPage() {
     load();
   }, [router]);
 
+  async function syncPushState(uid: string) {
+    // Browser subscription?
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = await reg?.pushManager.getSubscription();
+      setHasBrowserSubscription(!!sub);
+    } catch {
+      setHasBrowserSubscription(false);
+    }
+
+    // DB subscription?
+    const { data, error } = await supabase
+      .from("push_subscriptions")
+      .select("id")
+      .eq("user_id", uid)
+      .limit(1);
+
+    if (error) {
+      console.warn("syncPushState db error:", error);
+      setHasDbSubscription(false);
+      return;
+    }
+
+    setHasDbSubscription((data ?? []).length > 0);
+  }
+
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault();
     if (!profile) return;
     if (saving) return;
 
     const cleanName = fullName.trim();
-
     setSaving(true);
 
-    // NOTE: keep consistent with your DB.
-    // If profiles table doesn't have updated_at, remove this field like we did for projects.
+    // If profiles.updated_at doesn't exist, remove updated_at from this update.
     const { error } = await supabase
       .from("profiles")
       .update({
@@ -120,62 +159,27 @@ export default function AccountPage() {
     router.push("/login");
   }
 
-  // -----------------------------
-  // Push notification helpers
-  // -----------------------------
-  async function syncPushState(uid: string) {
-    try {
-      // 1) Check whether browser has an active subscription
-      const reg = await navigator.serviceWorker.getRegistration();
-      const sub = await reg?.pushManager.getSubscription();
-
-      // 2) Check whether we have at least one DB row
-      const { data, error } = await supabase
-        .from("push_subscriptions")
-        .select("id")
-        .eq("user_id", uid)
-        .limit(1);
-
-      if (error) {
-        console.warn("syncPushState db error:", error);
-        // If DB fails, fallback to browser subscription state
-        setPushEnabled(!!sub);
-        return;
-      }
-
-      const dbHas = (data ?? []).length > 0;
-      // enabled if either exists (keep it forgiving)
-      setPushEnabled(!!sub || dbHas);
-    } catch (e) {
-      console.warn("syncPushState error:", e);
-      setPushEnabled(false);
-    }
-  }
-
   async function enablePush(uid: string) {
-    if (!pushSupported) {
-      alert("Push notifications are not supported in this browser.");
-      return;
-    }
-
     const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     if (!vapidPublicKey) {
-      alert("Missing NEXT_PUBLIC_VAPID_PUBLIC_KEY in environment variables.");
+      alert("Missing NEXT_PUBLIC_VAPID_PUBLIC_KEY in env vars.");
       return;
     }
 
-    setPushWorking(true);
+    setPushBusy(true);
     try {
+      // Ensure SW registered
       const reg = await navigator.serviceWorker.register("/sw.js");
 
-      const permission = await Notification.requestPermission();
-      setPushPermission(permission);
-
-      if (permission !== "granted") {
+      // Ask permission
+      const p = await Notification.requestPermission();
+      setPermission(p);
+      if (p !== "granted") {
         alert("Notification permission was not granted.");
         return;
       }
 
+      // Subscribe
       const subscription = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
@@ -205,64 +209,48 @@ export default function AccountPage() {
         alert(error.message);
         return;
       }
-
-      setPushEnabled(true);
     } finally {
-      setPushWorking(false);
+      setPushBusy(false);
+      await syncPushState(uid);
     }
   }
 
   async function disablePush(uid: string) {
-    if (!pushSupported) {
-      setPushEnabled(false);
-      return;
-    }
-
-    setPushWorking(true);
+    setPushBusy(true);
     try {
-      // 1) Unsubscribe in browser
       const reg = await navigator.serviceWorker.getRegistration();
       const sub = await reg?.pushManager.getSubscription();
       const endpoint = sub?.endpoint ?? null;
 
-      if (sub) {
-        await sub.unsubscribe();
-      }
+      if (sub) await sub.unsubscribe();
 
-      // 2) Remove from DB
-      // If we know endpoint, delete only that device row.
-      // Otherwise, delete all rows for the user (safe "off" behavior).
       if (endpoint) {
-        const { error } = await supabase
-          .from("push_subscriptions")
-          .delete()
-          .eq("user_id", uid)
-          .eq("endpoint", endpoint);
-
-        if (error) console.warn("Delete push subscription error:", error);
+        await supabase.from("push_subscriptions").delete().eq("user_id", uid).eq("endpoint", endpoint);
       } else {
-        const { error } = await supabase.from("push_subscriptions").delete().eq("user_id", uid);
-        if (error) console.warn("Delete push subscriptions error:", error);
+        await supabase.from("push_subscriptions").delete().eq("user_id", uid);
       }
-
-      setPushEnabled(false);
     } finally {
-      setPushWorking(false);
+      setPushBusy(false);
+      await syncPushState(uid);
     }
   }
 
-  async function togglePush() {
-    if (!profile) return;
-    if (pushWorking) return;
-
-    if (!pushEnabled) {
-      await enablePush(profile.id);
-    } else {
-      await disablePush(profile.id);
+  async function testLocalNotification() {
+    if (!pushSupported) return;
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) {
+        alert("No service worker registered.");
+        return;
+      }
+      await reg.showNotification("Test notification", {
+        body: "If you see this, notifications + service worker are working on this device.",
+        data: { url: "/projects" },
+      });
+    } catch (e) {
+      console.warn(e);
+      alert("Could not show notification. Check browser settings.");
     }
-
-    // resync state afterwards
-    await syncPushState(profile.id);
   }
 
   if (loading) {
@@ -322,39 +310,63 @@ export default function AccountPage() {
         </div>
 
         {/* Push notifications */}
-        <div className="grid gap-2 border rounded-lg p-4 bg-white">
+        <div className="grid gap-3 border rounded-lg p-4 bg-white">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-sm font-medium">Push notifications</div>
               <div className="text-xs text-gray-500">
-                Get a notification when a project chat message is posted (browser/PWA).
+                Stakeholders can receive a notification when a new project chat message is posted.
               </div>
             </div>
 
+            <div className="flex gap-2">
+              {canEnable ? (
+                <Button type="button" onClick={() => enablePush(profile.id)} disabled={pushBusy}>
+                  {pushBusy ? "Working…" : "Enable"}
+                </Button>
+              ) : (
+                <Button type="button" variant="outline" onClick={() => disablePush(profile.id)} disabled={!canDisable || pushBusy}>
+                  {pushBusy ? "Working…" : "Disable"}
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="text-sm">
+            <div className="font-medium text-gray-900">Status: {pushStatusLabel}</div>
+            <div className="mt-1 text-xs text-gray-500">
+              Supported: <span className="font-medium">{pushSupported ? "yes" : "no"}</span> • Permission:{" "}
+              <span className="font-medium">{permission}</span> • This device subscribed:{" "}
+              <span className="font-medium">{hasBrowserSubscription ? "yes" : "no"}</span> • Saved in account:{" "}
+              <span className="font-medium">{hasDbSubscription ? "yes" : "no"}</span>
+            </div>
+
+            {permission === "denied" ? (
+              <div className="mt-2 text-xs text-amber-700">
+                Notifications are blocked in your browser settings. Enable them there first.
+              </div>
+            ) : null}
+          </div>
+
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={testLocalNotification} disabled={!pushSupported}>
+              Test notification (local)
+            </Button>
+
             <Button
               type="button"
-              variant={pushEnabled ? "secondary" : "outline"}
-              onClick={togglePush}
-              disabled={!pushSupported || pushWorking}
+              variant="outline"
+              onClick={() => syncPushState(profile.id)}
+              disabled={!pushSupported || pushBusy}
             >
-              {pushWorking ? "Working…" : pushEnabled ? "On" : "Off"}
+              Refresh status
             </Button>
           </div>
 
-          {!pushSupported ? (
-            <div className="text-xs text-gray-500">
-              Push notifications are not supported in this browser/device.
-            </div>
-          ) : (
-            <div className="text-xs text-gray-500">
-              Permission: <span className="font-medium">{pushPermission}</span>
-              {pushPermission === "denied" ? (
-                <span className="ml-2">
-                  (Enable notifications in your browser settings to turn this on.)
-                </span>
-              ) : null}
-            </div>
-          )}
+          <div className="text-xs text-gray-500">
+            Note: “Permission granted” alone is not enough. You also need an active subscription on this device and a saved subscription in your
+            account.
+          </div>
         </div>
 
         {/* Actions */}
