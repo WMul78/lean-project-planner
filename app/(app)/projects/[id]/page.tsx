@@ -861,8 +861,7 @@ export default function ProjectDetailPage() {
             </div>
 
             <div className="mt-2 text-xs text-gray-500">
-              Tip: enable <span className="font-medium">Realtime</span> for <span className="font-medium">project_messages</span> in Supabase
-              if live updates don’t appear.
+              Improvica (c) 2026 Improvica
             </div>
           </div>
         </div>
