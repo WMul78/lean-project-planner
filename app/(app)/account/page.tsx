@@ -60,6 +60,11 @@ export default function AccountPage() {
 
   const actionLabel = enabledOnThisDevice ? "Disable on this device" : "Enable on this device";
 
+
+
+  
+
+
 useEffect(() => {
   if (!("serviceWorker" in navigator)) return;
 
@@ -73,6 +78,9 @@ useEffect(() => {
   navigator.serviceWorker.addEventListener("message", handler);
   return () => navigator.serviceWorker.removeEventListener("message", handler);
 }, []);
+
+
+
 
 
   useEffect(() => {
