@@ -21,3 +21,9 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil(clients.openWindow(url));
 });
 
+self.registration.showNotification(data.title || "New message", {
+  body: data.body || "",
+  data: data.data || {},
+  requireInteraction: true,
+});
+
