@@ -60,6 +60,21 @@ export default function AccountPage() {
 
   const actionLabel = enabledOnThisDevice ? "Disable on this device" : "Enable on this device";
 
+useEffect(() => {
+  if (!("serviceWorker" in navigator)) return;
+
+  const handler = (event: MessageEvent) => {
+    if (event.data?.type === "PUSH_RECEIVED") {
+      console.log("PUSH_RECEIVED in page:", event.data.data);
+      alert("Push arrived (page received message). Check notification center.");
+    }
+  };
+
+  navigator.serviceWorker.addEventListener("message", handler);
+  return () => navigator.serviceWorker.removeEventListener("message", handler);
+}, []);
+
+
   useEffect(() => {
     async function load() {
       setLoading(true);
