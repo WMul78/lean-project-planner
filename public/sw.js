@@ -24,6 +24,7 @@ self.addEventListener("push", (event) => {
       };
     }
 
+    
     // DEBUG: send message to all open tabs
     const allClients = await clients.matchAll({
       type: "window",
