@@ -13,8 +13,6 @@ type Priority = "low" | "medium" | "high" | "very_high";
 type ProjectType = "standard" | "pdca" | "dmaic";
 type ProjectStatus = "proposed" | "active" | "done" | "archived";
 
-const [chatOpen, setChatOpen] = useState(false);
-
 const PHASES: Record<Exclude<ProjectType, "standard">, { value: string; label: string }[]> = {
   pdca: [
     { value: "plan", label: "Plan" },
@@ -142,6 +140,8 @@ export default function ProjectDetailPage() {
   const [lastReadAt, setLastReadAt] = useState<string | null>(null);
 
   const canEditProject = useMemo(() => workspaceRole === "owner" || workspaceRole === "admin", [workspaceRole]);
+
+const [chatOpen, setChatOpen] = useState(false);
 
   // Members can edit tasks if they are project member (or owner/admin via workspace)
   const canEditTodos = useMemo(() => {
