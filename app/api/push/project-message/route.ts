@@ -125,13 +125,15 @@ export async function POST(req: Request) {
 
     // 8) Build notification payload
     const notif = {
-      title: `New message · ${projectName}`,
-      body: body.length > 140 ? body.slice(0, 140) + "…" : body,
-      data: {
-        url: `/projects/${projectId}`,
-        projectId,
-      },
-    };
+  title: `New message · ${projectName}`,
+  body: body.length > 140 ? body.slice(0, 140) + "…" : body,
+  data: {
+    url: `/projects/${projectId}`,
+    projectId,
+    projectName,
+  },
+};
+
 
     // 9) Send notifications
     let sent = 0;
