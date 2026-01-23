@@ -613,25 +613,56 @@ const [chatOpen, setChatOpen] = useState(false);
         </div>
 
         <div className="flex flex-col gap-2 items-end">
-          <button
+         <button
   type="button"
   onClick={() => {
     setChatOpen(true);
-    // Scroll to chat area
-    document.getElementById("project-chat")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    // Mark as read when user explicitly opens chat
+    document
+      .getElementById("project-chat")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
     if (userId) markChatRead(projectId, userId);
   }}
-  className="relative inline-flex items-center gap-2 px-3 py-2 rounded-lg border bg-white hover:bg-gray-50"
+  aria-label="Open chat"
+  className="
+    relative
+    h-10 w-10
+    rounded-full
+    border
+    bg-white
+    hover:bg-gray-50
+    flex items-center justify-center
+    transition
+  "
 >
-  <span className="font-medium">Chat</span>
+  {/* Chat icon */}
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    className="w-5 h-5 text-gray-700"
+  >
+    <path d="M20 2H4a2 2 0 0 0-2 2v15.586L6.586 17H20a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z" />
+  </svg>
 
+  {/* Unread badge */}
   {unreadCount > 0 && (
-    <span className="ml-1 inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-blue-600 text-white text-xs">
+    <span
+      className="
+        absolute -top-1 -right-1
+        min-w-[18px] h-[18px]
+        px-1
+        rounded-full
+        bg-blue-600
+        text-white
+        text-[11px]
+        flex items-center justify-center
+      "
+    >
       {unreadCount}
     </span>
   )}
 </button>
+
 
           <Button
             variant="outline"
