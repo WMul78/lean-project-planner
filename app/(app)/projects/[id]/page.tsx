@@ -693,16 +693,17 @@ export default function ProjectDetailPage() {
                     setDragOverId(null);
                   }}
                   className={[
-                    "rounded-md border bg-white p-3",
+                    "rounded-md border bg-white p-2 sm:p-3",
                     canEditTodos ? "cursor-move" : "cursor-default",
                     isDragging ? "opacity-60" : "",
                     isOver ? "ring-2 ring-blue-300" : "",
                   ].join(" ")}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="font-medium text-sm truncate">{t.title}</div>
-
+                      <div className="min-w-0 flex-1">
+                        <div className="block max-w-full font-medium text-sm truncate">
+                          {t.title}
+                        </div>
                       <div className="mt-1 flex flex-wrap gap-2">
                         <span className={metaBadgeClass()}>status: {t.auto_status}</span>
                         {t.estimated_minutes ? (
