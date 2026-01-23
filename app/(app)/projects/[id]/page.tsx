@@ -699,7 +699,7 @@ export default function ProjectDetailPage() {
                     isOver ? "ring-2 ring-blue-300" : "",
                   ].join(" ")}
                 >
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start justify-between gap-3 min-w-0">
                       <div className="min-w-0 flex-1">
                         <div className="block max-w-full font-medium text-sm truncate">
                           {t.title}
