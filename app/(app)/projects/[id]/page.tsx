@@ -613,7 +613,7 @@ const [chatOpen, setChatOpen] = useState(false);
         </div>
 
         <div className="flex flex-col gap-2 items-end">
-         <button
+       <button
   type="button"
   onClick={() => {
     setChatOpen(true);
@@ -623,23 +623,26 @@ const [chatOpen, setChatOpen] = useState(false);
     if (userId) markChatRead(projectId, userId);
   }}
   aria-label="Open chat"
-  className="
-    relative
-    h-10 w-10
-    rounded-full
-    border
-    bg-white
-    hover:bg-gray-50
-    flex items-center justify-center
-    transition
-  "
+  className={[
+    "relative",
+    "h-12 w-12", // bigger
+    "rounded-full",
+    "border",
+    "flex items-center justify-center",
+    "transition",
+    "shadow-sm hover:shadow-md",
+    "active:scale-[0.98]",
+    unreadCount > 0
+      ? "bg-blue-50 border-blue-200 ring-2 ring-blue-200"
+      : "bg-white hover:bg-gray-50",
+  ].join(" ")}
 >
   {/* Chat icon */}
   <svg
     xmlns="http://www.w3.org/2000/svg"
     viewBox="0 0 24 24"
     fill="currentColor"
-    className="w-5 h-5 text-gray-700"
+    className={["w-6 h-6", unreadCount > 0 ? "text-blue-700" : "text-gray-700"].join(" ")}
   >
     <path d="M20 2H4a2 2 0 0 0-2 2v15.586L6.586 17H20a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z" />
   </svg>
@@ -649,19 +652,21 @@ const [chatOpen, setChatOpen] = useState(false);
     <span
       className="
         absolute -top-1 -right-1
-        min-w-[18px] h-[18px]
+        min-w-[20px] h-[20px]
         px-1
         rounded-full
         bg-blue-600
         text-white
         text-[11px]
         flex items-center justify-center
+        ring-2 ring-white
       "
     >
       {unreadCount}
     </span>
   )}
 </button>
+
 
 
           <Button
