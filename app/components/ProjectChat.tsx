@@ -42,7 +42,7 @@ export default function ProjectChat({
   }
 
   return (
-    <div className="mt-6 border rounded-lg bg-white flex flex-col h-[420px] sm:h-[480px]">
+   <div className="mt-6 border rounded-xl bg-white flex flex-col h-[420px] sm:h-[480px] overflow-hidden">
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-slate-50">
         {messages.length === 0 && (
@@ -90,11 +90,22 @@ export default function ProjectChat({
       </div>
 
       {/* Composer */}
-      <div className="border-t p-3 bg-white">
-        <div className="flex gap-2 items-end">
+      <div className="border-t bg-white p-2">
+       <div className="flex gap-2 items-end">
           <textarea
-            className="flex-1 border border-gray-300 rounded-xl px-3 py-2 text-sm min-h-[42px] max-h-[120px]
-                       focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="
+                  flex-1
+                  resize-none
+                  border border-gray-300
+                  rounded-full
+                  px-4 py-2
+                  text-sm
+                  min-h-[42px]
+                  max-h-[120px]
+                  focus:outline-none
+                  focus:ring-2 focus:ring-blue-500
+                "
+
             placeholder="Write a message…"
             value={newMsg}
             onChange={(e) => setNewMsg(e.target.value)}
@@ -106,7 +117,29 @@ export default function ProjectChat({
               }
             }}
           />
-          <Button onClick={handleSend}>Send</Button>
+          <button
+  onClick={handleSend}
+  disabled={!newMsg.trim()}
+  aria-label="Send message"
+  className="
+    h-11 w-11 rounded-full
+    bg-blue-600 hover:bg-blue-700
+    disabled:opacity-50
+    text-white
+    flex items-center justify-center
+    shadow-md
+    transition
+  "
+>
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    className="w-5 h-5 translate-x-[1px]"
+  >
+    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+  </svg>
+</button>
         </div>
       </div>
     </div>
