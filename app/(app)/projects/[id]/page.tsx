@@ -13,6 +13,8 @@ type Priority = "low" | "medium" | "high" | "very_high";
 type ProjectType = "standard" | "pdca" | "dmaic";
 type ProjectStatus = "proposed" | "active" | "done" | "archived";
 
+const [chatOpen, setChatOpen] = useState(false);
+
 const PHASES: Record<Exclude<ProjectType, "standard">, { value: string; label: string }[]> = {
   pdca: [
     { value: "plan", label: "Plan" },
@@ -177,11 +179,16 @@ export default function ProjectDetailPage() {
     [members]
   );
 
-  const unreadCount = useMemo(() => {
-    if (!lastReadAt) return 0;
-    const lr = new Date(lastReadAt).getTime();
-    return messages.filter((m) => new Date(m.inserted_at).getTime() > lr).length;
-  }, [messages, lastReadAt]);
+  const unreadCount = (() => {
+  if (!userId) return 0;
+  const last = lastReadAt ? new Date(lastReadAt).getTime() : 0;
+
+  return messages.filter((m) => {
+    const t = new Date(m.inserted_at).getTime();
+    return m.user_id !== userId && t > last;
+  }).length;
+})();
+
 
   async function loadProject() {
     const user = await requireUser(router);
@@ -222,6 +229,9 @@ export default function ProjectDetailPage() {
     setProjectMemberRole((pm as any)?.role ?? null);
   }
 
+
+
+  
   async function loadTodos() {
     const { data, error } = await supabase
       .from("todo_status_auto")
@@ -602,6 +612,26 @@ export default function ProjectDetailPage() {
         </div>
 
         <div className="flex flex-col gap-2 items-end">
+          <button
+  type="button"
+  onClick={() => {
+    setChatOpen(true);
+    // Scroll to chat area
+    document.getElementById("project-chat")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Mark as read when user explicitly opens chat
+    if (userId) markChatRead(projectId, userId);
+  }}
+  className="relative inline-flex items-center gap-2 px-3 py-2 rounded-lg border bg-white hover:bg-gray-50"
+>
+  <span className="font-medium">Chat</span>
+
+  {unreadCount > 0 && (
+    <span className="ml-1 inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-blue-600 text-white text-xs">
+      {unreadCount}
+    </span>
+  )}
+</button>
+
           <Button
             variant="outline"
             onClick={() => router.push(`/projects/${projectId}/edit`)}
@@ -825,14 +855,18 @@ export default function ProjectDetailPage() {
   userId={userId}
   messages={messages}
   labelForUser={labelForUser}
+  autoScrollEnabled={chatOpen}
   markRead={() => {
     if (userId) markChatRead(projectId, userId);
   }}
   sendMessage={async (body) => {
+    // Als user verstuurt, mag auto-scroll wél aan
+    setChatOpen(true);
     await sendMessage(body);
     await loadChat(projectId);
   }}
 />
+
 
       </section>
     </main>

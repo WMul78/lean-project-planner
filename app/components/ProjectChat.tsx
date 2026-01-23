@@ -14,15 +14,18 @@ type Props = {
   projectId: string;
   userId: string | null;
   messages: ChatMessage[];
+  autoScrollEnabled?: boolean;
   sendMessage: (body: string) => Promise<void>;
   markRead?: () => void;
   labelForUser: (userId: string) => string;
+  
 };
 
 export default function ProjectChat({
   projectId,
   userId,
   messages,
+  autoScrollEnabled,
   sendMessage,
   markRead,
   labelForUser,
@@ -31,9 +34,11 @@ export default function ProjectChat({
   const endRef = useRef<HTMLDivElement | null>(null);
 
   // Auto-scroll to last message
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length]);
+ useEffect(() => {
+  if (!autoScrollEnabled) return;
+  endRef.current?.scrollIntoView({ behavior: "smooth" });
+}, [messages.length, autoScrollEnabled]);
+
 
   async function handleSend() {
     if (!newMsg.trim()) return;
@@ -42,7 +47,10 @@ export default function ProjectChat({
   }
 
   return (
-   <div className="mt-6 border rounded-xl bg-white flex flex-col h-[420px] sm:h-[480px] overflow-hidden">
+   <div
+  id="project-chat"
+  className="mt-6 border rounded-xl bg-white flex flex-col h-[420px] sm:h-[480px] overflow-hidden"
+>
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-slate-50">
         {messages.length === 0 && (
