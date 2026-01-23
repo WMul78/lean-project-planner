@@ -68,60 +68,72 @@ export async function POST(req: Request) {
     const serviceKey = mustGetEnv("SUPABASE_SERVICE_ROLE_KEY");
     const sb = createClient(supabaseUrl, serviceKey);
 
-    // 5) Fetch project name for nicer notification title
-    const { data: project, error: projErr } = await sb
-      .from("projects")
-      .select("id,name")
-      .eq("id", projectId)
-      .maybeSingle();
+  // 5) Fetch project info (name + owner + creator)
+const { data: project, error: projErr } = await sb
+  .from("projects")
+  .select("id,name,owner_id,created_by")
+  .eq("id", projectId)
+  .maybeSingle();
 
-    if (projErr) {
-      console.warn("Project fetch error:", projErr.message);
-    }
+if (projErr || !project) {
+  console.error("Project fetch error:", projErr?.message);
+  return NextResponse.json({ ok: false, error: "Project not found" }, { status: 404 });
+}
 
-    const projectName = project?.name ?? "Project";
+const projectName = project.name ?? "Project";
 
-    // 6) Option A: stakeholders only (project_members.role='stakeholder')
-    const { data: stakeholders, error: stErr } = await sb
-      .from("project_members")
-      .select("user_id")
-      .eq("project_id", projectId)
-      .eq("role", "stakeholder");
+// 6) Fetch ALL project members (all roles)
+const { data: members, error: memErr } = await sb
+  .from("project_members")
+  .select("user_id")
+  .eq("project_id", projectId);
 
-    if (stErr) {
-      console.error("Stakeholder fetch error:", stErr.message);
-      return NextResponse.json({ ok: false, error: stErr.message }, { status: 500 });
-    }
+if (memErr) {
+  console.error("Project members fetch error:", memErr.message);
+  return NextResponse.json({ ok: false, error: memErr.message }, { status: 500 });
+}
 
-    const stakeholderIds = Array.from(new Set((stakeholders ?? []).map((r: any) => String(r.user_id))))
-      .filter((uid) => uid && uid !== senderId);
+// 7) Build recipient set: members + owner + creator, exclude sender
+const recipientSet = new Set<string>();
 
-    if (stakeholderIds.length === 0) {
-      console.log("push result", { sent: 0, removed: 0, recipients: 0, subs: 0, reason: "no recipients" });
-      return NextResponse.json({ ok: true, sent: 0, removed: 0, reason: "no recipients" });
-    }
+for (const r of members ?? []) {
+  if (r?.user_id) recipientSet.add(String((r as any).user_id));
+}
+if (project.owner_id) recipientSet.add(String(project.owner_id));
+if (project.created_by) recipientSet.add(String(project.created_by));
 
-    // 7) Load push subscriptions for those stakeholders
-    const { data: subs, error: subErr } = await sb
-      .from("push_subscriptions")
-      .select("id,user_id,endpoint,p256dh,auth")
-      .in("user_id", stakeholderIds);
+// exclude sender
+recipientSet.delete(senderId);
 
-    if (subErr) {
-      console.error("Subscription fetch error:", subErr.message);
-      return NextResponse.json({ ok: false, error: subErr.message }, { status: 500 });
-    }
+const recipientIds = Array.from(recipientSet);
 
-    if (!subs || subs.length === 0) {
-      console.log("push result", {
-        sent: 0,
-        removed: 0,
-        recipients: stakeholderIds.length,
-        subs: 0,
-        reason: "no subscriptions",
-      });
-      return NextResponse.json({ ok: true, sent: 0, removed: 0, reason: "no subscriptions" });
-    }
+if (recipientIds.length === 0) {
+  console.log("push result", { sent: 0, removed: 0, recipients: 0, subs: 0, reason: "no recipients" });
+  return NextResponse.json({ ok: true, sent: 0, removed: 0, reason: "no recipients" });
+}
+
+// 8) Load push subscriptions for all recipients
+const { data: subs, error: subErr } = await sb
+  .from("push_subscriptions")
+  .select("id,user_id,endpoint,p256dh,auth")
+  .in("user_id", recipientIds);
+
+if (subErr) {
+  console.error("Subscription fetch error:", subErr.message);
+  return NextResponse.json({ ok: false, error: subErr.message }, { status: 500 });
+}
+
+if (!subs || subs.length === 0) {
+  console.log("push result", {
+    sent: 0,
+    removed: 0,
+    recipients: recipientIds.length,
+    subs: 0,
+    reason: "no subscriptions",
+  });
+  return NextResponse.json({ ok: true, sent: 0, removed: 0, reason: "no subscriptions" });
+}
+
 
     // 8) Build notification payload
     const notif = {
@@ -168,7 +180,7 @@ export async function POST(req: Request) {
     console.log("push result", {
       sent,
       removed,
-      recipients: stakeholderIds.length,
+      recipients: recipientIds.length,
       subs: subs.length,
     });
 
