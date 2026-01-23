@@ -179,7 +179,7 @@ const [chatOpen, setChatOpen] = useState(false);
     [members]
   );
 
-  const unreadCount = (() => {
+  const unreadCount = useMemo(() => {
   if (!userId) return 0;
   const last = lastReadAt ? new Date(lastReadAt).getTime() : 0;
 
@@ -187,7 +187,8 @@ const [chatOpen, setChatOpen] = useState(false);
     const t = new Date(m.inserted_at).getTime();
     return m.user_id !== userId && t > last;
   }).length;
-})();
+}, [messages, lastReadAt, userId]);
+
 
 
   async function loadProject() {
@@ -415,7 +416,7 @@ const [chatOpen, setChatOpen] = useState(false);
       if (uid) {
         await loadChat(projectId);
         await loadChatReadState(projectId, uid);
-        await markChatRead(projectId, uid);
+       // await markChatRead(projectId, uid);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps

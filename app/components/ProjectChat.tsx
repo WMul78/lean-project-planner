@@ -25,7 +25,7 @@ export default function ProjectChat({
   projectId,
   userId,
   messages,
-  autoScrollEnabled,
+  autoScrollEnabled = false,
   sendMessage,
   markRead,
   labelForUser,
@@ -49,7 +49,7 @@ export default function ProjectChat({
   return (
    <div
   id="project-chat"
-  className="mt-6 border rounded-xl bg-white flex flex-col h-[420px] sm:h-[480px] overflow-hidden"
+  //className="mt-6 border rounded-xl bg-white flex flex-col h-[420px] sm:h-[480px] overflow-hidden"
 >
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-slate-50">
