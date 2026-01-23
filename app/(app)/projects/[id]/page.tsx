@@ -7,6 +7,7 @@ import ProgressBar from "@/app/components/ProgressBar";
 import { supabase } from "@/lib/supabaseClient";
 import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appContext";
 import { badgeBase, badgeClassForStatus, badgeClassForPriority, metaBadgeClass } from "@/app/lib/badges";
+import ProjectChat from "@/app/components/ProjectChat";
 
 type Priority = "low" | "medium" | "high" | "very_high";
 type ProjectType = "standard" | "pdca" | "dmaic";
@@ -346,47 +347,49 @@ export default function ProjectDetailPage() {
     setLastReadAt(nowIso);
   }
 
-  async function sendMessage() {
-    if (!project?.workspace_id) {
-      alert("Project workspace_id missing (required for chat insert).");
-      return;
-    }
-    if (!userId) return;
-
-    const body = newMsg.trim();
-    if (!body) return;
-
-    setNewMsg("");
-
-    // Optimistic UI
-    const optimistic: ProjectMessage = {
-      id: `tmp-${Date.now()}`,
-      project_id: projectId,
-      workspace_id: project.workspace_id,
-      user_id: userId,
-      body,
-      inserted_at: new Date().toISOString(),
-    };
-    setMessages((cur) => [...cur, optimistic]);
-
-    const { error } = await supabase.from("project_messages").insert({
-      project_id: projectId,
-      workspace_id: project.workspace_id,
-      user_id: userId,
-      body,
-    });
-
-    if (error) {
-      console.error("Send message error:", error);
-      alert(error.message);
-      setMessages((cur) => cur.filter((m) => m.id !== optimistic.id));
-      setNewMsg(body);
-      return;
-    }
-
-    await loadChat(projectId);
-    await markChatRead(projectId, userId);
+  async function sendMessage(bodyRaw?: string) {
+  if (!project?.workspace_id) {
+    alert("Project workspace_id missing (required for chat insert).");
+    return;
   }
+  if (!userId) return;
+
+  const body = (bodyRaw ?? newMsg).trim();
+  if (!body) return;
+
+  setNewMsg("");
+
+  // Optimistic UI
+  const optimistic: ProjectMessage = {
+    id: `tmp-${Date.now()}`,
+    project_id: projectId,
+    workspace_id: project.workspace_id,
+    user_id: userId,
+    body,
+    inserted_at: new Date().toISOString(),
+  };
+
+  setMessages((cur) => [...cur, optimistic]);
+
+  const { error } = await supabase.from("project_messages").insert({
+    project_id: projectId,
+    workspace_id: project.workspace_id,
+    user_id: userId,
+    body,
+  });
+
+  if (error) {
+    console.error("Send message error:", error);
+    alert(error.message);
+    setMessages((cur) => cur.filter((m) => m.id !== optimistic.id));
+    setNewMsg(body);
+    return;
+  }
+
+  await loadChat(projectId);
+  await markChatRead(projectId, userId);
+}
+
 
   // Bootstrap
   useEffect(() => {
@@ -815,57 +818,22 @@ export default function ProjectDetailPage() {
           </Button>
         </div>
 
-        {msgLoading ? <div className="mt-3 text-sm text-gray-500">Loading chat…</div> : null}
+      {msgLoading ? <div className="mt-3 text-sm text-gray-500">Loading chat…</div> : null}
 
-        <div className="mt-3 border rounded-lg bg-white">
-          <div className="max-h-[320px] overflow-auto p-3 grid gap-2">
-            {messages.length === 0 ? (
-              <div className="text-sm text-gray-600">No messages yet.</div>
-            ) : (
-              messages.map((m) => (
-                <div key={m.id} className="text-sm">
-                  <div className="text-xs text-gray-500">
-                    <span className="font-medium text-gray-700">{labelForUser(m.user_id)}</span> •{" "}
-                    {new Date(m.inserted_at).toLocaleString()}
-                  </div>
-                  <div className="text-gray-900 whitespace-pre-wrap">{m.body}</div>
-                </div>
-              ))
-            )}
-          </div>
+<ProjectChat
+  projectId={projectId}
+  userId={userId}
+  messages={messages}
+  labelForUser={labelForUser}
+  markRead={() => {
+    if (userId) markChatRead(projectId, userId);
+  }}
+  sendMessage={async (body) => {
+    await sendMessage(body);
+    await loadChat(projectId);
+  }}
+/>
 
-          <div className="border-t p-3">
-            <div className="flex gap-2">
-              <input
-                className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Write a message…"
-                value={newMsg}
-                onChange={(e) => setNewMsg(e.target.value)}
-                onFocus={() => {
-                  if (userId) markChatRead(projectId, userId);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    sendMessage();
-                  }
-                }}
-              />
-              <Button
-                onClick={async () => {
-                  await sendMessage();
-                  await loadChat(projectId);
-                }}
-              >
-                Send
-              </Button>
-            </div>
-
-            <div className="mt-2 text-xs text-gray-500">
-              Improvica (c) 2026 Improvica
-            </div>
-          </div>
-        </div>
       </section>
     </main>
   );
