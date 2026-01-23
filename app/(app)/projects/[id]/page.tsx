@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { getActiveWorkspace, requireUser, WorkspaceRole } from "@/app/lib/appContext";
 import { badgeBase, badgeClassForStatus, badgeClassForPriority, metaBadgeClass } from "@/app/lib/badges";
 import ProjectChat from "@/app/components/ProjectChat";
+import ProjectTabs from "./_components/ProjectTabs";
 
 type Priority = "low" | "medium" | "high" | "very_high";
 type ProjectType = "standard" | "pdca" | "dmaic";
@@ -589,6 +590,7 @@ const [chatOpen, setChatOpen] = useState(false);
 
   return (
     <main className="p-6 max-w-3xl mx-auto">
+      <ProjectTabs projectId={projectId} />
       <header className="flex items-start justify-between gap-3">
         <div>
           <Button variant="outline" onClick={() => router.push("/projects")}>
