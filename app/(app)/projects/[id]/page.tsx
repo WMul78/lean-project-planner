@@ -853,22 +853,29 @@ useEffect(() => {
 
       {msgLoading ? <div className="mt-3 text-sm text-gray-500">Loading chat…</div> : null}
 
-<ProjectChat
-  projectId={projectId}
-  userId={userId}
-  messages={messages}
-  labelForUser={labelForUser}
-  autoScrollEnabled={chatOpen}
-  markRead={() => {
-    if (userId) markChatRead(projectId, userId);
+<section
+  id="project-chat"
+  ref={(node) => {
+    chatSectionRef.current = node;
   }}
-  sendMessage={async (body) => {
-    // Als user verstuurt, mag auto-scroll wél aan
-    setChatOpen(true);
-    await sendMessage(body);
-    await loadChat(projectId);
-  }}
-/>
+  className="mt-6"
+>
+  <ProjectChat
+    projectId={projectId}
+    userId={userId}
+    messages={messages}
+    labelForUser={labelForUser}
+    autoScrollEnabled={chatOpen || chatSeen}
+    markRead={() => {
+      if (userId) markChatRead(projectId, userId);
+    }}
+    sendMessage={async (body) => {
+      setChatOpen(true);
+      await sendMessage(body);
+      await loadChat(projectId);
+    }}
+  />
+</section>
 
 
       </section>
