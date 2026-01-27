@@ -31,13 +31,33 @@ export default function ProjectChat({
   labelForUser,
 }: Props) {
   const [newMsg, setNewMsg] = useState("");
-  const endRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+const endRef = useRef<HTMLDivElement | null>(null);
+const [isNearBottom, setIsNearBottom] = useState(true);
+
+function handleScroll() {
+  const el = scrollRef.current;
+  if (!el) return;
+
+  // How close to bottom counts as "near bottom"
+  const thresholdPx = 80;
+
+  const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+  setIsNearBottom(distanceFromBottom < thresholdPx);
+}
 
   // Auto-scroll to last message
  useEffect(() => {
-  if (!autoScrollEnabled) return;
-  endRef.current?.scrollIntoView({ behavior: "smooth" });
-}, [messages.length, autoScrollEnabled]);
+  const shouldScroll = autoScrollEnabled || isNearBottom;
+
+  if (!shouldScroll) return;
+
+  // Use rAF to ensure DOM/layout is updated before scrolling
+  requestAnimationFrame(() => {
+    endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+  });
+}, [messages.length, autoScrollEnabled, isNearBottom]);
+
 
 
   async function handleSend() {
@@ -52,7 +72,11 @@ export default function ProjectChat({
   className="mt-6 border rounded-xl bg-white flex flex-col h-[420px] sm:h-[480px] overflow-hidden"
 >
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-slate-50">
+      <div
+  ref={scrollRef}
+  onScroll={handleScroll}
+  className="flex-1 overflow-y-auto p-3 space-y-2 bg-slate-50"
+>
         {messages.length === 0 && (
           <div className="text-sm text-gray-600">No messages yet.</div>
         )}

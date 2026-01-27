@@ -159,7 +159,7 @@ useEffect(() => {
         if (userId) markChatRead(projectId, userId);
       }
     },
-    { threshold: 0.15 } // 15% visible is enough
+    { threshold: 0.01 } // 15% visible is enough
   );
 
   obs.observe(el);
