@@ -143,6 +143,28 @@ export default function ProjectDetailPage() {
   const canEditProject = useMemo(() => workspaceRole === "owner" || workspaceRole === "admin", [workspaceRole]);
 
 const [chatOpen, setChatOpen] = useState(false);
+// Auto-enable chat scroll when the chat section becomes visible
+const [chatSeen, setChatSeen] = useState(false);
+const chatSectionRef = useRef<HTMLElement | null>(null);
+
+useEffect(() => {
+  const el = chatSectionRef.current;
+  if (!el) return;
+
+  const obs = new IntersectionObserver(
+    ([entry]) => {
+      if (entry.isIntersecting) {
+        setChatSeen(true);
+        // Optional: mark read when user actually views the chat section
+        if (userId) markChatRead(projectId, userId);
+      }
+    },
+    { threshold: 0.15 } // 15% visible is enough
+  );
+
+  obs.observe(el);
+  return () => obs.disconnect();
+}, [projectId, userId]);
 
   // Members can edit tasks if they are project member (or owner/admin via workspace)
   const canEditTodos = useMemo(() => {
