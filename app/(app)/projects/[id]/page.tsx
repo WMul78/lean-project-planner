@@ -590,13 +590,21 @@ const [chatOpen, setChatOpen] = useState(false);
 
   return (
     <main className="p-6 max-w-3xl mx-auto">
-      <ProjectTabs projectId={projectId} />
+      <ProjectTabs
+  projectId={projectId}
+  canEditProject={canEditProject}
+  isStakeholder={isStakeholder}
+  unreadCount={unreadCount}
+  onOpenChat={() => {
+    setChatOpen(true);
+    document.getElementById("project-chat")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (userId) markChatRead(projectId, userId);
+  }}
+/>
+
       <header className="flex items-start justify-between gap-3">
         <div>
-          <Button variant="outline" onClick={() => router.push("/projects")}>
-            ← Back
-          </Button>
-
+          
           <h1 className="text-2xl font-semibold mt-3">{project.name}</h1>
 
           <div className="mt-2 flex flex-wrap gap-2">
