@@ -48,16 +48,17 @@ function handleScroll() {
 
   // Auto-scroll to last message
  useEffect(() => {
-  const shouldScroll = autoScrollEnabled || isNearBottom;
+  const el = scrollRef.current;
+  if (!el) return;
 
+  const shouldScroll = autoScrollEnabled || isNearBottom;
   if (!shouldScroll) return;
 
-  // Use rAF to ensure DOM/layout is updated before scrolling
+  // Scroll ONLY the chat container, never the page
   requestAnimationFrame(() => {
-    endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+    el.scrollTop = el.scrollHeight;
   });
 }, [messages.length, autoScrollEnabled, isNearBottom]);
-
 
 
   async function handleSend() {
@@ -67,10 +68,8 @@ function handleScroll() {
   }
 
   return (
-   <div
-  id="project-chat"
-  className="mt-6 border rounded-xl bg-white flex flex-col h-[420px] sm:h-[480px] overflow-hidden"
->
+  <div className="mt-6 border rounded-xl bg-white flex flex-col h-[420px] sm:h-[480px] overflow-hidden">
+
       {/* Messages */}
       <div
   ref={scrollRef}
