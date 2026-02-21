@@ -88,9 +88,6 @@ export default function LeanHubPage() {
         </div>
 
         <div className="flex flex-col gap-2 items-end">
-          <Button variant="outline" onClick={() => router.push("/pricing")}>
-            Pricing
-          </Button>
         </div>
       </header>
 
