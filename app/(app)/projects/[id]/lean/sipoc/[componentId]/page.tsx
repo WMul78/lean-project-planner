@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import Button from "@/app/components/Button";
@@ -93,19 +93,52 @@ setSteps((stepData ?? []) as StepRow[]);
   setSteps((prev) => [...prev, data as StepRow]);
 }
 
-async function updateStep(stepId: string, value: string) {
+// --- Debounced step saving (prevents lag & dropped keystrokes) ---
+const [stepDrafts, setStepDrafts] = useState<Record<string, string>>({});
+const stepSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+function updateStepLocal(stepId: string, value: string) {
+  // 1) update drafts immediately (smooth typing)
+  setStepDrafts((prev) => ({ ...prev, [stepId]: value }));
+
+  // also mirror into steps list so UI is consistent everywhere
+  setSteps((prev) => prev.map((s) => (s.id === stepId ? { ...s, title: value } : s)));
+
+  // 2) debounce DB save
+  const timers = stepSaveTimers.current;
+  if (timers[stepId]) clearTimeout(timers[stepId]);
+
+  timers[stepId] = setTimeout(async () => {
+    try {
+      const { error } = await supabase
+        .from("lean_sipoc_steps")
+        .update({ title: value, updated_at: new Date().toISOString() })
+        .eq("id", stepId);
+
+      if (error) throw error;
+    } catch (e: any) {
+      console.error("Step save failed:", e);
+      // Optional: show toast, but avoid spamming alerts while typing
+    }
+  }, 500); // tweak: 300-800ms feels good
+}
+
+async function saveStepNow(stepId: string) {
+  const value = stepDrafts[stepId] ?? steps.find((s) => s.id === stepId)?.title ?? "";
+
+  // cancel pending debounce
+  const timers = stepSaveTimers.current;
+  if (timers[stepId]) {
+    clearTimeout(timers[stepId]);
+    delete timers[stepId];
+  }
+
   const { error } = await supabase
     .from("lean_sipoc_steps")
     .update({ title: value, updated_at: new Date().toISOString() })
     .eq("id", stepId);
 
-  if (error) {
-    console.error(error);
-    alert(error.message);
-    return;
-  }
-
-  setSteps((prev) => prev.map((s) => (s.id === stepId ? { ...s, title: value } : s)));
+  if (error) throw error;
 }
 
 async function deleteStep(stepId: string) {
@@ -205,11 +238,19 @@ async function deleteStep(stepId: string) {
             </div>
 
             <input
-              className="mt-1 w-full border rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-gray-200"
-              value={s.title ?? ""}
-              onChange={(e) => updateStep(s.id, e.target.value)}
-              placeholder="e.g. Identify critical needs"
-            />
+  className="mt-1 w-full border rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-gray-200"
+  value={stepDrafts[s.id] ?? (s.title ?? "")}
+  onChange={(e) => updateStepLocal(s.id, e.target.value)}
+  onBlur={async () => {
+    try {
+      await saveStepNow(s.id);
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message ?? "Failed to save step.");
+    }
+  }}
+  placeholder="e.g. Identify critical needs"
+/>
           </div>
 
           {/* Arrow between steps */}
