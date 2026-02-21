@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import Button from "@/app/components/Button";
 import { requireUser, getActiveWorkspaceTier } from "@/app/lib/appContext";
 import { loadProjectLean, loadLeanComponent } from "@/app/lib/lean";
+import { supabase } from "@/lib/supabaseClient";
 
 type Params = { id: string };
 
@@ -27,6 +28,7 @@ const [hasFiveWhys, setHasFiveWhys] = useState(false);
   const canUseLeanTools = tier === "pro";
   const canHavePid = projectType === "standard" || projectType === "pdca";
   const canHaveCharter = projectType === "dmaic";
+const [sipocCount, setSipocCount] = useState(0);
 
   const upsellText = useMemo(() => {
     if (tier === "pro") return null;
@@ -58,6 +60,14 @@ const [hasFiveWhys, setHasFiveWhys] = useState(false);
         ]);
 
     setHasFiveWhys(!!fiveWhys);
+
+    const { count: sipocCnt, error: sipocErr } = await supabase
+  .from("lean_components")
+  .select("id", { count: "exact", head: true })
+  .eq("project_id", projectId)
+  .eq("component_type", "sipoc");
+
+if (!sipocErr) setSipocCount(sipocCnt ?? 0);
 
         if (cancelled) return;
         setHasPid(!!pid);
@@ -168,6 +178,25 @@ const [hasFiveWhys, setHasFiveWhys] = useState(false);
   </Button>
 </div>
 
+{/* SIPOC (Pro only, multi-instance) */}
+<div className="border rounded-xl p-4 flex items-center justify-between">
+  <div>
+    <div className="font-medium">SIPOC</div>
+    <div className="text-sm text-gray-600">Suppliers • Inputs • Process • Outputs • Customers • Requirements</div>
+
+    <div className="text-xs text-gray-500 mt-1">
+      {sipocCount > 0 ? `${sipocCount} created` : "No SIPOC created yet"}
+    </div>
+  </div>
+
+  <Button
+    variant="outline"
+    onClick={() => router.push(`/projects/${projectId}/lean/sipoc`)}
+    disabled={!canUseLeanTools}
+  >
+    Open
+  </Button>
+</div>
         {!canHavePid && !canHaveCharter ? (
           <div className="text-sm text-gray-600">
             No Lean templates available for this project type.
