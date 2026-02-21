@@ -192,9 +192,6 @@ export default function FiveWhysDetailPage() {
         </div>
 
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => router.push("/pricing")}>
-            Pricing
-          </Button>
           <Button onClick={save} disabled={loading || saving || !canEdit}>
             {saving ? "Saving…" : "Save"}
           </Button>
