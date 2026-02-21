@@ -285,9 +285,6 @@ export default function ProjectCharterPage() {
         </div>
 
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => router.push("/pricing")}>
-            Pricing
-          </Button>
           <Button onClick={save} disabled={loading || saving || !allowed || !canEdit}>
             {saving ? "Saving…" : "Save"}
           </Button>
