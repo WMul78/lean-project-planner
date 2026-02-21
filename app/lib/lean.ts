@@ -120,7 +120,14 @@ if (componentType === "five_whys") {
 export async function listLeanComponents(projectId: string, componentType: LeanComponentType) {
   const { data, error } = await supabase
     .from("lean_components")
-    .select("*")
+    .select(`
+      id,
+      created_at,
+      component_type,
+      lean_five_whys (
+        problem_statement
+      )
+    `)
     .eq("project_id", projectId)
     .eq("component_type", componentType)
     .order("created_at", { ascending: false });

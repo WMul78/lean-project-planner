@@ -217,7 +217,7 @@ export default function FiveWhysDetailPage() {
             <PillRow label="Why?" value={why4} onChange={setWhy4} disabled={!canEdit} indent={4} variant="why" />
             <PillRow label="Why?" value={why5} onChange={setWhy5} disabled={!canEdit} indent={5} variant="why" />
             <div className="mt-2" />
-            <PillRow label="Root" value={rootCause} onChange={setRootCause} disabled={!canEdit} indent={4} variant="root" />
+            <PillRow label="Root cause" value={rootCause} onChange={setRootCause} disabled={!canEdit} indent={4} variant="root" />
           </div>
         </section>
       ) : null}

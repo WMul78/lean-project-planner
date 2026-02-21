@@ -99,19 +99,36 @@ export default function FiveWhysListPage() {
             </div>
           ) : null}
 
-          {items.map((it) => (
-            <div key={it.id} className="border rounded-xl p-4 flex items-center justify-between">
-              <div>
-                <div className="font-medium">5 Whys analysis</div>
-                <div className="text-xs text-gray-500">
-                  Created: {new Date(it.created_at).toLocaleString()}
-                </div>
-              </div>
-              <Button variant="outline" onClick={() => router.push(`/projects/${projectId}/lean/five-whys/${it.id}`)}>
-                Open
-              </Button>
-            </div>
-          ))}
+          {items.map((it) => {
+  const problem =
+    it.lean_five_whys?.problem_statement?.trim() || "Untitled 5 Whys";
+
+  return (
+    <div
+      key={it.id}
+      className="border rounded-xl p-4 flex items-center justify-between"
+    >
+      <div>
+        <div className="font-medium">
+          {problem}
+        </div>
+
+        <div className="text-xs text-gray-500">
+          Created: {new Date(it.created_at).toLocaleString()}
+        </div>
+      </div>
+
+      <Button
+        variant="outline"
+        onClick={() =>
+          router.push(`/projects/${projectId}/lean/five-whys/${it.id}`)
+        }
+      >
+        Open
+      </Button>
+    </div>
+  );
+})}
         </section>
       ) : null}
     </main>
