@@ -55,24 +55,28 @@ function ChevronRow(props: {
           {props.label}
         </div>
 
-        {/* Right chevron input */}
-        <div className="relative flex-1">
-          {/* Chevron shape (triangle end) */}
-          <div
-            className={[
-              rightBg,
-              "absolute inset-0 rounded-r-xl",
-              "after:content-[''] after:absolute after:top-0 after:right-[-18px]",
-              "after:w-0 after:h-0 after:border-t-[26px] after:border-b-[26px] after:border-l-[18px]",
-              // Make the triangle match the rightBg via inline style below
-            ].join(" ")}
-            style={
-              {
-                // The triangle uses border-left-color; Tailwind can't bind dynamic class easily
-                ["--chev" as any]: "transparent",
-              } as any
-            }
-          />
+       {/* Right chevron input */}
+<div className="relative flex-1">
+  {/* Background bar */}
+  <div
+    className={[
+      rightBg,
+      "absolute inset-0 rounded-r-xl",
+    ].join(" ")}
+  />
+
+  {/* Chevron triangle */}
+  <div
+    className={[
+      "absolute top-0 right-[-18px]",
+      "w-0 h-0",
+      "border-t-[26px] border-b-[26px] border-l-[18px]",
+      "border-t-transparent border-b-transparent",
+      variant === "problem" || variant === "root"
+        ? "border-l-rose-600"
+        : "border-l-emerald-500",
+    ].join(" ")}
+  />
 
           {/* Input overlay */}
           {readOnly ? (
@@ -238,9 +242,6 @@ export default function FiveWhysPage() {
         </div>
 
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => router.push("/pricing")}>
-            Pricing
-          </Button>
           <Button onClick={save} disabled={loading || saving || !allowed || !canEdit}>
             {saving ? "Saving…" : "Save"}
           </Button>
