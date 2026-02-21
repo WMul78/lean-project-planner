@@ -1,245 +1,67 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Button from "@/app/components/Button";
 import { getActiveWorkspaceTier, requireUser } from "@/app/lib/appContext";
-import { ensureLeanComponent, loadProjectLean } from "@/app/lib/lean";
-import { supabase } from "@/lib/supabaseClient";
+import { createLeanComponentInstance, listLeanComponents, loadProjectLean } from "@/app/lib/lean";
 
 type Params = { id: string };
 
-type FiveWhysRow = {
-  component_id: string;
-  problem_statement: string | null;
-  why_1: string | null;
-  why_2: string | null;
-  why_3: string | null;
-  why_4: string | null;
-  why_5: string | null;
-  root_cause: string | null;
-  created_at?: string;
-  updated_at?: string;
-};
-
-function txt(v: string | null | undefined) {
-  return (v ?? "").toString();
-}
-
-function PillRow(props: {
-  label: string;
-  value: string;
-  onChange?: (v: string) => void;
-  disabled?: boolean;
-  indent: number; // 0..5
-  variant: "problem" | "why" | "root";
-  placeholder?: string;
-}) {
-  const readOnly = !props.onChange;
-
-  const leftBg =
-    props.variant === "problem" || props.variant === "root" ? "bg-rose-500" : "bg-amber-500";
-
-  const rightBg =
-    props.variant === "problem" || props.variant === "root" ? "bg-rose-600" : "bg-emerald-500";
-
-  return (
-    <div className="w-full" style={{ marginLeft: `${props.indent * 16}px` }}>
-      <div className="flex items-stretch w-full max-w-[820px] overflow-hidden rounded-xl">
-        {/* Left label */}
-        <div
-          className={[
-            leftBg,
-            "text-white text-sm font-semibold px-4 py-3",
-            "flex items-center justify-center",
-            "min-w-[96px]",
-          ].join(" ")}
-        >
-          {props.label}
-        </div>
-
-        {/* Right content */}
-        <div className="relative flex-1">
-          {/* Background */}
-          <div className={[rightBg, "absolute inset-0"].join(" ")} />
-
-          {readOnly ? (
-            <div className="relative z-10 px-4 py-3 text-white text-sm">
-              {props.value || <span className="opacity-70">—</span>}
-            </div>
-          ) : (
-            <input
-              className={[
-                "relative z-10 w-full bg-transparent px-4 py-3 text-sm text-white",
-                "placeholder:text-white/70 focus:outline-none",
-              ].join(" ")}
-              value={props.value}
-              onChange={(e) => props.onChange?.(e.target.value)}
-              disabled={props.disabled}
-              placeholder={props.placeholder ?? "Type here…"}
-            />
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default function FiveWhysPage() {
+export default function FiveWhysListPage() {
   const router = useRouter();
   const params = useParams() as any as Params;
   const projectId = params.id;
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
   const [tier, setTier] = useState<"free" | "core" | "pro">("free");
   const canEdit = tier === "pro";
 
   const [projectName, setProjectName] = useState("");
-  const [projectType, setProjectType] = useState<"standard" | "pdca" | "dmaic">("standard");
+  const [items, setItems] = useState<any[]>([]);
 
-  // 5 Whys: usable for all project types, but Pro-only access in practice
-  const allowed = useMemo(() => true, []);
+  async function load() {
+    setLoading(true);
+    try {
+      const user = await requireUser(router);
+      if (!user) return;
 
-  const [componentId, setComponentId] = useState<string | null>(null);
+      const t = await getActiveWorkspaceTier();
+      setTier(t ?? "free");
 
-  // fields
-  const [problem, setProblem] = useState("");
-  const [why1, setWhy1] = useState("");
-  const [why2, setWhy2] = useState("");
-  const [why3, setWhy3] = useState("");
-  const [why4, setWhy4] = useState("");
-  const [why5, setWhy5] = useState("");
-  const [rootCause, setRootCause] = useState("");
+      const pr = await loadProjectLean(projectId);
+      setProjectName(pr.name ?? "");
+
+      const list = await listLeanComponents(projectId, "five_whys");
+      setItems(list);
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message ?? "Failed to load 5 Whys.");
+      router.replace(`/projects/${projectId}/lean`);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      setLoading(true);
-      try {
-        const user = await requireUser(router);
-        if (!user) return;
-
-        const t = await getActiveWorkspaceTier();
-        if (!cancelled) setTier(t ?? "free");
-
-        const pr = await loadProjectLean(projectId);
-        if (cancelled) return;
-
-        setProjectName(pr.name ?? "");
-        setProjectType(pr.project_type);
-
-        // Create/ensure lean component exists (Pro-only via RLS)
-        const comp = await ensureLeanComponent({ project: pr, componentType: "five_whys" });
-        if (cancelled) return;
-
-        setComponentId(comp.id);
-
-        // Load detail row
-        const { data, error } = await supabase
-          .from("lean_five_whys")
-          .select("*")
-          .eq("component_id", comp.id)
-          .single();
-
-        // If detail row doesn't exist yet, create it (defensive)
-        if (error && (error as any).code === "PGRST116") {
-          const { error: insErr } = await supabase.from("lean_five_whys").insert({
-            component_id: comp.id,
-            problem_statement: null,
-            why_1: null,
-            why_2: null,
-            why_3: null,
-            why_4: null,
-            why_5: null,
-            root_cause: null,
-          });
-          if (insErr) throw insErr;
-
-          // re-fetch
-          const again = await supabase.from("lean_five_whys").select("*").eq("component_id", comp.id).single();
-          if (again.error) throw again.error;
-          const row2 = again.data as any as FiveWhysRow;
-
-          setProblem(txt(row2.problem_statement));
-          setWhy1(txt(row2.why_1));
-          setWhy2(txt(row2.why_2));
-          setWhy3(txt(row2.why_3));
-          setWhy4(txt(row2.why_4));
-          setWhy5(txt(row2.why_5));
-          setRootCause(txt(row2.root_cause));
-          return;
-        }
-
-        if (error) throw error;
-
-        const row = data as any as FiveWhysRow;
-        setProblem(txt(row.problem_statement));
-        setWhy1(txt(row.why_1));
-        setWhy2(txt(row.why_2));
-        setWhy3(txt(row.why_3));
-        setWhy4(txt(row.why_4));
-        setWhy5(txt(row.why_5));
-        setRootCause(txt(row.root_cause));
-      } catch (e: any) {
-        console.error("5 Whys load failed:", e);
-        alert(e?.message ?? "Failed to load 5 Whys. If you are not on Pro, upgrade to use Lean tools.");
-        router.replace(`/projects/${projectId}/lean`);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
     load();
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
-  async function save() {
-    if (!allowed) return;
-
+  async function createNew() {
     if (!canEdit) {
       alert("5 Whys is available on the Pro plan.");
       router.push("/pricing");
       return;
     }
 
-    if (!componentId) return;
-    if (saving) return;
-
-    setSaving(true);
     try {
-      const { error } = await supabase
-        .from("lean_five_whys")
-        .update({
-          problem_statement: problem.trim() || null,
-          why_1: why1.trim() || null,
-          why_2: why2.trim() || null,
-          why_3: why3.trim() || null,
-          why_4: why4.trim() || null,
-          why_5: why5.trim() || null,
-          root_cause: rootCause.trim() || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("component_id", componentId);
-
-      if (error) throw error;
-
-      // touch lean_components updated_at (optional)
-      await supabase
-        .from("lean_components")
-        .update({ updated_at: new Date().toISOString() } as any)
-        .eq("id", componentId);
-
-      alert("Saved.");
+      const pr = await loadProjectLean(projectId);
+      const comp = await createLeanComponentInstance({ project: pr, componentType: "five_whys" });
+      router.push(`/projects/${projectId}/lean/five-whys/${comp.id}`);
     } catch (e: any) {
-      console.error("5 Whys save failed:", e);
-      alert(e?.message ?? "Save failed.");
-    } finally {
-      setSaving(false);
+      console.error(e);
+      alert(e?.message ?? "Failed to create a new 5 Whys.");
     }
   }
 
@@ -250,14 +72,10 @@ export default function FiveWhysPage() {
           <Button variant="outline" onClick={() => router.push(`/projects/${projectId}/lean`)}>
             ← Back
           </Button>
-
           <h1 className="text-2xl font-semibold mt-3">5 Whys</h1>
-
           <div className="mt-1 text-sm text-gray-600">
-            Project: <span className="font-medium text-gray-800">{projectName || projectId}</span> • type:{" "}
-            <span className="font-medium text-gray-800">{projectType}</span>
+            Project: <span className="font-medium text-gray-800">{projectName || projectId}</span>
           </div>
-
           <div className="mt-1 text-xs text-gray-500">Plan: {tier}</div>
         </div>
 
@@ -265,49 +83,35 @@ export default function FiveWhysPage() {
           <Button variant="outline" onClick={() => router.push("/pricing")}>
             Pricing
           </Button>
-          <Button onClick={save} disabled={loading || saving || !allowed || !canEdit}>
-            {saving ? "Saving…" : "Save"}
+          <Button onClick={createNew} disabled={loading || !canEdit}>
+            New 5 Whys
           </Button>
         </div>
       </header>
 
       {loading ? <div className="mt-6 text-sm text-gray-500">Loading…</div> : null}
 
-      {!loading && allowed ? (
-        <section className="mt-8">
-          <div className="text-sm text-gray-600 mb-4">
-            Fill in the problem, then answer “Why?” step-by-step. Optionally set a Root cause at the end.
-          </div>
+      {!loading ? (
+        <section className="mt-6 grid gap-3">
+          {items.length === 0 ? (
+            <div className="border rounded-xl p-4 text-sm text-gray-600">
+              No 5 Whys created yet. Click <span className="font-medium">New 5 Whys</span> to start.
+            </div>
+          ) : null}
 
-          <div className="grid gap-3">
-            <PillRow
-              label="Problem"
-              value={problem}
-              onChange={setProblem}
-              disabled={!canEdit}
-              indent={0}
-              variant="problem"
-              placeholder="Describe the problem…"
-            />
-
-            <PillRow label="Why?" value={why1} onChange={setWhy1} disabled={!canEdit} indent={1} variant="why" />
-            <PillRow label="Why?" value={why2} onChange={setWhy2} disabled={!canEdit} indent={2} variant="why" />
-            <PillRow label="Why?" value={why3} onChange={setWhy3} disabled={!canEdit} indent={3} variant="why" />
-            <PillRow label="Why?" value={why4} onChange={setWhy4} disabled={!canEdit} indent={4} variant="why" />
-            <PillRow label="Why?" value={why5} onChange={setWhy5} disabled={!canEdit} indent={5} variant="why" />
-
-            <div className="mt-2" />
-
-            <PillRow
-              label="Root"
-              value={rootCause}
-              onChange={setRootCause}
-              disabled={!canEdit}
-              indent={4}
-              variant="root"
-              placeholder="Root cause (optional)…"
-            />
-          </div>
+          {items.map((it) => (
+            <div key={it.id} className="border rounded-xl p-4 flex items-center justify-between">
+              <div>
+                <div className="font-medium">5 Whys analysis</div>
+                <div className="text-xs text-gray-500">
+                  Created: {new Date(it.created_at).toLocaleString()}
+                </div>
+              </div>
+              <Button variant="outline" onClick={() => router.push(`/projects/${projectId}/lean/five-whys/${it.id}`)}>
+                Open
+              </Button>
+            </div>
+          ))}
         </section>
       ) : null}
     </main>

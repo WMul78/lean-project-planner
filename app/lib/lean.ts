@@ -113,3 +113,62 @@ if (componentType === "five_whys") {
 
   return (comp as any) as LeanComponentRow;
 }
+
+
+
+// List all components of a type within a project
+export async function listLeanComponents(projectId: string, componentType: LeanComponentType) {
+  const { data, error } = await supabase
+    .from("lean_components")
+    .select("*")
+    .eq("project_id", projectId)
+    .eq("component_type", componentType)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Create a NEW component instance (no "ensure", always a new one)
+export async function createLeanComponentInstance(params: {
+  project: any; // use your ProjectRowLean type if you have it
+  componentType: LeanComponentType;
+}) {
+  const { project, componentType } = params;
+
+  const { data: userRes, error: userErr } = await supabase.auth.getUser();
+  if (userErr) throw userErr;
+  if (!userRes.user) throw new Error("Not authenticated");
+
+  const { data: comp, error: insErr } = await supabase
+    .from("lean_components")
+    .insert({
+      workspace_id: project.workspace_id,
+      project_id: project.id,
+      component_type: componentType,
+      status: "draft",
+      created_by: userRes.user.id,
+      updated_at: new Date().toISOString(),
+    })
+    .select("*")
+    .single();
+
+  if (insErr) throw insErr;
+
+  // Detail row for 5 whys
+  if (componentType === "five_whys") {
+    const { error: detailErr } = await supabase.from("lean_five_whys").insert({
+      component_id: comp.id,
+      problem_statement: null,
+      why_1: null,
+      why_2: null,
+      why_3: null,
+      why_4: null,
+      why_5: null,
+      root_cause: null,
+    });
+    if (detailErr) throw detailErr;
+  }
+
+  return comp;
+}
