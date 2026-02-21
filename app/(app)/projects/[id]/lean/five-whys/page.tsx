@@ -18,67 +18,51 @@ type FiveWhysRow = {
   why_4: string | null;
   why_5: string | null;
   root_cause: string | null;
+  created_at?: string;
+  updated_at?: string;
 };
 
 function txt(v: string | null | undefined) {
   return (v ?? "").toString();
 }
 
-function ChevronRow(props: {
+function PillRow(props: {
   label: string;
   value: string;
   onChange?: (v: string) => void;
   disabled?: boolean;
   indent: number; // 0..5
   variant: "problem" | "why" | "root";
+  placeholder?: string;
 }) {
-  const { variant } = props;
-
-  const leftBg =
-    variant === "problem" ? "bg-rose-500" : variant === "root" ? "bg-rose-500" : "bg-amber-500";
-  const rightBg =
-    variant === "problem" ? "bg-rose-600" : variant === "root" ? "bg-rose-600" : "bg-emerald-500";
-
   const readOnly = !props.onChange;
 
+  const leftBg =
+    props.variant === "problem" || props.variant === "root" ? "bg-rose-500" : "bg-amber-500";
+
+  const rightBg =
+    props.variant === "problem" || props.variant === "root" ? "bg-rose-600" : "bg-emerald-500";
+
   return (
-    <div className="w-full" style={{ marginLeft: `${props.indent * 18}px` }}>
-      <div className="flex items-stretch w-full max-w-[760px]">
-        {/* Left "tag" */}
+    <div className="w-full" style={{ marginLeft: `${props.indent * 16}px` }}>
+      <div className="flex items-stretch w-full max-w-[820px] overflow-hidden rounded-xl">
+        {/* Left label */}
         <div
           className={[
             leftBg,
-            "text-white text-sm font-semibold px-4 py-3 rounded-l-xl",
-            "flex items-center justify-center min-w-[92px]",
+            "text-white text-sm font-semibold px-4 py-3",
+            "flex items-center justify-center",
+            "min-w-[96px]",
           ].join(" ")}
         >
           {props.label}
         </div>
 
-       {/* Right chevron input */}
-<div className="relative flex-1">
-  {/* Background bar */}
-  <div
-    className={[
-      rightBg,
-      "absolute inset-0 rounded-r-xl",
-    ].join(" ")}
-  />
+        {/* Right content */}
+        <div className="relative flex-1">
+          {/* Background */}
+          <div className={[rightBg, "absolute inset-0"].join(" ")} />
 
-  {/* Chevron triangle */}
-  <div
-    className={[
-      "absolute top-0 right-[-18px]",
-      "w-0 h-0",
-      "border-t-[26px] border-b-[26px] border-l-[18px]",
-      "border-t-transparent border-b-transparent",
-      variant === "problem" || variant === "root"
-        ? "border-l-rose-600"
-        : "border-l-emerald-500",
-    ].join(" ")}
-  />
-
-          {/* Input overlay */}
           {readOnly ? (
             <div className="relative z-10 px-4 py-3 text-white text-sm">
               {props.value || <span className="opacity-70">—</span>}
@@ -92,7 +76,7 @@ function ChevronRow(props: {
               value={props.value}
               onChange={(e) => props.onChange?.(e.target.value)}
               disabled={props.disabled}
-              placeholder="Type here…"
+              placeholder={props.placeholder ?? "Type here…"}
             />
           )}
         </div>
@@ -115,8 +99,9 @@ export default function FiveWhysPage() {
   const [projectName, setProjectName] = useState("");
   const [projectType, setProjectType] = useState<"standard" | "pdca" | "dmaic">("standard");
 
-  // 5 Whys is useful for all types; only Pro-gated
+  // 5 Whys: usable for all project types, but Pro-only access in practice
   const allowed = useMemo(() => true, []);
+
   const [componentId, setComponentId] = useState<string | null>(null);
 
   // fields
@@ -146,21 +131,51 @@ export default function FiveWhysPage() {
         setProjectName(pr.name ?? "");
         setProjectType(pr.project_type);
 
-        // Ensure component exists (will fail on Free/Core due to RLS – same pattern as PID/Charter)
+        // Create/ensure lean component exists (Pro-only via RLS)
         const comp = await ensureLeanComponent({ project: pr, componentType: "five_whys" });
         if (cancelled) return;
 
         setComponentId(comp.id);
 
+        // Load detail row
         const { data, error } = await supabase
           .from("lean_five_whys")
           .select("*")
           .eq("component_id", comp.id)
           .single();
 
-        if (error) throw error;
-        const row = data as any as FiveWhysRow;
+        // If detail row doesn't exist yet, create it (defensive)
+        if (error && (error as any).code === "PGRST116") {
+          const { error: insErr } = await supabase.from("lean_five_whys").insert({
+            component_id: comp.id,
+            problem_statement: null,
+            why_1: null,
+            why_2: null,
+            why_3: null,
+            why_4: null,
+            why_5: null,
+            root_cause: null,
+          });
+          if (insErr) throw insErr;
 
+          // re-fetch
+          const again = await supabase.from("lean_five_whys").select("*").eq("component_id", comp.id).single();
+          if (again.error) throw again.error;
+          const row2 = again.data as any as FiveWhysRow;
+
+          setProblem(txt(row2.problem_statement));
+          setWhy1(txt(row2.why_1));
+          setWhy2(txt(row2.why_2));
+          setWhy3(txt(row2.why_3));
+          setWhy4(txt(row2.why_4));
+          setWhy5(txt(row2.why_5));
+          setRootCause(txt(row2.root_cause));
+          return;
+        }
+
+        if (error) throw error;
+
+        const row = data as any as FiveWhysRow;
         setProblem(txt(row.problem_statement));
         setWhy1(txt(row.why_1));
         setWhy2(txt(row.why_2));
@@ -185,11 +200,13 @@ export default function FiveWhysPage() {
 
   async function save() {
     if (!allowed) return;
+
     if (!canEdit) {
       alert("5 Whys is available on the Pro plan.");
       router.push("/pricing");
       return;
     }
+
     if (!componentId) return;
     if (saving) return;
 
@@ -211,7 +228,7 @@ export default function FiveWhysPage() {
 
       if (error) throw error;
 
-      // touch lean_components updated_at (optional but nice)
+      // touch lean_components updated_at (optional)
       await supabase
         .from("lean_components")
         .update({ updated_at: new Date().toISOString() } as any)
@@ -233,15 +250,21 @@ export default function FiveWhysPage() {
           <Button variant="outline" onClick={() => router.push(`/projects/${projectId}/lean`)}>
             ← Back
           </Button>
+
           <h1 className="text-2xl font-semibold mt-3">5 Whys</h1>
+
           <div className="mt-1 text-sm text-gray-600">
             Project: <span className="font-medium text-gray-800">{projectName || projectId}</span> • type:{" "}
             <span className="font-medium text-gray-800">{projectType}</span>
           </div>
+
           <div className="mt-1 text-xs text-gray-500">Plan: {tier}</div>
         </div>
 
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => router.push("/pricing")}>
+            Pricing
+          </Button>
           <Button onClick={save} disabled={loading || saving || !allowed || !canEdit}>
             {saving ? "Saving…" : "Save"}
           </Button>
@@ -257,29 +280,32 @@ export default function FiveWhysPage() {
           </div>
 
           <div className="grid gap-3">
-            <ChevronRow
+            <PillRow
               label="Problem"
               value={problem}
               onChange={setProblem}
               disabled={!canEdit}
               indent={0}
               variant="problem"
+              placeholder="Describe the problem…"
             />
 
-            <ChevronRow label="Why?" value={why1} onChange={setWhy1} disabled={!canEdit} indent={1} variant="why" />
-            <ChevronRow label="Why?" value={why2} onChange={setWhy2} disabled={!canEdit} indent={2} variant="why" />
-            <ChevronRow label="Why?" value={why3} onChange={setWhy3} disabled={!canEdit} indent={3} variant="why" />
-            <ChevronRow label="Why?" value={why4} onChange={setWhy4} disabled={!canEdit} indent={4} variant="why" />
-            <ChevronRow label="Why?" value={why5} onChange={setWhy5} disabled={!canEdit} indent={5} variant="why" />
+            <PillRow label="Why?" value={why1} onChange={setWhy1} disabled={!canEdit} indent={1} variant="why" />
+            <PillRow label="Why?" value={why2} onChange={setWhy2} disabled={!canEdit} indent={2} variant="why" />
+            <PillRow label="Why?" value={why3} onChange={setWhy3} disabled={!canEdit} indent={3} variant="why" />
+            <PillRow label="Why?" value={why4} onChange={setWhy4} disabled={!canEdit} indent={4} variant="why" />
+            <PillRow label="Why?" value={why5} onChange={setWhy5} disabled={!canEdit} indent={5} variant="why" />
 
             <div className="mt-2" />
-            <ChevronRow
+
+            <PillRow
               label="Root"
               value={rootCause}
               onChange={setRootCause}
               disabled={!canEdit}
               indent={4}
               variant="root"
+              placeholder="Root cause (optional)…"
             />
           </div>
         </section>
