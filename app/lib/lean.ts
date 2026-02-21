@@ -1,7 +1,7 @@
 // app/lib/lean.ts
 import { supabase } from "@/lib/supabaseClient";
 
-export type LeanComponentType = "pid" | "project_charter" | "five_whys";
+export type LeanComponentType = "pid" | "project_charter" | "five_whys" | "sipoc";
 export type WorkspaceTier = "free" | "core" | "pro";
 export type ProjectType = "standard" | "pdca" | "dmaic";
 
@@ -136,6 +136,8 @@ export async function listLeanComponents(projectId: string, componentType: LeanC
   return data ?? [];
 }
 
+
+
 // Create a NEW component instance (no "ensure", always a new one)
 export async function createLeanComponentInstance(params: {
   project: any; // use your ProjectRowLean type if you have it
@@ -179,3 +181,4 @@ export async function createLeanComponentInstance(params: {
 
   return comp;
 }
+
