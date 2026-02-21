@@ -1,7 +1,7 @@
 // app/(app)/projects/[id]/lean/charter/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Button from "@/app/components/Button";
 import { getActiveWorkspaceTier, requireUser } from "@/app/lib/appContext";
@@ -12,6 +12,8 @@ type Params = { id: string };
 
 type CharterRow = {
   component_id: string;
+
+  // existing (legacy)
   business_case: string | null;
   problem_statement: string | null;
   goal_statement: string | null;
@@ -20,13 +22,98 @@ type CharterRow = {
   high_level_timeline: string | null;
   financial_impact: string | null;
   constraints: string | null;
+
+  // new (recommended)
+  product_delivered?: string | null;
+  customer?: string | null;
+  project_manager?: string | null;
+  sponsor?: string | null;
+  hard_benefits?: string | null;
+  soft_benefits?: string | null;
+  costs_budget?: string | null;
+  risks?: string | null;
 };
 
 function txt(v: string | null | undefined) {
   return (v ?? "").toString();
 }
 
-export default function CharterPage() {
+/**
+ * Auto-resizing textarea (grows & shrinks with content).
+ * - Uses scrollHeight measurement
+ * - Keeps a minimum height per "size"
+ */
+function AutoTextarea(props: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  size?: "small" | "medium";
+  placeholder?: string;
+}) {
+  const { size = "medium" } = props;
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+
+  const minH =
+    size === "small"
+      ? "min-h-[70px]" // smaller boxes
+      : "min-h-[110px]"; // medium boxes (similar to old UI) :contentReference[oaicite:2]{index=2}
+
+  // Resize on value changes (load + typing)
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    // reset to allow shrinking
+    el.style.height = "0px";
+    const next = Math.max(el.scrollHeight, size === "small" ? 70 : 110);
+    el.style.height = `${next}px`;
+  }, [props.value, size]);
+
+  return (
+    <div className="grid gap-2">
+      <label className="text-sm font-medium text-gray-800">{props.label}</label>
+      <textarea
+        ref={ref}
+        className={[
+          "border rounded-xl px-3 py-2 text-sm w-full resize-none",
+          "focus:outline-none focus:ring-2 focus:ring-gray-200",
+          minH,
+        ].join(" ")}
+        value={props.value}
+        placeholder={props.placeholder}
+        onChange={(e) => props.onChange(e.target.value)}
+        disabled={props.disabled}
+      />
+    </div>
+  );
+}
+
+function SmallInput(props: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+}) {
+  return (
+    <div className="grid gap-2">
+      <label className="text-sm font-medium text-gray-800">{props.label}</label>
+      <input
+        className={[
+          "border rounded-xl px-3 py-2 text-sm w-full",
+          "focus:outline-none focus:ring-2 focus:ring-gray-200",
+        ].join(" ")}
+        value={props.value}
+        placeholder={props.placeholder}
+        onChange={(e) => props.onChange(e.target.value)}
+        disabled={props.disabled}
+      />
+    </div>
+  );
+}
+
+export default function ProjectCharterPage() {
   const router = useRouter();
   const params = useParams() as any as Params;
   const projectId = params.id;
@@ -39,20 +126,25 @@ export default function CharterPage() {
 
   const [projectName, setProjectName] = useState("");
   const [projectType, setProjectType] = useState<"standard" | "pdca" | "dmaic">("standard");
-
   const allowed = useMemo(() => projectType === "dmaic", [projectType]);
 
   const [componentId, setComponentId] = useState<string | null>(null);
 
-  // fields
-  const [businessCase, setBusinessCase] = useState("");
-  const [problem, setProblem] = useState("");
-  const [goal, setGoal] = useState("");
-  const [inScope, setInScope] = useState("");
-  const [outScope, setOutScope] = useState("");
-  const [timeline, setTimeline] = useState("");
-  const [financialImpact, setFinancialImpact] = useState("");
-  const [constraints, setConstraints] = useState("");
+  // === Fields (new model) ===
+  const [problemStatement, setProblemStatement] = useState(""); // medium
+  const [productDelivered, setProductDelivered] = useState(""); // small
+
+  const [customer, setCustomer] = useState(""); // small name
+  const [projectManager, setProjectManager] = useState(""); // small name
+  const [sponsor, setSponsor] = useState(""); // small name
+
+  const [hardBenefits, setHardBenefits] = useState(""); // medium
+  const [softBenefits, setSoftBenefits] = useState(""); // medium
+  const [costsBudget, setCostsBudget] = useState(""); // small
+
+  const [inScope, setInScope] = useState(""); // medium
+  const [outScope, setOutScope] = useState(""); // medium
+  const [risks, setRisks] = useState(""); // medium
 
   useEffect(() => {
     let cancelled = false;
@@ -78,6 +170,7 @@ export default function CharterPage() {
           return;
         }
 
+        // Ensure component exists (will fail on Free/Core due to RLS)
         const comp = await ensureLeanComponent({ project: pr, componentType: "project_charter" });
         if (cancelled) return;
 
@@ -92,14 +185,22 @@ export default function CharterPage() {
         if (error) throw error;
         const row = data as any as CharterRow;
 
-        setBusinessCase(txt(row.business_case));
-        setProblem(txt(row.problem_statement));
-        setGoal(txt(row.goal_statement));
+        // Prefer NEW columns, fallback to old ones so existing data stays visible.
+        setProblemStatement(txt(row.problem_statement));
+
+        setProductDelivered(txt(row.product_delivered ?? row.goal_statement)); // fallback
+        setCustomer(txt(row.customer));
+        setProjectManager(txt(row.project_manager));
+        setSponsor(txt(row.sponsor));
+
+        setHardBenefits(txt(row.hard_benefits ?? row.financial_impact)); // fallback
+        setSoftBenefits(txt(row.soft_benefits));
+
+        setCostsBudget(txt(row.costs_budget));
         setInScope(txt(row.in_scope));
         setOutScope(txt(row.out_of_scope));
-        setTimeline(txt(row.high_level_timeline));
-        setFinancialImpact(txt(row.financial_impact));
-        setConstraints(txt(row.constraints));
+
+        setRisks(txt(row.risks ?? row.constraints)); // fallback
       } catch (e: any) {
         console.error("Charter load failed:", e);
         alert(e?.message ?? "Failed to load Charter. If you are not on Pro, upgrade to use Lean tools.");
@@ -127,20 +228,32 @@ export default function CharterPage() {
 
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from("lean_project_charter")
-        .update({
-          business_case: businessCase.trim() || null,
-          problem_statement: problem.trim() || null,
-          goal_statement: goal.trim() || null,
-          in_scope: inScope.trim() || null,
-          out_of_scope: outScope.trim() || null,
-          high_level_timeline: timeline.trim() || null,
-          financial_impact: financialImpact.trim() || null,
-          constraints: constraints.trim() || null,
-        })
-        .eq("component_id", componentId);
+      const payload: Record<string, any> = {
+        // keep core ones aligned with your requested list
+        problem_statement: problemStatement.trim() || null,
+        in_scope: inScope.trim() || null,
+        out_of_scope: outScope.trim() || null,
 
+        // new columns
+        product_delivered: productDelivered.trim() || null,
+        customer: customer.trim() || null,
+        project_manager: projectManager.trim() || null,
+        sponsor: sponsor.trim() || null,
+        hard_benefits: hardBenefits.trim() || null,
+        soft_benefits: softBenefits.trim() || null,
+        costs_budget: costsBudget.trim() || null,
+        risks: risks.trim() || null,
+
+        /**
+         * Optional: also write to legacy columns for backwards compatibility
+         * (handig als je ergens anders nog legacy velden toont).
+         */
+        goal_statement: productDelivered.trim() || null,
+        financial_impact: hardBenefits.trim() || null,
+        constraints: risks.trim() || null,
+      };
+
+      const { error } = await supabase.from("lean_project_charter").update(payload).eq("component_id", componentId);
       if (error) throw error;
 
       await supabase
@@ -158,7 +271,7 @@ export default function CharterPage() {
   }
 
   return (
-    <main className="p-6 max-w-3xl mx-auto">
+    <main className="p-6 max-w-4xl mx-auto">
       <header className="flex items-start justify-between gap-3">
         <div>
           <Button variant="outline" onClick={() => router.push(`/projects/${projectId}/lean`)}>
@@ -191,35 +304,79 @@ export default function CharterPage() {
 
       {!loading && allowed ? (
         <section className="mt-6 grid gap-4">
-          <Field label="Business case" value={businessCase} onChange={setBusinessCase} disabled={!canEdit} />
-          <Field label="Problem statement" value={problem} onChange={setProblem} disabled={!canEdit} />
-          <Field label="Goal statement" value={goal} onChange={setGoal} disabled={!canEdit} />
-          <Field label="In scope" value={inScope} onChange={setInScope} disabled={!canEdit} />
-          <Field label="Out of scope" value={outScope} onChange={setOutScope} disabled={!canEdit} />
-          <Field label="High-level timeline" value={timeline} onChange={setTimeline} disabled={!canEdit} />
-          <Field label="Financial impact" value={financialImpact} onChange={setFinancialImpact} disabled={!canEdit} />
-          <Field label="Constraints" value={constraints} onChange={setConstraints} disabled={!canEdit} />
+          {/* Row 1: problem + product + costs */}
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="md:col-span-2">
+              <AutoTextarea
+                label="Problem statement"
+                value={problemStatement}
+                onChange={setProblemStatement}
+                disabled={!canEdit}
+                size="medium"
+              />
+            </div>
+
+            <div className="grid gap-4">
+              <AutoTextarea
+                label="Product / what is delivered"
+                value={productDelivered}
+                onChange={setProductDelivered}
+                disabled={!canEdit}
+                size="small"
+              />
+
+              <AutoTextarea
+                label="Costs (budget)"
+                value={costsBudget}
+                onChange={setCostsBudget}
+                disabled={!canEdit}
+                size="small"
+                placeholder="e.g. €10,000 or 80 hours"
+              />
+            </div>
+          </div>
+
+          {/* Row 2: names */}
+          <div className="grid gap-4 md:grid-cols-3">
+            <SmallInput label="Customer" value={customer} onChange={setCustomer} disabled={!canEdit} placeholder="Name" />
+            <SmallInput
+              label="Project manager"
+              value={projectManager}
+              onChange={setProjectManager}
+              disabled={!canEdit}
+              placeholder="Name"
+            />
+            <SmallInput label="Sponsor" value={sponsor} onChange={setSponsor} disabled={!canEdit} placeholder="Name" />
+          </div>
+
+          {/* Row 3: benefits */}
+          <div className="grid gap-4 md:grid-cols-2">
+            <AutoTextarea
+              label="Hard benefits"
+              value={hardBenefits}
+              onChange={setHardBenefits}
+              disabled={!canEdit}
+              size="medium"
+            />
+            <AutoTextarea
+              label="Soft benefits"
+              value={softBenefits}
+              onChange={setSoftBenefits}
+              disabled={!canEdit}
+              size="medium"
+            />
+          </div>
+
+          {/* Row 4: scope */}
+          <div className="grid gap-4 md:grid-cols-2">
+            <AutoTextarea label="In scope" value={inScope} onChange={setInScope} disabled={!canEdit} size="medium" />
+            <AutoTextarea label="Out of scope" value={outScope} onChange={setOutScope} disabled={!canEdit} size="medium" />
+          </div>
+
+          {/* Row 5: risks */}
+          <AutoTextarea label="Risks" value={risks} onChange={setRisks} disabled={!canEdit} size="medium" />
         </section>
       ) : null}
     </main>
-  );
-}
-
-function Field(props: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div className="grid gap-2">
-      <label className="text-sm font-medium text-gray-800">{props.label}</label>
-      <textarea
-        className="border rounded-xl px-3 py-2 min-h-[110px] text-sm"
-        value={props.value}
-        onChange={(e) => props.onChange(e.target.value)}
-        disabled={props.disabled}
-      />
-    </div>
   );
 }
