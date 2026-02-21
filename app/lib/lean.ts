@@ -110,7 +110,28 @@ if (componentType === "five_whys") {
   if (detailErr) throw detailErr;
 }
 
+if (componentType === "sipoc") {
+  // Create one empty SIPOC row so the user can start typing immediately
+  const { error: rowErr } = await supabase.from("lean_sipoc_rows").insert({
+    component_id: comp.id,
+    order_index: 0,
+    supplier: null,
+    input: null,
+    process: null,
+    output: null,
+    customer: null,
+    requirements: null,
+  });
+  if (rowErr) throw rowErr;
 
+  // Create one initial process step (editable)
+  const { error: stepErr } = await supabase.from("lean_sipoc_steps").insert({
+    component_id: comp.id,
+    order_index: 0,
+    title: "Step 1",
+  });
+  if (stepErr) throw stepErr;
+}
   return (comp as any) as LeanComponentRow;
 }
 
