@@ -1,7 +1,7 @@
 // app/lib/lean.ts
 import { supabase } from "@/lib/supabaseClient";
 
-export type LeanComponentType = "pid" | "project_charter";
+export type LeanComponentType = "pid" | "project_charter" | "five_whys";
 export type WorkspaceTier = "free" | "core" | "pro";
 export type ProjectType = "standard" | "pdca" | "dmaic";
 
@@ -94,6 +94,22 @@ export async function ensureLeanComponent(params: {
     });
     if (error) throw error;
   }
+
+// app/lib/lean.ts (inside ensureLeanComponent after lean_components insert)
+if (componentType === "five_whys") {
+  const { error: detailErr } = await supabase.from("lean_five_whys").insert({
+    component_id: comp.id,
+    problem_statement: null,
+    why_1: null,
+    why_2: null,
+    why_3: null,
+    why_4: null,
+    why_5: null,
+    root_cause: null,
+  });
+  if (detailErr) throw detailErr;
+}
+
 
   return (comp as any) as LeanComponentRow;
 }

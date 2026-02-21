@@ -22,6 +22,7 @@ export default function LeanHubPage() {
 
   const [hasPid, setHasPid] = useState(false);
   const [hasCharter, setHasCharter] = useState(false);
+const [hasFiveWhys, setHasFiveWhys] = useState(false);
 
   const canUseLeanTools = tier === "pro";
   const canHavePid = projectType === "standard" || projectType === "pdca";
@@ -50,10 +51,13 @@ export default function LeanHubPage() {
         setProjectType(pr.project_type);
         setProjectName(pr.name ?? "");
 
-        const [pid, charter] = await Promise.all([
+        const [pid, charter, fiveWhys] = await Promise.all([
           loadLeanComponent(projectId, "pid").catch(() => null),
           loadLeanComponent(projectId, "project_charter").catch(() => null),
+          loadLeanComponent(projectId, "five_whys").catch(() => null),
         ]);
+
+    setHasFiveWhys(!!fiveWhys);
 
         if (cancelled) return;
         setHasPid(!!pid);
@@ -147,6 +151,22 @@ export default function LeanHubPage() {
             </div>
           </div>
         ) : null}
+
+{/* 5 Whys (available for all project types, but Pro-gated) */}
+<div className="border rounded-xl p-4 flex items-center justify-between">
+  <div>
+    <div className="font-medium">5 Whys</div>
+    <div className="text-sm text-gray-600">Root cause analysis</div>
+    {hasFiveWhys ? <div className="text-xs text-gray-500 mt-1">Created</div> : null}
+  </div>
+  <Button
+    variant="outline"
+    onClick={() => router.push(`/projects/${projectId}/lean/five-whys`)}
+    disabled={!canUseLeanTools}
+  >
+    Open
+  </Button>
+</div>
 
         {!canHavePid && !canHaveCharter ? (
           <div className="text-sm text-gray-600">
