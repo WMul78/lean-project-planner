@@ -34,34 +34,28 @@ function ToolCard(props: {
 
 function SectionHeader(props: { title: string; subtitle?: string }) {
   const colorMap: Record<string, string> = {
-    Define: "bg-blue-100 text-blue-800",
-    Measure: "bg-indigo-100 text-indigo-800",
-    Analyze: "bg-amber-100 text-amber-800",
-    Improve: "bg-emerald-100 text-emerald-800",
-    Control: "bg-purple-100 text-purple-800",
+    Define: "bg-blue-600",
+    Measure: "bg-indigo-600",
+    Analyze: "bg-amber-500",
+    Improve: "bg-emerald-600",
+    Control: "bg-purple-600",
   };
 
-  const labelColor = colorMap[props.title] ?? "bg-gray-100 text-gray-800";
+  const bgColor = colorMap[props.title] ?? "bg-gray-600";
 
   return (
-    <div className="mt-8">
-      <div className="flex items-center gap-3">
-        <span
-          className={`px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wide ${labelColor}`}
-        >
-          {props.title}
-        </span>
-
-        <h2 className="text-lg font-semibold text-gray-900">
+    <div className="mt-10">
+      <div className={`${bgColor} text-white rounded-xl px-6 py-4`}>
+        <h2 className="text-xl font-semibold tracking-wide">
           {props.title}
         </h2>
-      </div>
 
-      {props.subtitle ? (
-        <div className="text-sm text-gray-600 mt-2 max-w-2xl">
-          {props.subtitle}
-        </div>
-      ) : null}
+        {props.subtitle ? (
+          <div className="text-sm text-white/90 mt-1 max-w-3xl">
+            {props.subtitle}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
