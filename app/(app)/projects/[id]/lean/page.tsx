@@ -207,7 +207,7 @@ if (!mpErr) setMeasurePlanCount(mpCnt ?? 0);
             title="Project Charter (DMAIC)"
             description="Business case, goal statement, scope and team for DMAIC projects."
             status={hasCharter ? "created" : "not created"}
-            onOpen={() => router.push(`/projects/${projectId}/lean/project-charter`)}
+            onOpen={() => router.push(`/projects/${projectId}/lean/charter`)}
             disabled={!canUseLeanTools}
           />
         ) : null}
