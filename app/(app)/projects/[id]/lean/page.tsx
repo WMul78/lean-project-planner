@@ -33,10 +33,35 @@ function ToolCard(props: {
 }
 
 function SectionHeader(props: { title: string; subtitle?: string }) {
+  const colorMap: Record<string, string> = {
+    Define: "bg-blue-100 text-blue-800",
+    Measure: "bg-indigo-100 text-indigo-800",
+    Analyze: "bg-amber-100 text-amber-800",
+    Improve: "bg-emerald-100 text-emerald-800",
+    Control: "bg-purple-100 text-purple-800",
+  };
+
+  const labelColor = colorMap[props.title] ?? "bg-gray-100 text-gray-800";
+
   return (
-    <div className="mt-6">
-      <div className="text-sm font-semibold text-gray-800">{props.title}</div>
-      {props.subtitle ? <div className="text-xs text-gray-500 mt-1">{props.subtitle}</div> : null}
+    <div className="mt-8">
+      <div className="flex items-center gap-3">
+        <span
+          className={`px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wide ${labelColor}`}
+        >
+          {props.title}
+        </span>
+
+        <h2 className="text-lg font-semibold text-gray-900">
+          {props.title}
+        </h2>
+      </div>
+
+      {props.subtitle ? (
+        <div className="text-sm text-gray-600 mt-2 max-w-2xl">
+          {props.subtitle}
+        </div>
+      ) : null}
     </div>
   );
 }
