@@ -96,9 +96,6 @@ export default function SipocListPage() {
         </div>
 
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => router.push("/pricing")}>
-            Pricing
-          </Button>
           <Button onClick={createNew} disabled={loading || !canEdit}>
             New SIPOC
           </Button>
