@@ -45,8 +45,7 @@ export default function SipocListPage() {
 
   return (
     <main className="p-6 max-w-5xl mx-auto">
-      <div className="flex items-start justify-between mb-4 gap-3">
-  <div>
+      
       <Button variant="outline" onClick={() => router.push(`/projects/${projectId}/lean/stakeholders`)}>
                   ← Back
                 </Button>
@@ -57,8 +56,7 @@ export default function SipocListPage() {
           New SIPOC
         </Button>
       </div>
-</div>
-</div>
+
       <div className="grid gap-3">
         {items.map((it) => (
           <div
