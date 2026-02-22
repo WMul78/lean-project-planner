@@ -29,6 +29,7 @@ const [hasFiveWhys, setHasFiveWhys] = useState(false);
   const canHavePid = projectType === "standard" || projectType === "pdca";
   const canHaveCharter = projectType === "dmaic";
 const [sipocCount, setSipocCount] = useState(0);
+const [stakeholderCount, setStakeholderCount] = useState(0);
 
   const upsellText = useMemo(() => {
     if (tier === "pro") return null;
@@ -52,6 +53,14 @@ const [sipocCount, setSipocCount] = useState(0);
 
         setProjectType(pr.project_type);
         setProjectName(pr.name ?? "");
+
+        const { count: stCnt } = await supabase
+         .from("lean_components")
+          .select("id", { count: "exact", head: true })
+          .eq("project_id", projectId)
+         .eq("component_type", "stakeholder_analysis");
+
+      setStakeholderCount(stCnt ?? 0);
 
         const [pid, charter, fiveWhys] = await Promise.all([
           loadLeanComponent(projectId, "pid").catch(() => null),
@@ -172,6 +181,24 @@ if (!sipocErr) setSipocCount(sipocCnt ?? 0);
   <Button
     variant="outline"
     onClick={() => router.push(`/projects/${projectId}/lean/five-whys`)}
+    disabled={!canUseLeanTools}
+  >
+    Open
+  </Button>
+</div>
+
+<div className="border rounded-xl p-4 flex items-center justify-between">
+  <div>
+    <div className="font-medium">Stakeholder analysis</div>
+    <div className="text-sm text-gray-600">Power / Interest matrix</div>
+    <div className="text-xs text-gray-500 mt-1">
+      {stakeholderCount > 0 ? `${stakeholderCount} created` : "No analysis created yet"}
+    </div>
+  </div>
+
+  <Button
+    variant="outline"
+    onClick={() => router.push(`/projects/${projectId}/lean/stakeholders`)}
     disabled={!canUseLeanTools}
   >
     Open

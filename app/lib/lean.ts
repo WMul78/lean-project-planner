@@ -1,7 +1,7 @@
 // app/lib/lean.ts
 import { supabase } from "@/lib/supabaseClient";
 
-export type LeanComponentType = "pid" | "project_charter" | "five_whys" | "sipoc";
+export type LeanComponentType = "pid" | "project_charter" | "five_whys" | "sipoc" | "stakeholder_analysis";
 export type WorkspaceTier = "free" | "core" | "pro";
 export type ProjectType = "standard" | "pdca" | "dmaic";
 
@@ -184,6 +184,26 @@ export async function createLeanComponentInstance(params: {
     .single();
 
   if (insErr) throw insErr;
+
+if (componentType === "stakeholder_analysis") {
+  const { error: metaErr } = await supabase.from("lean_stakeholder_analysis").insert({
+    component_id: comp.id,
+    title: "Stakeholder analysis",
+  });
+  if (metaErr) throw metaErr;
+
+  // Start with 1 row so user can type immediately
+  const { error: sErr } = await supabase.from("lean_stakeholders").insert({
+    component_id: comp.id,
+    name: "New stakeholder",
+    role: null,
+    interest: 2,
+    influence: 2,
+    notes: null,
+    order_index: 0,
+  });
+  if (sErr) throw sErr;
+}
 
   // Detail row for 5 whys
   if (componentType === "five_whys") {
