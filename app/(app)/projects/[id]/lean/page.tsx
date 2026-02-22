@@ -181,9 +181,7 @@ if (!mpErr) setMeasurePlanCount(mpCnt ?? 0);
         </div>
 
         <div className="flex flex-col gap-2 items-end">
-          <Button variant="outline" onClick={() => router.push("/pricing")}>
-            Pricing
-          </Button>
+          
         </div>
       </header>
 
@@ -244,15 +242,14 @@ if (!mpErr) setMeasurePlanCount(mpCnt ?? 0);
         />
 
         <SectionHeader title="Measure" subtitle="Collect data and understand current performance." />
-        <div className="text-sm text-gray-500 border rounded-xl p-4">No tools added yet.</div>
 
-<ToolCard
-  title="Measurement plan"
-  description="CTQ, operational definition, data source, sample size, collector, period and method."
-  status={`${measurePlanCount} created`}
-  onOpen={() => router.push(`/projects/${projectId}/lean/measure-plan`)}
-  disabled={!canUseLeanTools}
-/>
+        <ToolCard
+          title="Measurement plan"
+          description="CTQ, operational definition, data source, sample size, collector, period and method."
+          status={`${measurePlanCount} created`}
+          onOpen={() => router.push(`/projects/${projectId}/lean/measure-plan`)}
+          disabled={!canUseLeanTools}
+        />
 
 
         <SectionHeader title="Analyze" subtitle="Identify root causes and key drivers." />

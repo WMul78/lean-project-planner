@@ -173,9 +173,7 @@ export default function MeasurePlanDetailPage() {
         </div>
 
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => router.push("/pricing")}>
-            Pricing
-          </Button>
+          
           <Button onClick={addRow} disabled={loading || !canEdit}>
             Add row
           </Button>
