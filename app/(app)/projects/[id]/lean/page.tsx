@@ -81,6 +81,7 @@ export default function LeanHubPage() {
   const canUseLeanTools = tier === "pro";
   const canHavePid = projectType === "standard" || projectType === "pdca";
   const canHaveCharter = projectType === "dmaic";
+  const [measurePlanCount, setMeasurePlanCount] = useState(0);
 
   const upsellText = useMemo(() => {
     if (tier === "pro") return null;
@@ -136,6 +137,15 @@ export default function LeanHubPage() {
             .eq("project_id", projectId)
             .eq("component_type", "stakeholder_analysis"),
         ]);
+
+
+        const { count: mpCnt, error: mpErr } = await supabase
+  .from("lean_components")
+  .select("id", { count: "exact", head: true })
+  .eq("project_id", projectId)
+  .eq("component_type", "measure_plan");
+
+if (!mpErr) setMeasurePlanCount(mpCnt ?? 0);
 
         // Don't hard-fail the whole page on count errors
         if (!wErr) setFiveWhysCount(wCnt ?? 0);
@@ -235,6 +245,15 @@ export default function LeanHubPage() {
 
         <SectionHeader title="Measure" subtitle="Collect data and understand current performance." />
         <div className="text-sm text-gray-500 border rounded-xl p-4">No tools added yet.</div>
+
+<ToolCard
+  title="Measurement plan"
+  description="CTQ, operational definition, data source, sample size, collector, period and method."
+  status={`${measurePlanCount} created`}
+  onOpen={() => router.push(`/projects/${projectId}/lean/measure-plan`)}
+  disabled={!canUseLeanTools}
+/>
+
 
         <SectionHeader title="Analyze" subtitle="Identify root causes and key drivers." />
 
