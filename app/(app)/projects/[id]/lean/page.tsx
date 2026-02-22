@@ -10,6 +10,37 @@ import { supabase } from "@/lib/supabaseClient";
 
 type Params = { id: string };
 
+function ToolCard(props: {
+  title: string;
+  description: string;
+  status?: string;
+  onOpen: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="border rounded-xl p-4 flex items-center justify-between">
+      <div>
+        <div className="font-semibold">{props.title}</div>
+        <div className="text-sm text-gray-600">{props.description}</div>
+        {props.status ? <div className="text-xs text-gray-500 mt-1">Status: {props.status}</div> : null}
+      </div>
+
+      <Button variant="outline" onClick={props.onOpen} disabled={props.disabled}>
+        Open
+      </Button>
+    </div>
+  );
+}
+
+function SectionHeader(props: { title: string; subtitle?: string }) {
+  return (
+    <div className="mt-6">
+      <div className="text-sm font-semibold text-gray-800">{props.title}</div>
+      {props.subtitle ? <div className="text-xs text-gray-500 mt-1">{props.subtitle}</div> : null}
+    </div>
+  );
+}
+
 export default function LeanHubPage() {
   const router = useRouter();
   const params = useParams() as any as Params;
@@ -23,13 +54,14 @@ export default function LeanHubPage() {
 
   const [hasPid, setHasPid] = useState(false);
   const [hasCharter, setHasCharter] = useState(false);
-const [hasFiveWhys, setHasFiveWhys] = useState(false);
+
+  const [fiveWhysCount, setFiveWhysCount] = useState(0);
+  const [sipocCount, setSipocCount] = useState(0);
+  const [stakeholderCount, setStakeholderCount] = useState(0);
 
   const canUseLeanTools = tier === "pro";
   const canHavePid = projectType === "standard" || projectType === "pdca";
   const canHaveCharter = projectType === "dmaic";
-const [sipocCount, setSipocCount] = useState(0);
-const [stakeholderCount, setStakeholderCount] = useState(0);
 
   const upsellText = useMemo(() => {
     if (tier === "pro") return null;
@@ -54,33 +86,42 @@ const [stakeholderCount, setStakeholderCount] = useState(0);
         setProjectType(pr.project_type);
         setProjectName(pr.name ?? "");
 
-        const { count: stCnt } = await supabase
-         .from("lean_components")
-          .select("id", { count: "exact", head: true })
-          .eq("project_id", projectId)
-         .eq("component_type", "stakeholder_analysis");
-
-      setStakeholderCount(stCnt ?? 0);
-
-        const [pid, charter, fiveWhys] = await Promise.all([
+        // Single-instance tools
+        const [pid, charter] = await Promise.all([
           loadLeanComponent(projectId, "pid").catch(() => null),
           loadLeanComponent(projectId, "project_charter").catch(() => null),
-          loadLeanComponent(projectId, "five_whys").catch(() => null),
         ]);
-
-    setHasFiveWhys(!!fiveWhys);
-
-    const { count: sipocCnt, error: sipocErr } = await supabase
-  .from("lean_components")
-  .select("id", { count: "exact", head: true })
-  .eq("project_id", projectId)
-  .eq("component_type", "sipoc");
-
-if (!sipocErr) setSipocCount(sipocCnt ?? 0);
-
         if (cancelled) return;
         setHasPid(!!pid);
         setHasCharter(!!charter);
+
+        // Multi-instance tools (counts)
+        const [
+          { count: wCnt, error: wErr },
+          { count: sCnt, error: sErr },
+          { count: stCnt, error: stErr },
+        ] = await Promise.all([
+          supabase
+            .from("lean_components")
+            .select("id", { count: "exact", head: true })
+            .eq("project_id", projectId)
+            .eq("component_type", "five_whys"),
+          supabase
+            .from("lean_components")
+            .select("id", { count: "exact", head: true })
+            .eq("project_id", projectId)
+            .eq("component_type", "sipoc"),
+          supabase
+            .from("lean_components")
+            .select("id", { count: "exact", head: true })
+            .eq("project_id", projectId)
+            .eq("component_type", "stakeholder_analysis"),
+        ]);
+
+        // Don't hard-fail the whole page on count errors
+        if (!wErr) setFiveWhysCount(wCnt ?? 0);
+        if (!sErr) setSipocCount(sCnt ?? 0);
+        if (!stErr) setStakeholderCount(stCnt ?? 0);
       } catch (e: any) {
         console.error("Lean hub load failed:", e);
         alert(e?.message ?? "Failed to load Lean tools.");
@@ -111,6 +152,9 @@ if (!sipocErr) setSipocCount(sipocCnt ?? 0);
         </div>
 
         <div className="flex flex-col gap-2 items-end">
+          <Button variant="outline" onClick={() => router.push("/pricing")}>
+            Pricing
+          </Button>
         </div>
       </header>
 
@@ -118,7 +162,7 @@ if (!sipocErr) setSipocCount(sipocCnt ?? 0);
 
       {!loading && upsellText ? (
         <div className="mt-6 border rounded-xl p-4 bg-amber-50 border-amber-200">
-          <div className="font-medium text-amber-900">Upgrade to Pro</div>
+          <div className="font-semibold text-amber-900">Upgrade to Pro</div>
           <div className="text-sm text-amber-900/80 mt-1">{upsellText}</div>
           <div className="mt-3">
             <Button onClick={() => router.push("/pricing")}>See Pro plan</Button>
@@ -126,109 +170,69 @@ if (!sipocErr) setSipocCount(sipocCnt ?? 0);
         </div>
       ) : null}
 
+      {/* DMAIC grouping */}
       <section className="mt-6 grid gap-3">
-        {/* PID */}
-        {canHavePid ? (
-          <div className="border rounded-xl p-4 bg-white">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="font-semibold">PID (Project Initiation Document)</div>
-                <div className="text-sm text-gray-600 mt-1">
-                  Define problem, objective, scope, stakeholders and risks.
-                </div>
-                <div className="text-xs text-gray-500 mt-1">Status: {hasPid ? "created" : "not created"}</div>
-              </div>
+        <SectionHeader title="Define" subtitle="Clarify the problem, scope, stakeholders and high-level process." />
 
-              <Button
-                disabled={!canUseLeanTools}
-                onClick={() => router.push(`/projects/${projectId}/lean/pid`)}
-              >
-                {hasPid ? "Open" : "Create"}
-              </Button>
-            </div>
-          </div>
-        ) : null}
-
-        {/* Charter */}
+        {/* Project Charter (DMAIC only) */}
         {canHaveCharter ? (
-          <div className="border rounded-xl p-4 bg-white">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="font-semibold">Project Charter (DMAIC)</div>
-                <div className="text-sm text-gray-600 mt-1">
-                  Business case, goal statement, scope and team for DMAIC projects.
-                </div>
-                <div className="text-xs text-gray-500 mt-1">Status: {hasCharter ? "created" : "not created"}</div>
-              </div>
-
-              <Button
-                disabled={!canUseLeanTools}
-                onClick={() => router.push(`/projects/${projectId}/lean/charter`)}
-              >
-                {hasCharter ? "Open" : "Create"}
-              </Button>
-            </div>
-          </div>
+          <ToolCard
+            title="Project Charter (DMAIC)"
+            description="Business case, goal statement, scope and team for DMAIC projects."
+            status={hasCharter ? "created" : "not created"}
+            onOpen={() => router.push(`/projects/${projectId}/lean/project-charter`)}
+            disabled={!canUseLeanTools}
+          />
         ) : null}
 
-{/* 5 Whys (available for all project types, but Pro-gated) */}
-<div className="border rounded-xl p-4 flex items-center justify-between">
-  <div>
-    <div className="font-medium">5 Whys</div>
-    <div className="text-sm text-gray-600">Root cause analysis</div>
-    {hasFiveWhys ? <div className="text-xs text-gray-500 mt-1">Created</div> : null}
-  </div>
-  <Button
-    variant="outline"
-    onClick={() => router.push(`/projects/${projectId}/lean/five-whys`)}
-    disabled={!canUseLeanTools}
-  >
-    Open
-  </Button>
-</div>
-
-<div className="border rounded-xl p-4 flex items-center justify-between">
-  <div>
-    <div className="font-medium">Stakeholder analysis</div>
-    <div className="text-sm text-gray-600">Power / Interest matrix</div>
-    <div className="text-xs text-gray-500 mt-1">
-      {stakeholderCount > 0 ? `${stakeholderCount} created` : "No analysis created yet"}
-    </div>
-  </div>
-
-  <Button
-    variant="outline"
-    onClick={() => router.push(`/projects/${projectId}/lean/stakeholders`)}
-    disabled={!canUseLeanTools}
-  >
-    Open
-  </Button>
-</div>
-
-{/* SIPOC (Pro only, multi-instance) */}
-<div className="border rounded-xl p-4 flex items-center justify-between">
-  <div>
-    <div className="font-medium">SIPOC</div>
-    <div className="text-sm text-gray-600">Suppliers • Inputs • Process • Outputs • Customers • Requirements</div>
-
-    <div className="text-xs text-gray-500 mt-1">
-      {sipocCount > 0 ? `${sipocCount} created` : "No SIPOC created yet"}
-    </div>
-  </div>
-
-  <Button
-    variant="outline"
-    onClick={() => router.push(`/projects/${projectId}/lean/sipoc`)}
-    disabled={!canUseLeanTools}
-  >
-    Open
-  </Button>
-</div>
-        {!canHavePid && !canHaveCharter ? (
-          <div className="text-sm text-gray-600">
-            No Lean templates available for this project type.
-          </div>
+        {/* PID (standard/pdca only) - optional in Define */}
+        {canHavePid ? (
+          <ToolCard
+            title="PID"
+            description="Problem definition, objective and scope (standard/PDCA)."
+            status={hasPid ? "created" : "not created"}
+            onOpen={() => router.push(`/projects/${projectId}/lean/pid`)}
+            disabled={!canUseLeanTools}
+          />
         ) : null}
+
+        {/* SIPOC */}
+        <ToolCard
+          title="SIPOC"
+          description="Suppliers • Inputs • Process • Outputs • Customers • Requirements"
+          status={`${sipocCount} created`}
+          onOpen={() => router.push(`/projects/${projectId}/lean/sipoc`)}
+          disabled={!canUseLeanTools}
+        />
+
+        {/* Stakeholder analysis */}
+        <ToolCard
+          title="Stakeholder analysis"
+          description="Power / Interest matrix"
+          status={`${stakeholderCount} created`}
+          onOpen={() => router.push(`/projects/${projectId}/lean/stakeholders`)}
+          disabled={!canUseLeanTools}
+        />
+
+        <SectionHeader title="Measure" subtitle="Collect data and understand current performance." />
+        <div className="text-sm text-gray-500 border rounded-xl p-4">No tools added yet.</div>
+
+        <SectionHeader title="Analyze" subtitle="Identify root causes and key drivers." />
+
+        {/* 5 Whys */}
+        <ToolCard
+          title="5 Whys"
+          description="Root cause analysis"
+          status={`${fiveWhysCount} created`}
+          onOpen={() => router.push(`/projects/${projectId}/lean/five-whys`)}
+          disabled={!canUseLeanTools}
+        />
+
+        <SectionHeader title="Improve" subtitle="Design and implement improvements." />
+        <div className="text-sm text-gray-500 border rounded-xl p-4">No tools added yet.</div>
+
+        <SectionHeader title="Control" subtitle="Sustain the gains with monitoring and standardization." />
+        <div className="text-sm text-gray-500 border rounded-xl p-4">No tools added yet.</div>
       </section>
     </main>
   );
