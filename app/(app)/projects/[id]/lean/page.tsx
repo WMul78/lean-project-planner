@@ -34,11 +34,11 @@ function ToolCard(props: {
 
 function SectionHeader(props: { title: string; subtitle?: string }) {
   const colorMap: Record<string, string> = {
-    Define: "bg-blue-600",
-    Measure: "bg-green-600",
-    Analyze: "bg-yellow-500",
-    Improve: "bg-orange-500",
-    Control: "bg-red-600",
+    Define: "bg-blue-100 text-blue-800",
+    Measure: "bg-green-100 text-green-800",
+    Analyze: "bg-yellow-100 text-yellow-800",
+    Improve: "bg-orange-100 text-orange-800",
+    Control: "bg-red-100 text-red-800",
   };
 
   const bgColor = colorMap[props.title] ?? "bg-gray-600";
