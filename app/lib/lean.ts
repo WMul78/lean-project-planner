@@ -1,7 +1,7 @@
 // app/lib/lean.ts
 import { supabase } from "@/lib/supabaseClient";
 
-export type LeanComponentType = "pid" | "project_charter" | "five_whys" | "sipoc" | "stakeholder_analysis" | "measure_plan" | "impact_analysis" | "ishikawa" | "lessons_learned";
+export type LeanComponentType = "pid" | "project_charter" | "five_whys" | "sipoc" | "stakeholder_analysis" | "measure_plan" | "impact_analysis" | "ishikawa" | "lessons_learned" | "vsm" | "swimlane";
 export type WorkspaceTier = "free" | "core" | "pro";
 export type ProjectType = "standard" | "pdca" | "dmaic";
 
@@ -300,6 +300,22 @@ if (componentType === "lessons_learned") {
     order_index: 0,
   });
   if (rowErr) throw rowErr;
+}
+
+if (componentType === "vsm" || componentType === "swimlane") {
+  const diagramType = componentType; // "vsm" | "swimlane"
+
+  const { error: metaErr } = await supabase.from("lean_external_diagrams").insert({
+    component_id: comp.id,
+    diagram_type: diagramType,
+    title: diagramType === "vsm" ? "VSM (External)" : "Swimlane (External)",
+    tool: "drawio",
+    external_url: null,
+    embed_url: null,
+    notes: null,
+  });
+
+  if (metaErr) throw metaErr;
 }
 
   // Detail row for 5 whys

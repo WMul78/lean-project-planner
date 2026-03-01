@@ -85,6 +85,8 @@ export default function LeanHubPage() {
   const [impactCount, setImpactCount] = useState(0);
   const [ishikawaCount, setIshikawaCount] = useState(0);
   const [lessonsLearnedCount, setLessonsLearnedCount] = useState(0);
+  const [vsmCount, setVsmCount] = useState(0);
+  const [swimlaneCount, setSwimlaneCount] = useState(0);
 
   const upsellText = useMemo(() => {
     if (tier === "pro") return null;
@@ -125,6 +127,8 @@ export default function LeanHubPage() {
           { count: iCnt, error: iErr },
           { count: llCnt, error: llErr },
           { count: stCnt, error: stErr },
+          { count: vCnt, error: vErr },
+          { count: sCnt2, error: sErr2 },
         ] = await Promise.all([
           supabase
             .from("lean_components")
@@ -156,6 +160,16 @@ export default function LeanHubPage() {
             .select("id", { count: "exact", head: true })
             .eq("project_id", projectId)
             .eq("component_type", "lessons_learned"),
+          supabase
+            .from("lean_components")
+            .select("id", { count: "exact", head: true })
+            .eq("project_id", projectId)
+            .eq("component_type", "vsm"),
+          supabase
+           .from("lean_components")
+           .select("id", { count: "exact", head: true })
+           .eq("project_id", projectId)
+           .eq("component_type", "swimlane"),
         ]);
 
 
@@ -174,6 +188,8 @@ if (!mpErr) setMeasurePlanCount(mpCnt ?? 0);
         if (!llErr) setLessonsLearnedCount(llCnt ?? 0);
         if (!sErr) setSipocCount(sCnt ?? 0);
         if (!stErr) setStakeholderCount(stCnt ?? 0);
+        if (!vErr) setVsmCount(vCnt ?? 0);
+        if (!sErr2) setSwimlaneCount(sCnt2 ?? 0);
       } catch (e: any) {
         console.error("Lean hub load failed:", e);
         alert(e?.message ?? "Failed to load Lean tools.");
@@ -273,7 +289,21 @@ if (!mpErr) setMeasurePlanCount(mpCnt ?? 0);
           onOpen={() => router.push(`/projects/${projectId}/lean/measure-plan`)}
           disabled={!canUseLeanTools}
         />
+        <ToolCard
+          title="Swimlane (External)"
+          description="Link a swimlane diagram created in draw.io."
+          status={`${swimlaneCount} created`}
+          onOpen={() => router.push(`/projects/${projectId}/lean/swimlane`)}
+          disabled={!canUseLeanTools}
+        />
 
+        <ToolCard
+          title="VSM (External)"
+          description="Link a value stream map created in draw.io."
+          status={`${vsmCount} created`}
+          onOpen={() => router.push(`/projects/${projectId}/lean/vsm`)}
+          disabled={!canUseLeanTools}
+        />
 
         <SectionHeader title="Analyze" subtitle="Identify root causes and key drivers." />
 
@@ -302,7 +332,14 @@ if (!mpErr) setMeasurePlanCount(mpCnt ?? 0);
           onOpen={() => router.push(`/projects/${projectId}/lean/impact-analysis`)}
           disabled={!canUseLeanTools}
         />
-
+        <ToolCard
+          title="VSM (External)"
+          description="Link a value stream map created in draw.io."
+          status={`${vsmCount} created`}
+          onOpen={() => router.push(`/projects/${projectId}/lean/vsm`)}
+          disabled={!canUseLeanTools}
+        />
+        
         <SectionHeader title="Control" subtitle="Sustain the gains with monitoring and standardization." />
         <ToolCard
           title="Lessons learned"
