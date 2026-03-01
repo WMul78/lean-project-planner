@@ -350,54 +350,53 @@ export default function IshikawaDetailPage() {
 
 /**
  * Classic Ishikawa (Fishbone) renderer (head on the right).
- * - Bones go "backwards" (to the left) from the spine (like a real Ishikawa).
- * - Category labels are in boxes.
- * - Causes are drawn as horizontal lines ending on the category bone (with arrow).
- * - Robust layout: fixed columns + fixed slots.
+ * Changes vs previous:
+ * - NO arrows (no markerEnd) -> cleaner + more space
+ * - Cause text is placed close to the diagonal bone (not all the way left)
+ * - Text is above the line for top bones, below for bottom bones
+ * - Problem box is more compact
+ * - Layout is stable via fixed columns + fixed slots
  */
 function IshikawaDiagram(props: {
   problem: string;
   categories: { name: string; causes: string[] }[];
 }) {
-  // Canvas
   const width = 1500;
   const height = 650;
 
-  // Spine (ruggengraat)
+  // Spine
   const spineY = height / 2;
-  const spineStartX = 120;
-  const spineEndX = 1060; // before the problem box
+  const spineStartX = 140;
+  const spineEndX = 1020;
 
-  // Problem box (vissekop)
-  const headX = 1100;
-  const headW = 320;
-  const headH = 150;
+  // Compact problem box (head)
+  const headW = 240;
+  const headH = 110;
+  const headX = spineEndX + 50;
 
-  // Category bone geometry (backwards)
-  // Anchor = on spine; End = left/up or left/down
-  const boneLenX = 260; // how far left the bone end is
-  const boneLenY = 210; // how far up/down the bone end is
+  // Bones go backwards (to the left)
+  const boneLenX = 260;
+  const boneLenY = 210;
 
-  // We place bones in 3 columns (classic)
+  // Exactly 3 columns like the classic example
   const columns = 3;
   const colXs = Array.from({ length: columns }, (_, i) => {
     const t = (i + 1) / (columns + 1); // 0.25, 0.5, 0.75
     return spineStartX + (spineEndX - spineStartX) * t;
   });
 
-  // Category box style
+  // Category boxes
   const catBoxW = 170;
   const catBoxH = 46;
 
-  // Cause lines
-  const maxCauses = 6; // keep it stable in diagram
-  const causeLineStartX = 80; // where the horizontal cause lines begin
-  const causeTextX = 30;      // text anchor position (left)
-  const fontSize = 12;
-
-  // Slots along each bone (0..1 from spine anchor to bone end)
-  // Spread them so they don't cluster near the spine.
+  // Causes
+  const maxCauses = 6;
   const slots = [0.22, 0.34, 0.46, 0.58, 0.70, 0.82];
+
+  // Cause line length (keep it consistent)
+  const causeLineLen = 220;
+  const lineGap = 0; // keep 0 for stable classic look
+  const fontSize = 12;
 
   // Helpers
   function clampText(s: string, n: number) {
@@ -409,29 +408,8 @@ function IshikawaDiagram(props: {
     return a + (b - a) * t;
   }
 
-  function wrapTwoLines(text: string, maxCharsPerLine: number) {
-    const words = (text || "").trim().split(/\s+/).filter(Boolean);
-    if (!words.length) return [""];
-
-    const lines: string[] = [];
-    let current = "";
-
-    for (const w of words) {
-      const next = current ? `${current} ${w}` : w;
-      if (next.length <= maxCharsPerLine) {
-        current = next;
-      } else {
-        if (current) lines.push(current);
-        current = w;
-        if (lines.length === 2) break;
-      }
-    }
-    if (lines.length < 2 && current) lines.push(current);
-
-    if (lines.length === 2) lines[1] = clampText(lines[1], maxCharsPerLine);
-    if (lines.length === 1) lines[0] = clampText(lines[0], maxCharsPerLine);
-
-    return lines;
+  function wrapOneLine(text: string, maxChars: number) {
+    return clampText((text || "").trim(), maxChars);
   }
 
   const problem = (props.problem || "Define the problem").trim();
@@ -440,11 +418,9 @@ function IshikawaDiagram(props: {
     causes: (c.causes ?? []).map((x) => (x || "").trim()).filter(Boolean).slice(0, maxCauses),
   }));
 
-  // We keep your existing order (alternating top/bottom):
-  // index 0 top col0, 1 bottom col0, 2 top col1, 3 bottom col1, 4 top col2, 5 bottom col2, ...
-  // If you always have exactly 6 categories this matches the classic layout nicely.
+  // Order: 0 top col0, 1 bottom col0, 2 top col1, 3 bottom col1, 4 top col2, 5 bottom col2 ...
   function getColIndex(i: number) {
-    return Math.floor(i / 2); // 0,0,1,1,2,2,...
+    return Math.floor(i / 2); // 0,0,1,1,2,2
   }
   function isTop(i: number) {
     return i % 2 === 0;
@@ -452,23 +428,13 @@ function IshikawaDiagram(props: {
 
   return (
     <svg width="100%" viewBox={`0 0 ${width} ${height}`}>
-      {/* Arrow marker */}
-      <defs>
-        <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
-          <path d="M0,0 L10,5 L0,10 Z" fill="black" />
-        </marker>
-      </defs>
-
       {/* Spine */}
       <line x1={spineStartX} y1={spineY} x2={spineEndX} y2={spineY} stroke="black" strokeWidth="2" />
 
-      {/* Problem head */}
+      {/* Compact problem box */}
       <rect x={headX} y={spineY - headH / 2} width={headW} height={headH} fill="#fff" stroke="black" />
-      <text x={headX + headW / 2} y={spineY - 20} textAnchor="middle" fontSize="16" fontWeight="700">
-        Problem
-      </text>
-      <text x={headX + headW / 2} y={spineY + 16} textAnchor="middle" fontSize="14">
-        {clampText(problem || "Define the problem", 44)}
+      <text x={headX + headW / 2} y={spineY} textAnchor="middle" dominantBaseline="middle" fontSize="14" fontWeight="700">
+        {clampText(problem || "Define the problem", 34)}
       </text>
 
       {/* Small label */}
@@ -477,21 +443,21 @@ function IshikawaDiagram(props: {
       </text>
 
       {cats.map((cat, i) => {
-        const col = Math.min(columns - 1, getColIndex(i)); // safety
+        const col = Math.min(columns - 1, getColIndex(i));
         const ax = colXs[col]; // anchor on spine
         const ay = spineY;
 
-        // Bone end goes backwards (to the left)
+        // Bone end goes backwards (left) and up/down
         const bx = ax - boneLenX;
         const by = isTop(i) ? spineY - boneLenY : spineY + boneLenY;
 
         // Category box near bone end
         const boxX = bx - catBoxW / 2;
-        const boxY = by - (isTop(i) ? catBoxH + 14 : -14); // above for top, below for bottom
+        const boxY = by - (isTop(i) ? catBoxH + 14 : -14);
 
         return (
           <g key={`${cat.name}-${i}`}>
-            {/* Bone (diagonal) */}
+            {/* Diagonal bone */}
             <line x1={ax} y1={ay} x2={bx} y2={by} stroke="black" strokeWidth="2" />
 
             {/* Category box */}
@@ -507,46 +473,39 @@ function IshikawaDiagram(props: {
               {clampText(cat.name, 18)}
             </text>
 
-            {/* Causes as horizontal lines pointing to the bone */}
+            {/* Causes: horizontal lines ending near the bone, text close to the bone (not on far left) */}
             {cat.causes.map((cause, idx) => {
               const t = slots[idx] ?? slots[slots.length - 1];
 
-              // Point on bone at slot t
+              // Point on the bone
               const px = lerp(ax, bx, t);
               const py = lerp(ay, by, t);
 
-              // Horizontal line should end near the bone (px,py)
-              // Start is fixed left; ensure we don't go past the end.
+              // End of cause line slightly before touching the bone
               const x2 = px - 6;
-              const x1 = Math.min(x2 - 40, causeLineStartX); // keep a minimum line length
-              const y = py;
+              const y = py + idx * lineGap; // keep stable (0)
 
-              // Text near the left
-              const lines = wrapTwoLines(cause, 26);
+              // Start of cause line (fixed length)
+              const x1 = x2 - causeLineLen;
+
+              // Text positioned near x1 but still close-ish to the bone
+              // For a classic look: put text above the line (top bones), below the line (bottom bones)
+              const text = wrapOneLine(cause, 32);
+
+              const textX = x1 + 6; // small inset from line start
+              const textY = isTop(i) ? y - 8 : y + 18;
 
               return (
                 <g key={idx}>
-                  {/* Cause line with arrow toward bone */}
-                  <line
-                    x1={x1}
-                    y1={y}
-                    x2={x2}
-                    y2={y}
-                    stroke="black"
-                    strokeWidth="1.6"
-                    markerEnd="url(#arrow)"
-                  />
+                  {/* Cause line (NO arrow) */}
+                  <line x1={x1} y1={y} x2={x2} y2={y} stroke="black" strokeWidth="1.6" />
+
+                  {/* Small end tick (optional): makes it feel like it points at the bone without arrowheads */}
+                  <line x1={x2} y1={y - 4} x2={x2} y2={y + 4} stroke="black" strokeWidth="1.2" />
 
                   {/* Cause text */}
-                  <text x={causeTextX} y={y - 4} fontSize={fontSize} textAnchor="start">
-                    <tspan x={causeTextX} dy="0">
-                      {lines[0]}
-                    </tspan>
-                    {lines[1] ? (
-                      <tspan x={causeTextX} dy="14">
-                        {lines[1]}
-                      </tspan>
-                    ) : null}
+                  <text x={textX} y={textY} fontSize={fontSize} textAnchor="start">
+                    {text}
                   </text>
                 </g>
               );
