@@ -370,7 +370,7 @@ function IshikawaDiagram(props: {
   const spineEndX = 1020;
 
   // Compact problem box (head)
-  const headW = 90;
+  const headW = 220;
   const headH = 110;
   const headX = spineEndX + 50;
 
