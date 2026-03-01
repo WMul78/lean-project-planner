@@ -252,9 +252,6 @@ export default function ImpactAnalysisDetailPage() {
         </div>
 
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => router.push("/pricing")}>
-            Pricing
-          </Button>
           <Button onClick={addItem} disabled={!canEdit}>
             Add idea
           </Button>
