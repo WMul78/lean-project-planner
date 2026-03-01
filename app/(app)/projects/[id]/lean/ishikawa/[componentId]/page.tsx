@@ -364,6 +364,8 @@ function IshikawaDiagram(props: {
   const width = 1500;
   const height = 650;
 
+
+
   // Spine
   const spineY = height / 2;
   const spineStartX = 260;
@@ -373,7 +375,7 @@ function IshikawaDiagram(props: {
   const headW = 200;
   const headH = 90;
   const headGap = 8;          // was effectively 50
-  const headX = spineEndX + headGap;
+  
 
   // Bones go backwards (to the left)
   const boneLenX = 260;
@@ -385,6 +387,12 @@ function IshikawaDiagram(props: {
     const t = (i + 1) / (columns + 1); // 0.25, 0.5, 0.75
     return spineStartX + (spineEndX - spineStartX) * t;
   });
+ 
+// Let the spine end exactly at the last category anchor
+   const lastAnchorX = colXs[columns - 1];
+  const adjustedSpineEndX = lastAnchorX;
+
+const headX = adjustedSpineEndX + headGap;
 
   // Category boxes
   const catBoxW = 170;
@@ -430,7 +438,7 @@ function IshikawaDiagram(props: {
   return (
     <svg width="100%" viewBox={`0 0 ${width} ${height}`}>
       {/* Spine */}
-      <line x1={spineStartX} y1={spineY} x2={spineEndX} y2={spineY} stroke="black" strokeWidth="2" />
+      <line x1={spineStartX} y1={spineY} x2={adjustedSpineEndX} y2={spineY} stroke="black" strokeWidth="2" />
 
       {/* Compact problem box */}
       <rect x={headX} y={spineY - headH / 2} width={headW} height={headH} fill="#fff" stroke="black" />
