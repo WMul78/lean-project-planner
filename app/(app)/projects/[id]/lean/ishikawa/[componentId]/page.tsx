@@ -349,50 +349,57 @@ export default function IshikawaDetailPage() {
 }
 
 /**
- * Robust Ishikawa (Fishbone) SVG renderer.
- * Key improvements:
- * - Cause ribs are drawn PERPENDICULAR to the category bone (prevents crossing near the spine)
- * - Fixed slot positions along each bone (stable layout)
- * - 2-line text wrapping (reduces overlap)
- * - Larger left margin to keep labels inside the viewBox
+ * Classic Ishikawa (Fishbone) renderer (head on the right).
+ * - Bones go "backwards" (to the left) from the spine (like a real Ishikawa).
+ * - Category labels are in boxes.
+ * - Causes are drawn as horizontal lines ending on the category bone (with arrow).
+ * - Robust layout: fixed columns + fixed slots.
  */
 function IshikawaDiagram(props: {
   problem: string;
   categories: { name: string; causes: string[] }[];
 }) {
-  // Bigger canvas = more breathing room
-  const width = 1400;
-  const height = 620;
+  // Canvas
+  const width = 1500;
+  const height = 650;
 
+  // Spine (ruggengraat)
   const spineY = height / 2;
+  const spineStartX = 120;
+  const spineEndX = 1060; // before the problem box
 
-  // Layout constants
-  const leftMargin = 260;   // space for cause text on the left
-  const spineStartX = leftMargin;
-  const spineEndX = 1040;
+  // Problem box (vissekop)
+  const headX = 1100;
+  const headW = 320;
+  const headH = 150;
 
-  const boxX = 1080;
-  const boxW = 260;
-  const boxH = 120;
+  // Category bone geometry (backwards)
+  // Anchor = on spine; End = left/up or left/down
+  const boneLenX = 260; // how far left the bone end is
+  const boneLenY = 210; // how far up/down the bone end is
 
-  const colWidth = 260;
-  const boneDx = 170;
-  const boneDy = 190;
+  // We place bones in 3 columns (classic)
+  const columns = 3;
+  const colXs = Array.from({ length: columns }, (_, i) => {
+    const t = (i + 1) / (columns + 1); // 0.25, 0.5, 0.75
+    return spineStartX + (spineEndX - spineStartX) * t;
+  });
 
-  // Cause rib layout
-  const maxCauses = 6; // keep MVP bounded
-  const ribLen = 160;  // rib length outward from bone
-  const ribEndInset = 12; // arrow ends slightly before bone point
+  // Category box style
+  const catBoxW = 170;
+  const catBoxH = 46;
+
+  // Cause lines
+  const maxCauses = 6; // keep it stable in diagram
+  const causeLineStartX = 80; // where the horizontal cause lines begin
+  const causeTextX = 30;      // text anchor position (left)
   const fontSize = 12;
 
-  // Fixed slots along bone (stable and prevents clumping near the spine)
-  // Values are t in [0..1] along the diagonal bone from spine->endpoint
-  const slots = [0.22, 0.32, 0.42, 0.52, 0.62, 0.72];
+  // Slots along each bone (0..1 from spine anchor to bone end)
+  // Spread them so they don't cluster near the spine.
+  const slots = [0.22, 0.34, 0.46, 0.58, 0.70, 0.82];
 
-  const problem = (props.problem || "Define the problem").trim();
-  const cats = props.categories ?? [];
-
-  // ---- Geometry helpers ----
+  // Helpers
   function clampText(s: string, n: number) {
     const t = (s || "").trim();
     return t.length > n ? t.slice(0, n - 1) + "…" : t;
@@ -402,14 +409,9 @@ function IshikawaDiagram(props: {
     return a + (b - a) * t;
   }
 
-  function normalize(x: number, y: number) {
-    const len = Math.sqrt(x * x + y * y) || 1;
-    return { x: x / len, y: y / len };
-  }
-
   function wrapTwoLines(text: string, maxCharsPerLine: number) {
     const words = (text || "").trim().split(/\s+/).filter(Boolean);
-    if (words.length === 0) return [""];
+    if (!words.length) return [""];
 
     const lines: string[] = [];
     let current = "";
@@ -421,135 +423,127 @@ function IshikawaDiagram(props: {
       } else {
         if (current) lines.push(current);
         current = w;
-        if (lines.length === 2) break; // already have 2 lines
+        if (lines.length === 2) break;
       }
     }
     if (lines.length < 2 && current) lines.push(current);
 
-    // If still too long, clamp last line
     if (lines.length === 2) lines[1] = clampText(lines[1], maxCharsPerLine);
     if (lines.length === 1) lines[0] = clampText(lines[0], maxCharsPerLine);
 
     return lines;
   }
 
-  // Determine number of columns on the left side (categories alternate top/bottom per column)
-  const cols = Math.ceil(cats.length / 2);
+  const problem = (props.problem || "Define the problem").trim();
+  const cats = (props.categories ?? []).map((c) => ({
+    name: (c.name || "").trim() || "Category",
+    causes: (c.causes ?? []).map((x) => (x || "").trim()).filter(Boolean).slice(0, maxCauses),
+  }));
+
+  // We keep your existing order (alternating top/bottom):
+  // index 0 top col0, 1 bottom col0, 2 top col1, 3 bottom col1, 4 top col2, 5 bottom col2, ...
+  // If you always have exactly 6 categories this matches the classic layout nicely.
+  function getColIndex(i: number) {
+    return Math.floor(i / 2); // 0,0,1,1,2,2,...
+  }
+  function isTop(i: number) {
+    return i % 2 === 0;
+  }
 
   return (
     <svg width="100%" viewBox={`0 0 ${width} ${height}`}>
-      {/* Main spine */}
+      {/* Arrow marker */}
+      <defs>
+        <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+          <path d="M0,0 L10,5 L0,10 Z" fill="black" />
+        </marker>
+      </defs>
+
+      {/* Spine */}
       <line x1={spineStartX} y1={spineY} x2={spineEndX} y2={spineY} stroke="black" strokeWidth="2" />
 
-      {/* Problem box */}
-      <rect x={boxX} y={spineY - boxH / 2} width={boxW} height={boxH} fill="#fff" stroke="black" />
-      <text x={boxX + boxW / 2} y={spineY - 18} textAnchor="middle" fontSize="15" fontWeight="600">
+      {/* Problem head */}
+      <rect x={headX} y={spineY - headH / 2} width={headW} height={headH} fill="#fff" stroke="black" />
+      <text x={headX + headW / 2} y={spineY - 20} textAnchor="middle" fontSize="16" fontWeight="700">
         Problem
       </text>
-      <text x={boxX + boxW / 2} y={spineY + 12} textAnchor="middle" fontSize="13">
-        {clampText(problem || "Define the problem", 40)}
+      <text x={headX + headW / 2} y={spineY + 16} textAnchor="middle" fontSize="14">
+        {clampText(problem || "Define the problem", 44)}
       </text>
 
-      {/* Helper label */}
-      <text x={spineStartX - 85} y={spineY - 10} fontSize="10" fill="#444">
+      {/* Small label */}
+      <text x={spineStartX} y={spineY - 12} fontSize="10" fill="#444">
         Causes →
       </text>
 
-      {cats.map((cat, index) => {
-        const isTop = index % 2 === 0;
-        const col = Math.floor(index / 2);
-
-        // Anchor point on spine (spread evenly)
-        const ax = spineStartX + 120 + col * colWidth;
+      {cats.map((cat, i) => {
+        const col = Math.min(columns - 1, getColIndex(i)); // safety
+        const ax = colXs[col]; // anchor on spine
         const ay = spineY;
 
-        // Endpoint for category bone
-        const bx = ax + boneDx;
-        const by = isTop ? spineY - boneDy : spineY + boneDy;
+        // Bone end goes backwards (to the left)
+        const bx = ax - boneLenX;
+        const by = isTop(i) ? spineY - boneLenY : spineY + boneLenY;
 
-        // Bone direction vector
-        const vx = bx - ax;
-        const vy = by - ay;
-        const v = normalize(vx, vy);
-
-        // Perpendicular normal to bone (two possibilities). We want it pointing "left-ish"
-        // so ribs extend to the left side of the canvas.
-        const n1 = normalize(-v.y, v.x);
-        const n2 = normalize(v.y, -v.x);
-        const n = n1.x < 0 ? n1 : n2; // pick the one with negative X
-
-        // Causes: cleaned + capped
-        const causeList = (cat.causes ?? [])
-          .map((c) => (c || "").trim())
-          .filter(Boolean)
-          .slice(0, maxCauses);
-
-        // Category label near endpoint
-        const labelX = bx + 10;
-        const labelY = by;
-
-        // Marker id must be unique
-        const markerId = `arrow-${index}`;
+        // Category box near bone end
+        const boxX = bx - catBoxW / 2;
+        const boxY = by - (isTop(i) ? catBoxH + 14 : -14); // above for top, below for bottom
 
         return (
-          <g key={`${cat.name}-${index}`}>
-            <defs>
-              <marker id={markerId} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-                <path d="M0,0 L8,4 L0,8 Z" fill="black" />
-              </marker>
-            </defs>
-
-            {/* Diagonal bone */}
+          <g key={`${cat.name}-${i}`}>
+            {/* Bone (diagonal) */}
             <line x1={ax} y1={ay} x2={bx} y2={by} stroke="black" strokeWidth="2" />
 
-            {/* Category label */}
-            <text x={labelX} y={labelY} fontSize="14" fontWeight="600" dominantBaseline="middle">
-              {cat.name}
+            {/* Category box */}
+            <rect x={boxX} y={boxY} width={catBoxW} height={catBoxH} fill="#fff" stroke="black" />
+            <text
+              x={boxX + catBoxW / 2}
+              y={boxY + catBoxH / 2}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              fontSize="13"
+              fontWeight="700"
+            >
+              {clampText(cat.name, 18)}
             </text>
 
-            {/* Cause ribs: perpendicular to bone (prevents overlap near spine) */}
-            {causeList.map((cause, i) => {
-              const t = slots[i] ?? slots[slots.length - 1];
+            {/* Causes as horizontal lines pointing to the bone */}
+            {cat.causes.map((cause, idx) => {
+              const t = slots[idx] ?? slots[slots.length - 1];
 
               // Point on bone at slot t
               const px = lerp(ax, bx, t);
               const py = lerp(ay, by, t);
 
-              // Rib goes outward along normal n
-              const startX = px + n.x * ribLen;
-              const startY = py + n.y * ribLen;
+              // Horizontal line should end near the bone (px,py)
+              // Start is fixed left; ensure we don't go past the end.
+              const x2 = px - 6;
+              const x1 = Math.min(x2 - 40, causeLineStartX); // keep a minimum line length
+              const y = py;
 
-              const endX = px + n.x * ribEndInset;
-              const endY = py + n.y * ribEndInset;
-
-              // Text placed slightly before rib start (further outward), anchored to left
-              const textX = startX + n.x * 8;
-              const textY = startY + n.y * 8;
-
-              // Wrap to 2 lines
-              const lines = wrapTwoLines(cause, 22);
-
-              // Align text so it stays readable regardless of top/bottom
-              // If rib normal points left, "end" anchor will keep it inside the canvas.
-              const textAnchor = n.x < 0 ? "end" : "start";
+              // Text near the left
+              const lines = wrapTwoLines(cause, 26);
 
               return (
-                <g key={i}>
+                <g key={idx}>
+                  {/* Cause line with arrow toward bone */}
                   <line
-                    x1={startX}
-                    y1={startY}
-                    x2={endX}
-                    y2={endY}
+                    x1={x1}
+                    y1={y}
+                    x2={x2}
+                    y2={y}
                     stroke="black"
-                    strokeWidth="1.5"
-                    markerEnd={`url(#${markerId})`}
+                    strokeWidth="1.6"
+                    markerEnd="url(#arrow)"
                   />
-                  <text x={textX} y={textY} fontSize={fontSize} textAnchor={textAnchor}>
-                    <tspan x={textX} dy="0">
+
+                  {/* Cause text */}
+                  <text x={causeTextX} y={y - 4} fontSize={fontSize} textAnchor="start">
+                    <tspan x={causeTextX} dy="0">
                       {lines[0]}
                     </tspan>
                     {lines[1] ? (
-                      <tspan x={textX} dy="14">
+                      <tspan x={causeTextX} dy="14">
                         {lines[1]}
                       </tspan>
                     ) : null}
