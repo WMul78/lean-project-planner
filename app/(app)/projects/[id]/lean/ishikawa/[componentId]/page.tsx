@@ -328,7 +328,7 @@ export default function IshikawaDetailPage() {
               </div>
             </div>
 
-            <div className={["mt-4 border rounded-xl bg-gray-50", sidebarHidden ? "p-1" : "p-3"].join(" ")}>
+            <div className={["mt-4 border rounded-xl bg-gray-50", sidebarHidden ? "p-0" : "p-2"].join(" ")}>
               <IshikawaDiagram
                 problem={problem}
                 categories={grouped.map((c) => ({
@@ -366,13 +366,14 @@ function IshikawaDiagram(props: {
 
   // Spine
   const spineY = height / 2;
-  const spineStartX = 140;
-  const spineEndX = 1020;
+  const spineStartX = 240;
+  const spineEndX = 1140;
 
   // Compact problem box (head)
   const headW = 220;
-  const headH = 110;
-  const headX = spineEndX + 50;
+  const headH = 100;
+  const headGap = 20;          // was effectively 50
+  const headX = spineEndX + headGap;
 
   // Bones go backwards (to the left)
   const boneLenX = 260;
