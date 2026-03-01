@@ -82,6 +82,7 @@ export default function LeanHubPage() {
   const canHavePid = projectType === "standard" || projectType === "pdca";
   const canHaveCharter = projectType === "dmaic";
   const [measurePlanCount, setMeasurePlanCount] = useState(0);
+  const [impactCount, setImpactCount] = useState(0);
 
   const upsellText = useMemo(() => {
     if (tier === "pro") return null;
@@ -136,6 +137,11 @@ export default function LeanHubPage() {
             .select("id", { count: "exact", head: true })
             .eq("project_id", projectId)
             .eq("component_type", "stakeholder_analysis"),
+          supabase
+            .from("lean_components")
+            .select("id", { count: "exact", head: true })
+            .eq("project_id", projectId)
+            .eq("component_type", "impact_analysis"),
         ]);
 
 
@@ -264,7 +270,13 @@ if (!mpErr) setMeasurePlanCount(mpCnt ?? 0);
         />
 
         <SectionHeader title="Improve" subtitle="Design and implement improvements." />
-        <div className="text-sm text-gray-500 border rounded-xl p-4">No tools added yet.</div>
+        <ToolCard
+          title="Impact analysis"
+          description="Impact / Effort matrix (quick wins vs major projects)."
+          status={`${impactCount} created`}
+          onOpen={() => router.push(`/projects/${projectId}/lean/impact-analysis`)}
+          disabled={!canUseLeanTools}
+        />
 
         <SectionHeader title="Control" subtitle="Sustain the gains with monitoring and standardization." />
         <div className="text-sm text-gray-500 border rounded-xl p-4">No tools added yet.</div>

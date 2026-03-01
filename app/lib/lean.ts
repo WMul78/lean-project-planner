@@ -1,7 +1,7 @@
 // app/lib/lean.ts
 import { supabase } from "@/lib/supabaseClient";
 
-export type LeanComponentType = "pid" | "project_charter" | "five_whys" | "sipoc" | "stakeholder_analysis" | "measure_plan";
+export type LeanComponentType = "pid" | "project_charter" | "five_whys" | "sipoc" | "stakeholder_analysis" | "measure_plan" | "impact_analysis";
 export type WorkspaceTier = "free" | "core" | "pro";
 export type ProjectType = "standard" | "pdca" | "dmaic";
 
@@ -219,6 +219,25 @@ if (componentType === "measure_plan") {
     order_index: 0,
   });
   if (rowErr) throw rowErr;
+}
+
+if (componentType === "impact_analysis") {
+  const { error: metaErr } = await supabase.from("lean_impact_analysis").insert({
+    component_id: comp.id,
+    title: "Impact analysis",
+  });
+  if (metaErr) throw metaErr;
+
+  // Start with 1 item so the user can begin immediately
+  const { error: itemErr } = await supabase.from("lean_impact_items").insert({
+    component_id: comp.id,
+    title: "New idea",
+    description: null,
+    impact: 4,
+    effort: 2,
+    order_index: 0,
+  });
+  if (itemErr) throw itemErr;
 }
 
   // Detail row for 5 whys
