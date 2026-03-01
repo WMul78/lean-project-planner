@@ -370,7 +370,7 @@ function IshikawaDiagram(props: {
   const spineEndX = 1020;
 
   // Compact problem box (head)
-  const headW = 240;
+  const headW = 90;
   const headH = 110;
   const headX = spineEndX + 50;
 
@@ -394,7 +394,7 @@ function IshikawaDiagram(props: {
   const slots = [0.22, 0.34, 0.46, 0.58, 0.70, 0.82];
 
   // Cause line length (keep it consistent)
-  const causeLineLen = 220;
+  const causeLineLen = 190;
   const lineGap = 0; // keep 0 for stable classic look
   const fontSize = 12;
 
