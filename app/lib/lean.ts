@@ -1,7 +1,7 @@
 // app/lib/lean.ts
 import { supabase } from "@/lib/supabaseClient";
 
-export type LeanComponentType = "pid" | "project_charter" | "five_whys" | "sipoc" | "stakeholder_analysis" | "measure_plan" | "impact_analysis";
+export type LeanComponentType = "pid" | "project_charter" | "five_whys" | "sipoc" | "stakeholder_analysis" | "measure_plan" | "impact_analysis" | "ishikawa";
 export type WorkspaceTier = "free" | "core" | "pro";
 export type ProjectType = "standard" | "pdca" | "dmaic";
 
@@ -238,6 +238,50 @@ if (componentType === "impact_analysis") {
     order_index: 0,
   });
   if (itemErr) throw itemErr;
+}
+
+
+if (componentType === "ishikawa") {
+  // 1) Create meta row
+  const { error: metaErr } = await supabase.from("lean_ishikawa").insert({
+    component_id: comp.id,
+    problem_statement: "Define the problem",
+  });
+  if (metaErr) throw metaErr;
+
+  // 2) Seed default 6M categories (editable later if you want)
+  const defaultCategories = [
+    "People",
+    "Methods",
+    "Machines",
+    "Materials",
+    "Measurements",
+    "Environment",
+  ];
+
+  // Insert categories in order
+  const { data: cats, error: catsErr } = await supabase
+    .from("lean_ishikawa_categories")
+    .insert(
+      defaultCategories.map((name, idx) => ({
+        component_id: comp.id,
+        name,
+        order_index: idx,
+      }))
+    )
+    .select("id, name, order_index");
+
+  if (catsErr) throw catsErr;
+
+  // 3) (Optional) seed one empty cause in first category for instant UX
+  if (cats && cats.length > 0) {
+    const { error: causeErr } = await supabase.from("lean_ishikawa_causes").insert({
+      category_id: cats[0].id,
+      description: "New cause",
+      order_index: 0,
+    });
+    if (causeErr) throw causeErr;
+  }
 }
 
   // Detail row for 5 whys

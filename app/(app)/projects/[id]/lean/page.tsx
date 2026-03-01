@@ -83,6 +83,7 @@ export default function LeanHubPage() {
   const canHaveCharter = projectType === "dmaic";
   const [measurePlanCount, setMeasurePlanCount] = useState(0);
   const [impactCount, setImpactCount] = useState(0);
+  const [ishikawaCount, setIshikawaCount] = useState(0);
 
   const upsellText = useMemo(() => {
     if (tier === "pro") return null;
@@ -120,6 +121,7 @@ export default function LeanHubPage() {
         const [
           { count: wCnt, error: wErr },
           { count: sCnt, error: sErr },
+          { count: iCnt, error: iErr },
           { count: stCnt, error: stErr },
         ] = await Promise.all([
           supabase
@@ -142,6 +144,11 @@ export default function LeanHubPage() {
             .select("id", { count: "exact", head: true })
             .eq("project_id", projectId)
             .eq("component_type", "impact_analysis"),
+          supabase
+            .from("lean_components")
+            .select("id", { count: "exact", head: true })
+            .eq("project_id", projectId)
+            .eq("component_type", "ishikawa"),
         ]);
 
 
@@ -155,6 +162,7 @@ if (!mpErr) setMeasurePlanCount(mpCnt ?? 0);
 
         // Don't hard-fail the whole page on count errors
         if (!wErr) setFiveWhysCount(wCnt ?? 0);
+        if (!iErr) setIshikawaCount(iCnt ?? 0);
         if (!sErr) setSipocCount(sCnt ?? 0);
         if (!stErr) setStakeholderCount(stCnt ?? 0);
       } catch (e: any) {
@@ -268,6 +276,14 @@ if (!mpErr) setMeasurePlanCount(mpCnt ?? 0);
           onOpen={() => router.push(`/projects/${projectId}/lean/five-whys`)}
           disabled={!canUseLeanTools}
         />
+        <ToolCard
+          title="Ishikawa (Fishbone)"
+          description="Cause & effect diagram (6M categories)."
+          status={`${ishikawaCount} created`}
+          onOpen={() => router.push(`/projects/${projectId}/lean/ishikawa`)}
+          disabled={!canUseLeanTools}
+        />
+
 
         <SectionHeader title="Improve" subtitle="Design and implement improvements." />
         <ToolCard
