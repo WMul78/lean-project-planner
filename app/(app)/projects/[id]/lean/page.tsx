@@ -84,6 +84,7 @@ export default function LeanHubPage() {
   const [measurePlanCount, setMeasurePlanCount] = useState(0);
   const [impactCount, setImpactCount] = useState(0);
   const [ishikawaCount, setIshikawaCount] = useState(0);
+  const [lessonsLearnedCount, setLessonsLearnedCount] = useState(0);
 
   const upsellText = useMemo(() => {
     if (tier === "pro") return null;
@@ -122,6 +123,7 @@ export default function LeanHubPage() {
           { count: wCnt, error: wErr },
           { count: sCnt, error: sErr },
           { count: iCnt, error: iErr },
+          { count: llCnt, error: llErr },
           { count: stCnt, error: stErr },
         ] = await Promise.all([
           supabase
@@ -149,9 +151,15 @@ export default function LeanHubPage() {
             .select("id", { count: "exact", head: true })
             .eq("project_id", projectId)
             .eq("component_type", "ishikawa"),
+          supabase
+            .from("lean_components")
+            .select("id", { count: "exact", head: true })
+            .eq("project_id", projectId)
+            .eq("component_type", "lessons_learned"),
         ]);
 
 
+        
         const { count: mpCnt, error: mpErr } = await supabase
   .from("lean_components")
   .select("id", { count: "exact", head: true })
@@ -163,6 +171,7 @@ if (!mpErr) setMeasurePlanCount(mpCnt ?? 0);
         // Don't hard-fail the whole page on count errors
         if (!wErr) setFiveWhysCount(wCnt ?? 0);
         if (!iErr) setIshikawaCount(iCnt ?? 0);
+        if (!llErr) setLessonsLearnedCount(llCnt ?? 0);
         if (!sErr) setSipocCount(sCnt ?? 0);
         if (!stErr) setStakeholderCount(stCnt ?? 0);
       } catch (e: any) {
@@ -295,7 +304,13 @@ if (!mpErr) setMeasurePlanCount(mpCnt ?? 0);
         />
 
         <SectionHeader title="Control" subtitle="Sustain the gains with monitoring and standardization." />
-        <div className="text-sm text-gray-500 border rounded-xl p-4">No tools added yet.</div>
+        <ToolCard
+          title="Lessons learned"
+          description="Capture key learnings and follow-up actions for the Control phase."
+          status={`${lessonsLearnedCount} created`}
+          onOpen={() => router.push(`/projects/${projectId}/lean/lessons-learned`)}
+          disabled={!canUseLeanTools}
+        />
       </section>
     </main>
   );

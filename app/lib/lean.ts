@@ -1,7 +1,7 @@
 // app/lib/lean.ts
 import { supabase } from "@/lib/supabaseClient";
 
-export type LeanComponentType = "pid" | "project_charter" | "five_whys" | "sipoc" | "stakeholder_analysis" | "measure_plan" | "impact_analysis" | "ishikawa";
+export type LeanComponentType = "pid" | "project_charter" | "five_whys" | "sipoc" | "stakeholder_analysis" | "measure_plan" | "impact_analysis" | "ishikawa" | "lessons_learned";
 export type WorkspaceTier = "free" | "core" | "pro";
 export type ProjectType = "standard" | "pdca" | "dmaic";
 
@@ -282,6 +282,24 @@ if (componentType === "ishikawa") {
     });
     if (causeErr) throw causeErr;
   }
+}
+
+if (componentType === "lessons_learned") {
+  // Create meta row
+  const { error: metaErr } = await supabase.from("lean_lessons_learned").insert({
+    component_id: comp.id,
+    title: "Lessons learned",
+  });
+  if (metaErr) throw metaErr;
+
+  // Seed one default row for better UX (optional)
+  const { error: rowErr } = await supabase.from("lean_lessons_learned_items").insert({
+    component_id: comp.id,
+    lesson: "New lesson",
+    status: "open",
+    order_index: 0,
+  });
+  if (rowErr) throw rowErr;
 }
 
   // Detail row for 5 whys
