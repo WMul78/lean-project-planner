@@ -366,13 +366,13 @@ function IshikawaDiagram(props: {
 
   // Spine
   const spineY = height / 2;
-  const spineStartX = 240;
-  const spineEndX = 1140;
+  const spineStartX = 260;
+  const spineEndX = 1220;
 
   // Compact problem box (head)
-  const headW = 220;
-  const headH = 100;
-  const headGap = 20;          // was effectively 50
+  const headW = 200;
+  const headH = 90;
+  const headGap = 8;          // was effectively 50
   const headX = spineEndX + headGap;
 
   // Bones go backwards (to the left)
