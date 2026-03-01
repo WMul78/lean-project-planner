@@ -349,37 +349,50 @@ export default function IshikawaDetailPage() {
 }
 
 /**
- * Minimal Ishikawa (Fishbone) SVG renderer.
- * Causes are drawn as "ribs" between the spine and the category bone, like classic Ishikawa diagrams.
+ * Robust Ishikawa (Fishbone) SVG renderer.
+ * Key improvements:
+ * - Cause ribs are drawn PERPENDICULAR to the category bone (prevents crossing near the spine)
+ * - Fixed slot positions along each bone (stable layout)
+ * - 2-line text wrapping (reduces overlap)
+ * - Larger left margin to keep labels inside the viewBox
  */
 function IshikawaDiagram(props: {
   problem: string;
   categories: { name: string; causes: string[] }[];
 }) {
-  const width = 1200;
-  const height = 560;
+  // Bigger canvas = more breathing room
+  const width = 1400;
+  const height = 620;
+
   const spineY = height / 2;
+
+  // Layout constants
+  const leftMargin = 260;   // space for cause text on the left
+  const spineStartX = leftMargin;
+  const spineEndX = 1040;
+
+  const boxX = 1080;
+  const boxW = 260;
+  const boxH = 120;
+
+  const colWidth = 260;
+  const boneDx = 170;
+  const boneDy = 190;
+
+  // Cause rib layout
+  const maxCauses = 6; // keep MVP bounded
+  const ribLen = 160;  // rib length outward from bone
+  const ribEndInset = 12; // arrow ends slightly before bone point
+  const fontSize = 12;
+
+  // Fixed slots along bone (stable and prevents clumping near the spine)
+  // Values are t in [0..1] along the diagonal bone from spine->endpoint
+  const slots = [0.22, 0.32, 0.42, 0.52, 0.62, 0.72];
 
   const problem = (props.problem || "Define the problem").trim();
   const cats = props.categories ?? [];
 
-  // Layout
-  const spineStartX = 80;
-  const spineEndX = 900;
-
-  const boxX = 930;
-  const boxW = 220;
-  const boxH = 110;
-
-  const colWidth = 240; // distance between category anchors
-  const boneDx = 150; // endpoint X offset from spine anchor
-  const boneDy = 160; // endpoint Y offset from spine
-
-  // Cause rib layout
-  const maxCauses = 6;
-  const ribLen = 140;
-  const ribGap = 22;
-
+  // ---- Geometry helpers ----
   function clampText(s: string, n: number) {
     const t = (s || "").trim();
     return t.length > n ? t.slice(0, n - 1) + "…" : t;
@@ -389,6 +402,40 @@ function IshikawaDiagram(props: {
     return a + (b - a) * t;
   }
 
+  function normalize(x: number, y: number) {
+    const len = Math.sqrt(x * x + y * y) || 1;
+    return { x: x / len, y: y / len };
+  }
+
+  function wrapTwoLines(text: string, maxCharsPerLine: number) {
+    const words = (text || "").trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return [""];
+
+    const lines: string[] = [];
+    let current = "";
+
+    for (const w of words) {
+      const next = current ? `${current} ${w}` : w;
+      if (next.length <= maxCharsPerLine) {
+        current = next;
+      } else {
+        if (current) lines.push(current);
+        current = w;
+        if (lines.length === 2) break; // already have 2 lines
+      }
+    }
+    if (lines.length < 2 && current) lines.push(current);
+
+    // If still too long, clamp last line
+    if (lines.length === 2) lines[1] = clampText(lines[1], maxCharsPerLine);
+    if (lines.length === 1) lines[0] = clampText(lines[0], maxCharsPerLine);
+
+    return lines;
+  }
+
+  // Determine number of columns on the left side (categories alternate top/bottom per column)
+  const cols = Math.ceil(cats.length / 2);
+
   return (
     <svg width="100%" viewBox={`0 0 ${width} ${height}`}>
       {/* Main spine */}
@@ -396,15 +443,15 @@ function IshikawaDiagram(props: {
 
       {/* Problem box */}
       <rect x={boxX} y={spineY - boxH / 2} width={boxW} height={boxH} fill="#fff" stroke="black" />
-      <text x={boxX + boxW / 2} y={spineY - 18} textAnchor="middle" fontSize="14" fontWeight="600">
+      <text x={boxX + boxW / 2} y={spineY - 18} textAnchor="middle" fontSize="15" fontWeight="600">
         Problem
       </text>
-      <text x={boxX + boxW / 2} y={spineY + 10} textAnchor="middle" fontSize="12">
-        {clampText(problem || "Define the problem", 34)}
+      <text x={boxX + boxW / 2} y={spineY + 12} textAnchor="middle" fontSize="13">
+        {clampText(problem || "Define the problem", 40)}
       </text>
 
-      {/* Small label near spine */}
-      <text x={spineStartX} y={spineY - 10} fontSize="10" fill="#444">
+      {/* Helper label */}
+      <text x={spineStartX - 85} y={spineY - 10} fontSize="10" fill="#444">
         Causes →
       </text>
 
@@ -412,23 +459,36 @@ function IshikawaDiagram(props: {
         const isTop = index % 2 === 0;
         const col = Math.floor(index / 2);
 
-        // Anchor point on spine
-        const ax = 190 + col * colWidth;
+        // Anchor point on spine (spread evenly)
+        const ax = spineStartX + 120 + col * colWidth;
         const ay = spineY;
 
-        // Endpoint for the category bone
+        // Endpoint for category bone
         const bx = ax + boneDx;
         const by = isTop ? spineY - boneDy : spineY + boneDy;
 
-        const causes = (cat.causes ?? [])
+        // Bone direction vector
+        const vx = bx - ax;
+        const vy = by - ay;
+        const v = normalize(vx, vy);
+
+        // Perpendicular normal to bone (two possibilities). We want it pointing "left-ish"
+        // so ribs extend to the left side of the canvas.
+        const n1 = normalize(-v.y, v.x);
+        const n2 = normalize(v.y, -v.x);
+        const n = n1.x < 0 ? n1 : n2; // pick the one with negative X
+
+        // Causes: cleaned + capped
+        const causeList = (cat.causes ?? [])
           .map((c) => (c || "").trim())
           .filter(Boolean)
           .slice(0, maxCauses);
 
+        // Category label near endpoint
         const labelX = bx + 10;
         const labelY = by;
 
-        // Marker id must be unique per category group
+        // Marker id must be unique
         const markerId = `arrow-${index}`;
 
         return (
@@ -443,43 +503,56 @@ function IshikawaDiagram(props: {
             <line x1={ax} y1={ay} x2={bx} y2={by} stroke="black" strokeWidth="2" />
 
             {/* Category label */}
-            <text x={labelX} y={labelY} fontSize="13" fontWeight="600" dominantBaseline="middle">
+            <text x={labelX} y={labelY} fontSize="14" fontWeight="600" dominantBaseline="middle">
               {cat.name}
             </text>
 
-            {/* Cause ribs between spine and category endpoint */}
-            {causes.map((c, i) => {
-              // t along diagonal: keep ribs closer to the spine
-              const tBase = 0.18 + (i / Math.max(1, maxCauses - 1)) * 0.46; // ~0.18..~0.64
-              const t = Math.min(0.72, Math.max(0.12, tBase));
+            {/* Cause ribs: perpendicular to bone (prevents overlap near spine) */}
+            {causeList.map((cause, i) => {
+              const t = slots[i] ?? slots[slots.length - 1];
 
+              // Point on bone at slot t
               const px = lerp(ax, bx, t);
               const py = lerp(ay, by, t);
 
-              // Rib is horizontal to the left, arrow points toward the bone point
-              const x2 = px - 8;
-              const x1 = x2 - ribLen;
+              // Rib goes outward along normal n
+              const startX = px + n.x * ribLen;
+              const startY = py + n.y * ribLen;
 
-              // Stagger ribs slightly so text doesn't sit on the same y
-              const dy = (i - (causes.length - 1) / 2) * ribGap;
-              const ry = py + (isTop ? -dy : dy);
+              const endX = px + n.x * ribEndInset;
+              const endY = py + n.y * ribEndInset;
 
-              const tx = x1 - 6;
-              const ty = ry - 2;
+              // Text placed slightly before rib start (further outward), anchored to left
+              const textX = startX + n.x * 8;
+              const textY = startY + n.y * 8;
+
+              // Wrap to 2 lines
+              const lines = wrapTwoLines(cause, 22);
+
+              // Align text so it stays readable regardless of top/bottom
+              // If rib normal points left, "end" anchor will keep it inside the canvas.
+              const textAnchor = n.x < 0 ? "end" : "start";
 
               return (
                 <g key={i}>
                   <line
-                    x1={x1}
-                    y1={ry}
-                    x2={x2}
-                    y2={ry}
+                    x1={startX}
+                    y1={startY}
+                    x2={endX}
+                    y2={endY}
                     stroke="black"
                     strokeWidth="1.5"
                     markerEnd={`url(#${markerId})`}
                   />
-                  <text x={tx} y={ty} fontSize="11" textAnchor="end">
-                    {clampText(c, 42)}
+                  <text x={textX} y={textY} fontSize={fontSize} textAnchor={textAnchor}>
+                    <tspan x={textX} dy="0">
+                      {lines[0]}
+                    </tspan>
+                    {lines[1] ? (
+                      <tspan x={textX} dy="14">
+                        {lines[1]}
+                      </tspan>
+                    ) : null}
                   </text>
                 </g>
               );
