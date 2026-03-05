@@ -7,6 +7,7 @@ import Button from "@/app/components/Button";
 import { supabase } from "@/lib/supabaseClient";
 import { getActiveWorkspace } from "@/app/lib/appContext";
 import PublicHeader from "@/app/components/PublicHeader";
+import PublicFooter from "@/app/components/PublicFooter";
 
 type Plan = "free" | "core" | "pro";
 
@@ -469,19 +470,7 @@ export default function PricingClient() {
           </div>
         </section>
 
-        <footer className="bg-white/80 border-t border-gray-200">
-          <div className="max-w-6xl mx-auto px-6 py-8 text-xs text-gray-500 flex flex-wrap gap-3 justify-between">
-            <div>© {new Date().getFullYear()} Improvica</div>
-            <div className="flex gap-3">
-              <Link className="hover:text-gray-800" href="/projects">
-                App
-              </Link>
-              <Link className="hover:text-gray-800" href="/settings/billing">
-                Billing
-              </Link>
-            </div>
-          </div>
-        </footer>
+        <PublicFooter />
       </div>
     </main>
   );
