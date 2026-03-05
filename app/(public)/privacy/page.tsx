@@ -63,13 +63,13 @@ export default function PrivacyPolicyPage() {
         <div className="mt-8 bg-white border border-gray-200 rounded-2xl shadow-sm p-6 md:p-8">
           <p className="text-sm text-gray-700 leading-7">
             This Privacy Policy explains how Improvica (“we”, “us”, “our”) collects, uses, and protects personal data when you use
-            Improvica Project Planner (also referred to as “Lean Project Planner”).
+            Improvica Project Planner.
           </p>
 
           <Section title="1. Who is the data controller? (GDPR)">
             Improvica is the data controller for personal data processed in connection with providing this service.
             <div className="mt-2">
-              Contact: <span className="font-medium">support@YOURDOMAIN.com</span>
+              
             </div>
           </Section>
 
@@ -171,7 +171,7 @@ export default function PrivacyPolicyPage() {
               <li>Right to object (especially where we rely on legitimate interests)</li>
               <li>Right to withdraw consent (where consent is the legal basis)</li>
             </ul>
-            To exercise your rights, contact: <span className="font-medium">support@YOURDOMAIN.com</span>.
+            To exercise your rights, contact: <span className="font-medium">support (at) improvica.app</span>.
           </Section>
 
           <Section title="10. Complaints">

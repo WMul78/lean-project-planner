@@ -140,7 +140,7 @@ export default function TermsPage() {
 
           <Section title="12. Contact">
             For questions about these Terms, contact:{" "}
-            <span className="font-medium">support@YOURDOMAIN.com</span>
+            <span className="font-medium">support (at) improvica.app</span>
             <div className="mt-2 text-xs text-gray-500">
               Replace the email address with your real support email before sending to a payment provider.
             </div>
