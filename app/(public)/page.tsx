@@ -351,9 +351,9 @@ export default function HomePage() {
               </Button>
             </Link>
           </div>
-<PublicFooter />
         </div>
       </section>
+      <PublicFooter />
     </main>
   );
 }
