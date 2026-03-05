@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import Button from "@/app/components/Button";
 import PublicHeader from "@/app/components/PublicHeader";
+import PublicFooter from "@/app/components/PublicFooter";
 
 function FeatureItem({ title, text }: { title: string; text: string }) {
   return (
@@ -350,6 +351,7 @@ export default function HomePage() {
               </Button>
             </Link>
           </div>
+<PublicFooter />
         </div>
       </section>
     </main>
