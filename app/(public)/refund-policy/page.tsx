@@ -94,7 +94,7 @@ export default function RefundPolicyPage() {
           </Section>
 
           <Section title="5. How to request a refund review">
-            Email <span className="font-medium">support (at) improvica.app</span> and include:
+            Email <span className="font-medium">support@improvica.app</span> and include:
             <ul className="list-disc pl-5 mt-2">
               <li>your account email</li>
               <li>transaction date (and invoice/receipt ID if available)</li>

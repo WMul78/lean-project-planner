@@ -171,7 +171,7 @@ export default function PrivacyPolicyPage() {
               <li>Right to object (especially where we rely on legitimate interests)</li>
               <li>Right to withdraw consent (where consent is the legal basis)</li>
             </ul>
-            To exercise your rights, contact: <span className="font-medium">support (at) improvica.app</span>.
+            To exercise your rights, contact: <span className="font-medium">support@improvica.app</span>.
           </Section>
 
           <Section title="10. Complaints">
