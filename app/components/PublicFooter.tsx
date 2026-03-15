@@ -24,7 +24,7 @@ export default function PublicFooter({ className, variant = "public" }: Props) {
           <Link className="hover:text-gray-800 underline underline-offset-2" href="/terms">
             Terms of Service
           </Link>
-          <Link className="hover:text-gray-800 underline underline-offset-2" href="/refunds">
+          <Link className="hover:text-gray-800 underline underline-offset-2" href="/refund-policy">
             Refund Policy
           </Link>
           <Link className="hover:text-gray-800 underline underline-offset-2" href="/privacy">
