@@ -7,7 +7,7 @@ import PublicFooter from "@/app/components/PublicFooter";
 
 function FeatureItem({ title, text }: { title: string; text: string }) {
   return (
-    <div className="border rounded-2xl p-5 bg-white">
+    <div className="border rounded-2xl p-5 bg-white shadow-sm">
       <div className="font-semibold text-gray-900">{title}</div>
       <div className="mt-2 text-sm text-gray-600 leading-6">{text}</div>
     </div>
@@ -73,7 +73,7 @@ function PriceCard({
         <div>
           <div className="text-sm font-semibold text-gray-900">{name}</div>
           <div className="mt-2 text-3xl font-semibold text-gray-900">{price}</div>
-          <div className="mt-2 text-sm text-gray-600">{tagline}</div>
+          <div className="mt-2 text-sm text-gray-600 leading-6">{tagline}</div>
         </div>
 
         {highlight ? (
@@ -92,7 +92,7 @@ function PriceCard({
         ))}
       </ul>
 
-      {note ? <div className="mt-4 text-xs text-gray-500">{note}</div> : null}
+      {note ? <div className="mt-4 text-xs text-gray-500 leading-5">{note}</div> : null}
 
       <div className="mt-6">
         <Link href={ctaHref}>
@@ -115,9 +115,7 @@ function FAQItem({ q, a }: { q: string; a: string }) {
 export default function HomePage() {
   return (
     <main className="min-h-screen bg-white">
-      {/* Public top bar (visible when not logged in) */}
       <PublicHeader />
-
 
       {/* HERO */}
       <section className="bg-gradient-to-b from-blue-50 to-white">
@@ -130,16 +128,16 @@ export default function HomePage() {
               </div>
 
               <h1 className="mt-4 text-4xl md:text-5xl font-semibold tracking-tight text-gray-900">
-                Turn improvement ideas into executed projects.
+                Turn improvement ideas into structured, measurable projects.
               </h1>
 
               <p className="mt-4 text-lg text-gray-600 leading-7">
-                Capture bottom-up proposals, run structured projects, and track progress with tasks and hours.
-                Upgrade when you’re ready to unlock Lean tools like 5x Why and Ishikawa.
+                Capture ideas from your team, manage improvement projects with clarity, and track progress through
+                tasks, hours, and planning. Upgrade to unlock integrated Lean tools for deeper analysis and better
+                decision-making.
               </p>
 
               <div className="mt-6 flex flex-col sm:flex-row gap-3">
-                {/* Auth-first: create account before billing */}
                 <Link href="/login?mode=signup&next=/projects&plan=free">
                   <Button className="w-full sm:w-auto">Create a free workspace</Button>
                 </Link>
@@ -152,10 +150,10 @@ export default function HomePage() {
               </div>
 
               <div className="mt-4 text-sm text-gray-500">
-                Start free (no payment details) • Install it like an app (PWA) • Cancel anytime
+                Start free • No payment details required • Installable as an app • Cancel anytime
               </div>
 
-              <div className="mt-6 flex items-center gap-3">
+              <div className="mt-6 flex items-center gap-3 flex-wrap">
                 <a href="#pricing" className="text-sm text-blue-700 hover:underline">
                   View pricing →
                 </a>
@@ -173,7 +171,7 @@ export default function HomePage() {
               <div className="p-3">
                 <Image
                   src="/landing/hero.png"
-                  alt="Improvica preview"
+                  alt="Improvica project overview"
                   width={1400}
                   height={900}
                   className="w-full h-auto rounded-xl border"
@@ -187,23 +185,24 @@ export default function HomePage() {
 
       {/* DIFFERENTIATORS */}
       <section className="max-w-6xl mx-auto px-6 py-12">
-        <h2 className="text-2xl font-semibold text-gray-900">Why Improvica</h2>
-        <p className="mt-2 text-gray-600 max-w-3xl">
-          Most tools are built for task tracking. Improvica is built for continuous improvement: proposals → execution → measurable progress.
+        <h2 className="text-2xl font-semibold text-gray-900">Built for continuous improvement teams</h2>
+        <p className="mt-2 text-gray-600 max-w-3xl leading-7">
+          Most project tools are built for generic task management. Improvica is designed for teams that want to move
+          from ideas to execution with a clear improvement workflow and measurable progress.
         </p>
 
         <div className="mt-6 grid gap-4 md:grid-cols-3">
           <FeatureItem
             title="Bottom-up proposals"
-            text="Let the whole team propose improvements. Keep ideas flowing without forcing everyone into a paid account."
+            text="Let employees and stakeholders submit improvement ideas without creating friction. Keep valuable input flowing from the people closest to the work."
           />
           <FeatureItem
-            title="Execution + progress"
-            text="Projects, tasks, hours and progress views help project leads keep momentum and make progress visible."
+            title="Execution with visibility"
+            text="Manage projects, tasks, ownership, hours, and progress in one place so improvement work stays clear, active, and accountable."
           />
           <FeatureItem
-            title="Lean tools when you upgrade"
-            text="Unlock structured problem solving (5x Why, Ishikawa, Project Charter, VSM, …) for serious CI work."
+            title="Embedded Lean tools"
+            text="Use built-in Lean analysis tools inside your projects to structure root cause analysis, planning, stakeholder alignment, and learning."
           />
         </div>
       </section>
@@ -213,79 +212,113 @@ export default function HomePage() {
         <div className="max-w-6xl mx-auto px-6 py-12">
           <h2 className="text-2xl font-semibold text-gray-900">Product tour</h2>
           <p className="mt-2 text-gray-600 max-w-2xl">
-            A calm, professional workflow that works great on desktop and mobile.
+            A calm, professional workflow for project leads, improvement teams, and stakeholders.
           </p>
 
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             <ScreenshotCard
               title="Projects"
-              text="Create proposals, run active projects, and keep ownership clear."
+              text="Create proposals, activate projects, and keep ownership and priorities clear."
               src="/landing/projects.png"
             />
             <ScreenshotCard
               title="Kanban"
-              text="Visualize work by status. Keep stakeholders aligned."
+              text="Visualize work by status and keep the team aligned on what needs attention."
               src="/landing/kanban.png"
             />
             <ScreenshotCard
               title="Hours"
-              text="Track hours and progress with minimal friction."
+              text="Log hours with minimal friction and compare planned work with actual effort."
               src="/landing/hours.png"
             />
             <ScreenshotCard
               title="Gantt"
-              text="Plan timelines and dependencies for larger improvement initiatives."
+              text="Plan timelines and workload for larger initiatives with a clear visual overview."
               src="/landing/gantt.png"
             />
           </div>
         </div>
       </section>
 
-      {/* WORKSPACE PRICING EXPLANATION */}
+      {/* WORKSPACE MODEL */}
       <section className="max-w-6xl mx-auto px-6 py-12">
-        <h2 className="text-2xl font-semibold text-gray-900">Designed for teams (without per-user pricing)</h2>
+        <h2 className="text-2xl font-semibold text-gray-900">Workspace-based pricing that fits real teams</h2>
         <p className="mt-2 text-gray-600 max-w-3xl leading-7">
-          In many organizations only a few project leads actively manage improvements, while the broader team contributes ideas and feedback.
-          Improvica supports that reality: plans apply to a workspace, so stakeholders can join and propose improvements without paid seats.
+          In many organizations, only a few people actively lead improvement projects while the broader team contributes
+          ideas, context, and feedback. Improvica supports that structure with workspace-based plans instead of
+          per-user pricing.
         </p>
+      </section>
+
+      {/* LEAN TOOLS */}
+      <section className="bg-blue-50 border-y">
+        <div className="max-w-6xl mx-auto px-6 py-12">
+          <h2 className="text-2xl font-semibold text-gray-900">Integrated Lean tools in Pro</h2>
+          <p className="mt-2 text-gray-600 max-w-3xl leading-7">
+            Pro includes embedded Lean tools that help teams structure analysis, clarify scope, and document learning
+            directly inside the project workflow.
+          </p>
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              "Project Charter (DMAIC)",
+              "SIPOC",
+              "Stakeholder analysis",
+              "Measurement plan",
+              "5 Whys",
+              "Ishikawa",
+              "Impact analysis",
+              "Lessons learned",
+            ].map((tool) => (
+              <div
+                key={tool}
+                className="rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm font-medium text-gray-800 shadow-sm"
+              >
+                {tool}
+              </div>
+            ))}
+          </div>
+        </div>
       </section>
 
       {/* PRICING */}
       <section id="pricing" className="max-w-6xl mx-auto px-6 py-12">
         <h2 className="text-2xl font-semibold text-gray-900">Pricing</h2>
-        <p className="mt-2 text-gray-600 max-w-3xl">
-          Plans are per workspace. Create an account first, then you can upgrade anytime.
+        <p className="mt-2 text-gray-600 max-w-3xl leading-7">
+          Plans apply to a workspace. Start free, and upgrade when your team is ready for more projects and integrated
+          Lean tools.
         </p>
 
         <div className="mt-6 grid gap-4 md:grid-cols-3">
           <PriceCard
             name="Free"
             price="€0"
-            tagline="Try the workflow with real features."
+            tagline="A practical starting point for small teams and first projects."
             bullets={[
-              "Unlimited proposals",
+              "Unlimited improvement proposals",
               "Up to 2 active projects per workspace",
-              "Projects, tasks, hours, progress",
-              "Invite stakeholders (read-only)",
+              "Projects, tasks, hours, and progress tracking",
+              "Invite stakeholders with read-only access",
               "No payment details required",
             ]}
-            note="Great for evaluating the workflow and collecting proposals."
-            ctaLabel="Start Free (create account)"
+            note="Ideal for testing the workflow and collecting ideas from the team."
+            ctaLabel="Start Free"
             ctaHref="/login?mode=signup&next=/projects&plan=free"
           />
 
           <PriceCard
             name="Core"
             price="€9 / month"
-            tagline="Unlimited active projects for a workspace."
+            tagline="For teams that want to manage improvement work professionally."
             bullets={[
               "Unlimited active projects",
-              "Projects + Kanban + Hours + Gantt",
-              "For project leads managing real work",
+              "Projects, Kanban, Hours, and Gantt",
+              "Workspace-based access for your team",
+              "Instant activation after checkout",
               "Cancel anytime",
             ]}
-            note="Best for small teams and startups that want planning without Lean tools."
-            ctaLabel="Start Core (create account)"
+            note="Best for teams that need structure, visibility, and planning without the Lean analysis toolkit."
+            ctaLabel="Start Core"
             ctaHref="/login?mode=signup&next=%2Fsettings%2Fbilling%3Fplan%3Dcore"
             highlight
           />
@@ -293,46 +326,52 @@ export default function HomePage() {
           <PriceCard
             name="Pro"
             price="€24 / month"
-            tagline="Lean tools for continuous improvement teams."
+            tagline="For continuous improvement teams that want embedded Lean methods."
             bullets={[
               "Everything in Core",
-              "Lean tools (5x Why, Ishikawa, Project Charter, VSM, …)",
-              "Templates and structured analysis",
-              "Export / history (as you release it)",
+              "Project Charter (DMAIC)",
+              "SIPOC, Stakeholder analysis, Measurement plan",
+              "5 Whys, Ishikawa, and Impact analysis",
+              "Lessons learned built into the project workflow",
+              "Instant activation after checkout",
               "Cancel anytime",
             ]}
-            note="Best for CI / Lean teams and Operational Excellence."
-            ctaLabel="Start Pro (create account)"
+            note="Best for Lean, CI, and Operational Excellence teams that want project execution and analysis in one place."
+            ctaLabel="Start Pro"
             ctaHref="/login?mode=signup&next=%2Fsettings%2Fbilling%3Fplan%3Dpro"
           />
-        </div>
-
-        <div className="mt-4 text-xs text-gray-500">
-          
         </div>
       </section>
 
       {/* FAQ */}
       <section className="max-w-6xl mx-auto px-6 pb-16">
-        <div className="border rounded-2xl p-6 bg-white">
+        <div className="border rounded-2xl p-6 bg-white shadow-sm">
           <h3 className="text-lg font-semibold text-gray-900">FAQ</h3>
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <FAQItem
               q="Do we pay per user?"
-              a="No. Plans apply to a workspace. Invite your whole team and use roles like stakeholder/viewer so they can participate without paid seats."
+              a="No. Plans apply to a workspace. This makes it easy to involve stakeholders and contributors without managing separate paid seats."
             />
             <FAQItem
-              q="Do I need payment details to start?"
-              a="Not for Free. For an upgrade you add payment details during checkout. This keeps the free onboarding frictionless."
+              q="Do I need payment details to get started?"
+              a="No. You can create a free workspace without entering payment details. You only add billing information when you choose to upgrade."
+            />
+            <FAQItem
+              q="How do paid plans work?"
+              a="Paid plans are activated per workspace. After checkout, access to the selected paid features is enabled immediately."
             />
             <FAQItem
               q="Can I cancel anytime?"
-              a="Yes. You can cancel your workspace subscription anytime and keep access until the end of the current billing period."
+              a="Yes. You can cancel your workspace subscription at any time. Your access continues until the end of the current billing period."
             />
             <FAQItem
-              q="What does ‘install it like an app’ mean?"
-              a="Improvica is a PWA: you can install it on mobile and open it from your home screen like a native app."
+              q="What is included in Pro?"
+              a="Pro includes embedded Lean tools such as Project Charter (DMAIC), SIPOC, Stakeholder analysis, Measurement plan, 5 Whys, Ishikawa, Impact analysis, and Lessons learned."
+            />
+            <FAQItem
+              q="Can I install it like an app?"
+              a="Yes. Improvica is a Progressive Web App, so you can install it on mobile and open it from your home screen like an app."
             />
           </div>
 
@@ -351,8 +390,17 @@ export default function HomePage() {
               </Button>
             </Link>
           </div>
+
+          <div className="mt-6 border-t pt-4 text-sm text-gray-500">
+            Questions before you start? Contact{" "}
+            <a href="mailto:support@improvica.app" className="text-blue-700 hover:underline">
+              support@improvica.app
+            </a>
+            .
+          </div>
         </div>
       </section>
+
       <PublicFooter />
     </main>
   );
