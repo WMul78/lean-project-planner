@@ -52,10 +52,11 @@ type TodoAuto = {
   id: string;
   project_id: string;
   title: string;
+  description: string | null; // 👈 NIEUW
   inserted_at: string;
   assigned_to: string | null;
   estimated_minutes: number | null;
-  executed_minutes: number;
+  executed_minutes: number | null;
   auto_status: "proposed" | "active" | "done";
   phase: string | null;
   sort_order: number | null;
@@ -259,7 +260,7 @@ useEffect(() => {
   async function loadTodos() {
     const { data, error } = await supabase
       .from("todo_status_auto")
-      .select("id,project_id,title,inserted_at,assigned_to,estimated_minutes,executed_minutes,auto_status,phase,sort_order")
+      .select("id,project_id,title,description,inserted_at,assigned_to,estimated_minutes,executed_minutes,auto_status,phase,sort_order")
       .eq("project_id", projectId);
 
     if (error) {
@@ -536,6 +537,24 @@ useEffect(() => {
     await refreshAll();
   }
 
+async function updateTodoDescription(todoId: string, value: string) {
+  if (!canEditTodos) return;
+
+  const clean = value.trim();
+
+  const { error } = await supabase
+    .from("todos")
+    .update({ description: clean || null })
+    .eq("id", todoId);
+
+  if (error) {
+    alert(error.message);
+    return;
+  }
+
+  await refreshAll();
+}
+
   async function updateTodoPhase(todoId: string, nextPhase: string | null) {
     if (!canEditTodos) return;
 
@@ -760,7 +779,30 @@ useEffect(() => {
                       </Button>
                     ) : null}
                   </div>
+{/* Task details */}
+<div className="mt-3">
+  {t.description?.trim() ? (
+    <div className="text-sm text-gray-500 line-clamp-2">
+      {t.description}
+    </div>
+  ) : null}
 
+  <details className="mt-2">
+    <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-700">
+      {t.description?.trim() ? "Edit details" : "Add details"}
+    </summary>
+
+    <div className="mt-2">
+      <textarea
+        className="w-full border rounded-md px-3 py-2 text-sm min-h-[100px]"
+        defaultValue={t.description ?? ""}
+        placeholder="Add more details for this task..."
+        disabled={!canEditTodos}
+        onBlur={(e) => updateTodoDescription(t.id, e.target.value)}
+      />
+    </div>
+  </details>
+</div>
                   <div className="mt-3 grid gap-3 md:grid-cols-3">
                     <div className="grid gap-1">
                       <label className="text-xs text-gray-500">Estimate (hours)</label>
